@@ -189,6 +189,8 @@ export default function App({ appId, token }) {
           onPin={togglePin}
           onColor={setColor}
           onDelete={setConfirmId}
+          resolveAttachment={store.attachmentURL}
+          putAttachment={store.putAttachment}
           status={status}
         />
       )}
