@@ -190,10 +190,10 @@ test('extFromType maps the common mime types', () => {
   assert.equal(extFromType('text/plain'), 'txt')
 })
 
-test('extFromType falls back to bin for unknown types', () => {
-  assert.equal(extFromType('application/x-weird'), 'bin')
-  assert.equal(extFromType(''), 'bin')
-  assert.equal(extFromType(undefined), 'bin')
+test('extFromType returns null for unknown types (caller falls back to filename, then bin)', () => {
+  assert.equal(extFromType('application/x-weird'), null)
+  assert.equal(extFromType(''), null)
+  assert.equal(extFromType(undefined), null)
 })
 
 test('extFromType is case-insensitive and ignores parameters', () => {
