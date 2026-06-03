@@ -2,6 +2,12 @@ import {test} from 'node:test'
 import assert from 'node:assert'
 import {sha256Hex} from '../src/lib/hash.js'
 import {contentHash, newNote, bumpRev} from '../src/lib/note.js'
+import {
+  attachmentPath,
+  extFromType,
+  imageRefMarkdown,
+  fileChipMarkdown,
+} from '../src/lib/attachments.js'
 
 // ---------------------------------------------------------------------------
 // hash.js — sha256Hex
@@ -157,4 +163,58 @@ test('bumpRev chains correctly across multiple bumps', () => {
   m = bumpRev(m) // rev 3, parent 2
   assert.equal(m.mobius_rev, 3)
   assert.equal(m.parent_rev, 2)
+})
+
+// ---------------------------------------------------------------------------
+// attachments.js — content-addressed paths + ref markdown (pure, no IO)
+// ---------------------------------------------------------------------------
+
+test('attachmentPath builds attachments/<sha>.<ext>', () => {
+  assert.equal(attachmentPath('ab12cd', 'png'), 'attachments/ab12cd.png')
+})
+
+test('same bytes (same sha) yield the same path → dedupe by construction', () => {
+  // Content addressing means identical content has one sha and one path;
+  // storing it twice can never create a duplicate file.
+  const a = attachmentPath('deadbeef', 'jpg')
+  const b = attachmentPath('deadbeef', 'jpg')
+  assert.equal(a, b)
+})
+
+test('extFromType maps the common mime types', () => {
+  assert.equal(extFromType('image/png'), 'png')
+  assert.equal(extFromType('image/jpeg'), 'jpeg')
+  assert.equal(extFromType('image/gif'), 'gif')
+  assert.equal(extFromType('image/webp'), 'webp')
+  assert.equal(extFromType('application/pdf'), 'pdf')
+  assert.equal(extFromType('text/plain'), 'txt')
+})
+
+test('extFromType falls back to bin for unknown types', () => {
+  assert.equal(extFromType('application/x-weird'), 'bin')
+  assert.equal(extFromType(''), 'bin')
+  assert.equal(extFromType(undefined), 'bin')
+})
+
+test('extFromType is case-insensitive and ignores parameters', () => {
+  assert.equal(extFromType('IMAGE/PNG'), 'png')
+  assert.equal(extFromType('text/plain; charset=utf-8'), 'txt')
+})
+
+test('imageRefMarkdown emits ![alt](attachments/<sha>.<ext>)', () => {
+  assert.equal(
+    imageRefMarkdown('receipt', 'ab12', 'jpg'),
+    '![receipt](attachments/ab12.jpg)',
+  )
+})
+
+test('imageRefMarkdown tolerates an empty alt', () => {
+  assert.equal(imageRefMarkdown('', 'ab12', 'png'), '![](attachments/ab12.png)')
+})
+
+test('fileChipMarkdown differs from an image ref (a link, not an embed)', () => {
+  const chip = fileChipMarkdown('report.pdf', 'cafe', 'pdf')
+  assert.equal(chip, '[report.pdf](attachments/cafe.pdf)')
+  // It must NOT be the image-embed form.
+  assert.ok(!chip.startsWith('!'))
 })
