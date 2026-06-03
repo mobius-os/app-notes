@@ -79,6 +79,15 @@ export async function readIndex() {
   try { return await S().get('index.json') } catch { return null }
 }
 
+// Persist a conflict descriptor (a JSON object) at its conflicts/<id>/<hashes>.json
+// path so tick.sh's resolver and the in-app "Resolve now" agent can find it.
+// Mirrors writeIndex: the runtime's set() stores the bare JSON object at a .json
+// path. (Was a missing `store.set` — undefined, so the conflict branch threw and
+// no descriptor was ever written.)
+export async function writeConflict(path, descriptor) {
+  return S().set(path, descriptor)
+}
+
 // Store a File/Blob as a content-addressed attachment; returns
 // {sha, ext, path, name}. Same bytes -> same sha -> same path (dedupe). The
 // 25 MiB cap is enforced by setBlob (throws); callers surface an in-app message.

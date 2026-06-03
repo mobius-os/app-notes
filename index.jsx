@@ -272,6 +272,9 @@ async function deleteNote(id) {
 async function writeIndex(notes) {
   return S().set("index.json", buildIndex(notes));
 }
+async function writeConflict(path, descriptor) {
+  return S().set(path, descriptor);
+}
 async function putAttachment(file) {
   const buf = await file.arrayBuffer();
   const sha = await sha256Bytes(buf);
@@ -826,7 +829,7 @@ async function reconcileAll({ onApplied, onConflict } = {}) {
           }
         } else if (decision.action === "conflict") {
           const d = decision.descriptor;
-          await (void 0)(d.path, d);
+          await writeConflict(d.path, d);
           if (onConflict) onConflict(id, d);
         }
         results.push([id, decision.action]);

@@ -50,7 +50,7 @@ export async function reconcileAll({ onApplied, onConflict } = {}) {
           }
         } else if (decision.action === 'conflict') {
           const d = decision.descriptor
-          await store.set(d.path, d)
+          await store.writeConflict(d.path, d)
           if (onConflict) onConflict(id, d)
         }
         results.push([id, decision.action])
