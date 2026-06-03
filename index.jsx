@@ -224,9 +224,9 @@ var TYPE_TO_EXT = {
   "text/plain": "txt"
 };
 function extFromType(type) {
-  if (!type) return "bin";
+  if (!type) return null;
   const base = String(type).split(";")[0].trim().toLowerCase();
-  return TYPE_TO_EXT[base] ?? "bin";
+  return TYPE_TO_EXT[base] ?? null;
 }
 
 // src/lib/store.js

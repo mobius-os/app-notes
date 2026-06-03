@@ -14,8 +14,10 @@ export function attachmentPath(sha, ext) {
 }
 
 // Map a MIME type to a file extension. Covers the image/doc/text types the
-// editor's attach UI produces; anything unrecognized gets `bin` so a path is
-// always well-formed. Case-insensitive and parameter-tolerant
+// editor's attach UI produces. Returns null for an unrecognized type so the
+// caller can fall back to the FILENAME's extension before defaulting to `bin`
+// (returning 'bin' here short-circuited that fallback, so a .zip/.csv upload
+// landed as .bin). Case-insensitive and parameter-tolerant
 // (`text/plain; charset=utf-8` → `txt`).
 const TYPE_TO_EXT = {
   'image/png': 'png',
@@ -27,9 +29,9 @@ const TYPE_TO_EXT = {
 }
 
 export function extFromType(type) {
-  if (!type) return 'bin'
+  if (!type) return null
   const base = String(type).split(';')[0].trim().toLowerCase()
-  return TYPE_TO_EXT[base] ?? 'bin'
+  return TYPE_TO_EXT[base] ?? null
 }
 
 // Inline image embed: `![alt](attachments/<sha>.<ext>)`. The live-preview editor

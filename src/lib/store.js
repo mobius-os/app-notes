@@ -61,14 +61,6 @@ export async function deleteNote(id) {
   return S().remove(notePath(id))
 }
 
-// Subscribe to canonical-note changes (the resolver/another device landing a
-// merge fires this so the UI updates live). cb receives {meta, body} or null.
-export function subscribeNote(id, cb) {
-  return S().subscribeText(notePath(id), (text) => {
-    cb(text == null ? null : parseFrontmatter(text))
-  })
-}
-
 // Rewrite the derived index from the current in-memory notes. A cache for fast
 // cold-load + the dreaming agent; discard-and-rebuild if ever stale.
 export async function writeIndex(notes) {
