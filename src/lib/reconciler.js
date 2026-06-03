@@ -18,12 +18,12 @@
 // durable and a later reconcile re-runs.
 import { reconcile } from './sync.js'
 import { contentHash } from './note.js'
-import { unsyncedLocals, promote } from './local.js'
+import { unsyncedLocals, promote, clearLocal } from './local.js'
 import * as store from './store.js'
 
 let _running = false
 
-export async function reconcileAll({ onApplied, onConflict } = {}) {
+export async function reconcileAll({ onApplied, onConflict, onDeleted } = {}) {
   if (_running || !store.isOnline()) return { ran: false }
   _running = true
   const results = []
@@ -38,7 +38,14 @@ export async function reconcileAll({ onApplied, onConflict } = {}) {
         const decision = reconcile({ base: rec.base, mine: rec.working, server })
 
         if (decision.action === 'noop') {
-          await promote(id, rec.working)
+          if (rec.working === null) await clearLocal(id)
+          else await promote(id, rec.working)
+        } else if (decision.action === 'delete') {
+          const res = await store.deleteNote(id)
+          if (res && res.synced) {
+            await clearLocal(id)
+            if (onDeleted) onDeleted(id)
+          }
         } else if (decision.action === 'fast-forward' || decision.action === 'merged') {
           const note = decision.note
           note.meta.content_hash = await contentHash(note.meta, note.body)

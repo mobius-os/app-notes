@@ -15,17 +15,27 @@ async function libs() {
   return _libs
 }
 
-// In a card preview an attachment image's src is a STORAGE PATH, not a URL, so
-// it can't render — show a compact chip instead of a broken image. Block math
-// is left as text (cards stay lightweight); the editor renders real KaTeX.
-function neutralize(md) {
+export const PREVIEW_SANITIZE_OPTIONS = {
+  USE_PROFILES: { html: true },
+  FORBID_TAGS: ['img', 'picture', 'source', 'video', 'audio', 'iframe'],
+  FORBID_ATTR: ['href', 'src', 'srcset', 'xlink:href', 'formaction'],
+}
+
+// Card previews are read-only summaries, not a browser surface. Attachment
+// paths cannot render without a blob resolver, and external URLs would create
+// tracking/network surprises in a masonry grid. Keep the human-visible label
+// and remove the URL before marked sees it; DOMPurify below also strips any
+// URL-bearing attrs that arrive through raw HTML or autolinks.
+export function neutralizePreviewMarkdown(md) {
   return (md || '')
-    .replace(/!\[[^\]]*\]\(attachments\/[^)]+\)/g, ' 🖼 ')
-    .replace(/\[([^\]]+)\]\(attachments\/[^)]+\)/g, ' 📎 $1 ')
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, url) => (
+      String(url).startsWith('attachments/') ? ` 🖼 ${alt || ''} ` : ` ${alt || 'image'} `
+    ))
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
 }
 
 export async function renderPreviewHTML(md) {
   const { marked, purify } = await libs()
-  const html = marked(neutralize(md), { breaks: true, gfm: true })
-  return purify.sanitize(html, { USE_PROFILES: { html: true } })
+  const html = marked(neutralizePreviewMarkdown(md), { breaks: true, gfm: true })
+  return purify.sanitize(html, PREVIEW_SANITIZE_OPTIONS)
 }

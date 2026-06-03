@@ -31,6 +31,17 @@ export async function recordWorking(id, working) {
   await idbSet(KEY(id), { base, working })
 }
 
+// Record a local delete: base stays as the merge ancestor, working becomes a
+// tombstone. If this device has not seen a base yet, callers may pass a
+// baseHint derived from the note currently on screen.
+export async function recordDeletion(id, baseHint = null) {
+  const prev = (await idbGet(KEY(id))) || {}
+  const base = prev.base || baseHint
+  if (!base) return false
+  await idbSet(KEY(id), { base, working: null })
+  return true
+}
+
 // Mark a note fully synced at `synced` (after a confirmed canonical write or a
 // completed reconcile): base === working === synced.
 export async function promote(id, synced) {
@@ -45,8 +56,12 @@ export async function unsyncedLocals() {
   const entries = await idbEntries()
   const out = []
   for (const [k, v] of entries) {
-    if (!k.startsWith('note:') || !v || !v.base || !v.working) continue
-    if (v.working.hash !== v.base.hash) out.push([k.slice(5), v])
+    if (!k.startsWith('note:') || !v || !v.base || !('working' in v)) continue
+    if (v.working === null) {
+      out.push([k.slice(5), v])
+    } else if (v.working.hash !== v.base.hash) {
+      out.push([k.slice(5), v])
+    }
   }
   return out
 }

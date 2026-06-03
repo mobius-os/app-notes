@@ -57,7 +57,13 @@ export class FileChipWidget extends WidgetType {
       e.preventDefault()
       if (this.resolve && this.src.startsWith('attachments/')) {
         const u = await this.resolve(this.src).catch(() => null)
-        if (u) { const link = document.createElement('a'); link.href = u; link.download = this.name; link.click() }
+        if (u) {
+          const link = document.createElement('a')
+          link.href = u
+          link.download = this.name
+          link.click()
+          setTimeout(() => URL.revokeObjectURL(u), 0)
+        }
       }
     })
     return a

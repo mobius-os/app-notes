@@ -12,7 +12,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { T } from './ui/theme.js'
 import { newNote, contentHash } from './lib/note.js'
 import * as store from './lib/store.js'
-import { ensureBase, recordWorking, promote, unsyncedLocals } from './lib/local.js'
+import { ensureBase, recordWorking, recordDeletion, promote, unsyncedLocals } from './lib/local.js'
 import { reconcileAll } from './lib/reconciler.js'
 import Grid from './ui/Grid.jsx'
 import EditorPanel from './ui/EditorPanel.jsx'
@@ -86,11 +86,15 @@ export default function App({ appId, token }) {
     setConflicts((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n })
     setNotes((prev) => prev.map((n) => (n.meta.id === id ? { meta: note.meta, body: note.body } : n)))
   }, [])
+  const onDeleted = useCallback((id) => {
+    setConflicts((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n })
+    setNotes((prev) => prev.filter((n) => n.meta.id !== id))
+  }, [])
   const onConflict = useCallback((id) => {
     setConflicts((prev) => { const n = new Set(prev); n.add(id); return n })
   }, [])
 
-  const runReconcile = useCallback(() => { reconcileAll({ onApplied, onConflict }).catch(() => {}) }, [onApplied, onConflict])
+  const runReconcile = useCallback(() => { reconcileAll({ onApplied, onDeleted, onConflict }).catch(() => {}) }, [onApplied, onDeleted, onConflict])
   const scheduleReconcile = useCallback(() => {
     if (reconTimer.current) clearTimeout(reconTimer.current)
     reconTimer.current = setTimeout(runReconcile, 400)
@@ -171,21 +175,36 @@ export default function App({ appId, token }) {
     const n = notes.find((x) => x.meta.id === id); if (n) persist({ ...n.meta, color }, n.body)
   }, [notes, persist])
 
+  const queueDelete = useCallback(async (note) => {
+    const hash = await contentHash(note.meta, note.body)
+    await recordDeletion(note.meta.id, { meta: note.meta, body: note.body, hash }).catch(() => {})
+    scheduleReconcile()
+  }, [scheduleReconcile])
+
   const doDelete = useCallback((id) => {
-    store.deleteNote(id).catch(() => {})
-    setNotes((prev) => { const next = prev.filter((n) => n.meta.id !== id); store.writeIndex(next).catch(() => {}); return next })
+    const n = notes.find((x) => x.meta.id === id)
+    if (n) queueDelete(n).catch(() => {})
+    setNotes((prev) => {
+      const next = prev.filter((note) => note.meta.id !== id)
+      store.writeIndex(next).catch(() => {})
+      return next
+    })
     setConfirmId(null)
     setView((v) => (v.mode === 'editor' && v.id === id ? { mode: 'grid' } : v))
-  }, [])
+  }, [notes, queueDelete])
 
   const back = useCallback(() => {
     const n = notes.find((x) => x.meta.id === view.id)
     if (n && !(n.meta.title || '').trim() && !(n.body || '').trim()) {
-      store.deleteNote(n.meta.id).catch(() => {})
-      setNotes((prev) => prev.filter((x) => x.meta.id !== n.meta.id))
+      queueDelete(n).catch(() => {})
+      setNotes((prev) => {
+        const next = prev.filter((x) => x.meta.id !== n.meta.id)
+        store.writeIndex(next).catch(() => {})
+        return next
+      })
     }
     setView({ mode: 'grid' })
-  }, [notes, view.id])
+  }, [notes, view.id, queueDelete])
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()

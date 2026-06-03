@@ -149,9 +149,14 @@ test('reconcile: both deleted (mine null and server null) -> noop', () => {
   assert.deepEqual(r, { action: 'noop' })
 })
 
-test('reconcile: mine deleted but server still present and unchanged -> deletion is a real divergence (conflict)', () => {
-  // mine===null, server!==null: not a noop (hashes differ), not ff/merge of a
-  // body that no longer exists -> surfaces as a conflict for the agent.
+test('reconcile: mine deleted and server unchanged -> delete', () => {
+  const base = side({ id: NOTE_ID, mobius_rev: 4 }, 'a\nb', 'H_BASE')
+  const server = side({ id: NOTE_ID, mobius_rev: 4 }, 'a\nb', 'H_BASE')
+  const r = reconcile({ base, mine: null, server })
+  assert.deepEqual(r, { action: 'delete' })
+})
+
+test('reconcile: mine deleted but server moved -> conflict', () => {
   const base = side({ id: NOTE_ID, mobius_rev: 4 }, 'a\nb', 'H_BASE')
   const server = side({ id: NOTE_ID, mobius_rev: 5 }, 'a\nB', 'H_SERVER')
   const r = reconcile({ base, mine: null, server })

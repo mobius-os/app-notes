@@ -338,6 +338,11 @@ function idbSet(key, value) {
     store.put(value, key);
   });
 }
+function idbDel(key) {
+  return run("readwrite", (store) => {
+    store.delete(key);
+  });
+}
 function idbEntries() {
   return run("readonly", (store, box) => {
     box.value = [];
@@ -361,15 +366,29 @@ async function recordWorking(id, working) {
   const base = prev.base || working;
   await idbSet(KEY(id), { base, working });
 }
+async function recordDeletion(id, baseHint = null) {
+  const prev = await idbGet(KEY(id)) || {};
+  const base = prev.base || baseHint;
+  if (!base) return false;
+  await idbSet(KEY(id), { base, working: null });
+  return true;
+}
 async function promote(id, synced) {
   await idbSet(KEY(id), { base: synced, working: synced });
+}
+async function clearLocal(id) {
+  await idbDel(KEY(id));
 }
 async function unsyncedLocals() {
   const entries = await idbEntries();
   const out = [];
   for (const [k, v] of entries) {
-    if (!k.startsWith("note:") || !v || !v.base || !v.working) continue;
-    if (v.working.hash !== v.base.hash) out.push([k.slice(5), v]);
+    if (!k.startsWith("note:") || !v || !v.base || !("working" in v)) continue;
+    if (v.working === null) {
+      out.push([k.slice(5), v]);
+    } else if (v.working.hash !== v.base.hash) {
+      out.push([k.slice(5), v]);
+    }
   }
   return out;
 }
@@ -776,7 +795,13 @@ function buildConflict({ base, mine, server }) {
 function reconcile({ base, mine, server }) {
   if (mine === null && server === null) return { action: "noop" };
   if (hashOf(mine) === hashOf(server)) return { action: "noop" };
-  if (mine === null || server === null) {
+  if (mine === null) {
+    if (base && server && hashOf(server) === hashOf(base)) {
+      return { action: "delete" };
+    }
+    return buildConflict({ base, mine, server });
+  }
+  if (server === null) {
     return buildConflict({ base, mine, server });
   }
   if (base && hashOf(server) === hashOf(base)) {
@@ -805,7 +830,7 @@ function reconcile({ base, mine, server }) {
 
 // src/lib/reconciler.js
 var _running = false;
-async function reconcileAll({ onApplied, onConflict } = {}) {
+async function reconcileAll({ onApplied, onConflict, onDeleted } = {}) {
   if (_running || !isOnline()) return { ran: false };
   _running = true;
   const results = [];
@@ -817,7 +842,14 @@ async function reconcileAll({ onApplied, onConflict } = {}) {
         const server = loaded ? { meta: loaded.meta, body: loaded.body, hash: await contentHash(loaded.meta, loaded.body) } : null;
         const decision = reconcile({ base: rec.base, mine: rec.working, server });
         if (decision.action === "noop") {
-          await promote(id, rec.working);
+          if (rec.working === null) await clearLocal(id);
+          else await promote(id, rec.working);
+        } else if (decision.action === "delete") {
+          const res = await deleteNote(id);
+          if (res && res.synced) {
+            await clearLocal(id);
+            if (onDeleted) onDeleted(id);
+          }
         } else if (decision.action === "fast-forward" || decision.action === "merged") {
           const note = decision.note;
           note.meta.content_hash = await contentHash(note.meta, note.body);
@@ -873,13 +905,18 @@ async function libs() {
   }
   return _libs;
 }
-function neutralize(md) {
-  return (md || "").replace(/!\[[^\]]*\]\(attachments\/[^)]+\)/g, " \u{1F5BC} ").replace(/\[([^\]]+)\]\(attachments\/[^)]+\)/g, " \u{1F4CE} $1 ");
+var PREVIEW_SANITIZE_OPTIONS = {
+  USE_PROFILES: { html: true },
+  FORBID_TAGS: ["img", "picture", "source", "video", "audio", "iframe"],
+  FORBID_ATTR: ["href", "src", "srcset", "xlink:href", "formaction"]
+};
+function neutralizePreviewMarkdown(md) {
+  return (md || "").replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, url) => String(url).startsWith("attachments/") ? ` \u{1F5BC} ${alt || ""} ` : ` ${alt || "image"} `).replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1");
 }
 async function renderPreviewHTML(md) {
   const { marked, purify } = await libs();
-  const html = marked(neutralize(md), { breaks: true, gfm: true });
-  return purify.sanitize(html, { USE_PROFILES: { html: true } });
+  const html = marked(neutralizePreviewMarkdown(md), { breaks: true, gfm: true });
+  return purify.sanitize(html, PREVIEW_SANITIZE_OPTIONS);
 }
 
 // src/ui/ColorPicker.jsx
@@ -1169,6 +1206,7 @@ var FileChipWidget = class extends WidgetType {
           link.href = u;
           link.download = this.name;
           link.click();
+          setTimeout(() => URL.revokeObjectURL(u), 0);
         }
       }
     });
@@ -1694,6 +1732,15 @@ function App({ appId, token }) {
     });
     setNotes((prev) => prev.map((n) => n.meta.id === id ? { meta: note.meta, body: note.body } : n));
   }, []);
+  const onDeleted = useCallback((id) => {
+    setConflicts((prev) => {
+      if (!prev.has(id)) return prev;
+      const n = new Set(prev);
+      n.delete(id);
+      return n;
+    });
+    setNotes((prev) => prev.filter((n) => n.meta.id !== id));
+  }, []);
   const onConflict = useCallback((id) => {
     setConflicts((prev) => {
       const n = new Set(prev);
@@ -1702,9 +1749,9 @@ function App({ appId, token }) {
     });
   }, []);
   const runReconcile = useCallback(() => {
-    reconcileAll({ onApplied, onConflict }).catch(() => {
+    reconcileAll({ onApplied, onDeleted, onConflict }).catch(() => {
     });
-  }, [onApplied, onConflict]);
+  }, [onApplied, onDeleted, onConflict]);
   const scheduleReconcile = useCallback(() => {
     if (reconTimer.current) clearTimeout(reconTimer.current);
     reconTimer.current = setTimeout(runReconcile, 400);
@@ -1787,27 +1834,39 @@ function App({ appId, token }) {
     const n = notes.find((x) => x.meta.id === id);
     if (n) persist({ ...n.meta, color }, n.body);
   }, [notes, persist]);
+  const queueDelete = useCallback(async (note) => {
+    const hash = await contentHash(note.meta, note.body);
+    await recordDeletion(note.meta.id, { meta: note.meta, body: note.body, hash }).catch(() => {
+    });
+    scheduleReconcile();
+  }, [scheduleReconcile]);
   const doDelete = useCallback((id) => {
-    deleteNote(id).catch(() => {
+    const n = notes.find((x) => x.meta.id === id);
+    if (n) queueDelete(n).catch(() => {
     });
     setNotes((prev) => {
-      const next = prev.filter((n) => n.meta.id !== id);
+      const next = prev.filter((note) => note.meta.id !== id);
       writeIndex(next).catch(() => {
       });
       return next;
     });
     setConfirmId(null);
     setView((v) => v.mode === "editor" && v.id === id ? { mode: "grid" } : v);
-  }, []);
+  }, [notes, queueDelete]);
   const back = useCallback(() => {
     const n = notes.find((x) => x.meta.id === view.id);
     if (n && !(n.meta.title || "").trim() && !(n.body || "").trim()) {
-      deleteNote(n.meta.id).catch(() => {
+      queueDelete(n).catch(() => {
       });
-      setNotes((prev) => prev.filter((x) => x.meta.id !== n.meta.id));
+      setNotes((prev) => {
+        const next = prev.filter((x) => x.meta.id !== n.meta.id);
+        writeIndex(next).catch(() => {
+        });
+        return next;
+      });
     }
     setView({ mode: "grid" });
-  }, [notes, view.id]);
+  }, [notes, view.id, queueDelete]);
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = q ? notes.filter((n) => (n.meta.title || "").toLowerCase().includes(q) || (n.body || "").toLowerCase().includes(q) || (n.meta.tags || []).join(" ").toLowerCase().includes(q)) : notes;

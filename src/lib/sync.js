@@ -43,18 +43,28 @@ function buildConflict({ base, mine, server }) {
 // reconcile({base, mine, server}) -> a decision object. See the module header
 // for the side shape. Decision order:
 //   1. noop        — nothing to push (mine === server, or both gone)
-//   2. fast-forward — server untouched since base; mine lands as the next rev
-//   3. merged       — both moved but body merges clean and meta merges
-//   4. conflict     — anything else (overlapping bodies, or a deletion divergence)
+//   2. delete       — mine is a tombstone and server is still at base
+//   3. fast-forward — server untouched since base; mine lands as the next rev
+//   4. merged       — both moved but body merges clean and meta merges
+//   5. conflict     — anything else (overlapping bodies, or a deletion divergence)
 export function reconcile({ base, mine, server }) {
   // Both sides deleted (or mine deleted and server already matches) -> nothing
   // to do. Also covers mine === server by hash.
   if (mine === null && server === null) return { action: 'noop' }
   if (hashOf(mine) === hashOf(server)) return { action: 'noop' }
 
-  // A deletion on either side is a divergence diff3 can't reason about (there is
-  // no body to merge); hand it to the agent resolver.
-  if (mine === null || server === null) {
+  // Local delete while the server is still at our base: safe to apply the
+  // tombstone. If the server moved, that is a real divergence for the resolver.
+  if (mine === null) {
+    if (base && server && hashOf(server) === hashOf(base)) {
+      return { action: 'delete' }
+    }
+    return buildConflict({ base, mine, server })
+  }
+
+  // The server deleted while we edited; there is no body to merge, so hand it
+  // to the agent resolver.
+  if (server === null) {
     return buildConflict({ base, mine, server })
   }
 
