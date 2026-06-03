@@ -49,10 +49,10 @@ You are given a CONFLICT DESCRIPTOR file path. It is JSON with:
 
 Procedure (follow exactly):
 1. Read the descriptor JSON.
-2. Re-read the CURRENT canonical note at <DATA>/notes/<noteId>.md. Compute/compare:
-   if it no longer matches the descriptor's serverHash (another edit landed since
-   the conflict), ABANDON — do NOT write the note, leave the descriptor as-is,
-   and stop. A later tick will retry against the new state.
+2. Re-read the CURRENT canonical note BODY at <DATA>/notes/<noteId>.md. If its
+   body no longer matches the descriptor's `server.body` (a newer edit landed
+   since the conflict), ABANDON — do NOT write the note, leave the descriptor
+   as-is, and stop. A later tick retries against the new state.
 3. Otherwise do a careful THREE-WAY merge of base/mine/server BODIES: keep both
    sides' intent, reason about meaning (not just lines), and PRESERVE every
    attachment reference exactly — ![alt](attachments/<sha>.<ext>) and
