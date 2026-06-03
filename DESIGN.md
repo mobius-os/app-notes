@@ -301,7 +301,7 @@ server-side merge engine, a smart agent handles what a sanitizer can't.
 ## 10. Logo (codex imagegen)
 
 Per the owner's steer: don't prescribe a metaphor. Write a one-paragraph app
-description, attach the existing app icons (gym/news/mind/countries `icon.png`)
+description, attach the existing app icons (gym/news/mind/atlas `icon.png`)
 as **style references**, and dispatch **codex with an explicit imagegen call**
 ("use your image-generation tool to produce a 512×512 PNG at /tmp/…, in the
 style of these reference icons — glossy 3D, Möbius infinity-motif family,
