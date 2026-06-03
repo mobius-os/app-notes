@@ -1,0 +1,244 @@
+From 73634b418accdf1d98f9c112e92a3b707e5048c1 Mon Sep 17 00:00:00 2001
+From: mobius-os <agent@mobius>
+Date: Wed, 3 Jun 2026 03:29:40 +0000
+Subject: [PATCH 1/3] feat(vendor): self-host CodeMirror 6 + KaTeX under
+ /vendor for mini-apps
+
+CM6 (live-inline markdown editor) + KaTeX (math) become general mini-app
+deps, bundled same-origin like three.js/React. CM6 is one singleton-safe
+bundle (build-codemirror-vendor.mjs); KaTeX ships JS+CSS+fonts for offline
+math. Import maps in app-frame.html (in-shell) + standalone.py (PWA) gain
+`codemirror` and `katex` specifiers.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ Dockerfile                                  | 38 +++++++++++
+ backend/app/routes/standalone.py            |  4 +-
+ backend/scripts/build-codemirror-vendor.mjs | 76 +++++++++++++++++++++
+ frontend/public/app-frame.html              |  4 +-
+ 4 files changed, 120 insertions(+), 2 deletions(-)
+ create mode 100644 backend/scripts/build-codemirror-vendor.mjs
+
+diff --git a/Dockerfile b/Dockerfile
+index 369fcea..c552fbe 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -155,6 +155,44 @@ RUN mkdir -p /tmp/react-install && cd /tmp/react-install \
+          /app/static/vendor/react@19.2.6 "$(command -v esbuild)" \
+     && cd / && rm -rf /tmp/react-install /tmp/build-react-vendor.mjs
+ 
++# Self-hosted CodeMirror 6 for the mini-app import map — the live-inline
++# markdown editor foundation (the Notes app and any future code/wiki app).
++# Same offline rationale as React above: CM6 is a multi-module ESM graph whose
++# @codemirror/state MUST be a singleton (it does `instanceof` checks across the
++# view/language/commands boundary), so we bundle exactly the pieces the editor
++# uses into ONE codemirror.mjs (state included once) and serve it same-origin
++# under /vendor. One bundled URL is one warm-cache fetch via the /vendor
++# CacheFirst route, so offline is deterministic. Bumping CM6 means bumping these
++# pins AND the /vendor/codemirror@6 path in app-frame.html + standalone.py in
++# lockstep (see backend/scripts/build-codemirror-vendor.mjs for the full why).
++COPY backend/scripts/build-codemirror-vendor.mjs /tmp/build-codemirror-vendor.mjs
++RUN mkdir -p /tmp/cm-install && cd /tmp/cm-install \
++    && npm init -y >/dev/null \
++    && npm install --no-audit --no-fund --silent \
++         @codemirror/state@6.6.0 @codemirror/view@6.43.0 \
++         @codemirror/commands@6.10.3 @codemirror/language@6.12.3 \
++         @codemirror/lang-markdown@6.5.0 @lezer/highlight@1.2.3 \
++    && mkdir -p /app/static/vendor/codemirror@6 \
++    && node /tmp/build-codemirror-vendor.mjs /tmp/cm-install \
++         /app/static/vendor/codemirror@6/codemirror.mjs "$(command -v esbuild)" \
++    && ln -s codemirror@6 /app/static/vendor/codemirror \
++    && cd / && rm -rf /tmp/cm-install /tmp/build-codemirror-vendor.mjs
++
++# Self-hosted KaTeX for the mini-app import map — LaTeX rendering for the Notes
++# editor + note previews. katex.mjs maps to the bare `katex` specifier; the CSS
++# + fonts are served alongside so offline math renders (katex.min.css references
++# fonts/ relatively). Apps inject the stylesheet at runtime from
++# /vendor/katex/katex.min.css. Bump in lockstep with the import maps.
++RUN mkdir -p /tmp/katex-install && cd /tmp/katex-install \
++    && npm init -y >/dev/null \
++    && npm install --no-audit --no-fund --silent katex@0.17.0 \
++    && mkdir -p /app/static/vendor/katex@0.17.0/fonts \
++    && cp node_modules/katex/dist/katex.mjs /app/static/vendor/katex@0.17.0/ \
++    && cp node_modules/katex/dist/katex.min.css /app/static/vendor/katex@0.17.0/ \
++    && cp -r node_modules/katex/dist/fonts/. /app/static/vendor/katex@0.17.0/fonts/ \
++    && ln -s katex@0.17.0 /app/static/vendor/katex \
++    && cd / && rm -rf /tmp/katex-install
++
+ # Full frontend source so the agent can edit and rebuild the shell.
+ # /app/shell-src/ is the read-only reference (originals for recovery).
+ # On first boot, entrypoint copies to /data/shell/ if it doesn't exist.
+diff --git a/backend/app/routes/standalone.py b/backend/app/routes/standalone.py
+index 115e3c0..5d64a11 100644
+--- a/backend/app/routes/standalone.py
++++ b/backend/app/routes/standalone.py
+@@ -347,7 +347,9 @@ def standalone_shell(slug: str, db: Session = Depends(get_db)):
+       "recharts": "https://esm.sh/recharts@2.15.4?exports=LineChart,BarChart,PieChart,AreaChart,Line,Bar,Pie,Area,XAxis,YAxis,ZAxis,Tooltip,CartesianGrid,Legend,ResponsiveContainer,Cell,LabelList,Brush,ComposedChart,ScatterChart,Scatter,RadarChart,Radar,PolarGrid,PolarAngleAxis,PolarRadiusAxis,RadialBarChart,RadialBar&external=react,react-dom",
+       "date-fns": "https://esm.sh/date-fns@4.3.0",
+       "three": "/vendor/three@0.184.0/three.module.js",
+-      "three/addons/": "/vendor/three@0.184.0/addons/"
++      "three/addons/": "/vendor/three@0.184.0/addons/",
++      "codemirror": "/vendor/codemirror@6/codemirror.mjs",
++      "katex": "/vendor/katex@0.17.0/katex.mjs"
+     }}
+   }}
+   </script>
+diff --git a/backend/scripts/build-codemirror-vendor.mjs b/backend/scripts/build-codemirror-vendor.mjs
+new file mode 100644
+index 0000000..bccbb8f
+--- /dev/null
++++ b/backend/scripts/build-codemirror-vendor.mjs
+@@ -0,0 +1,76 @@
++// Build a self-hosted CodeMirror 6 ESM bundle for the mini-app import map.
++//
++// Why this exists: mini-apps get a live-inline markdown editor from
++// CodeMirror 6. Served from esm.sh, CM6 is a multi-module graph whose
++// `@codemirror/state` MUST be a singleton (it does `instanceof` checks across
++// the view/language/commands boundary); two independently-bundled entries each
++// inline their own `state` and break at runtime. An offline app could also miss
++// an uncached sub-module. We bundle the exact pieces the editor uses into ONE
++// `codemirror.mjs` (state included exactly once → singleton guaranteed) served
++// same-origin under /vendor, exactly as three.js and React are. One bundled URL
++// is one warm-cache fetch (CacheFirst /vendor route), so offline is
++// deterministic — the same rationale as build-react-vendor.mjs.
++//
++// CM6 ships as real ESM (unlike react/react-dom's CommonJS), so a single
++// no-externals bundle is enough — no facade modules needed. The import map
++// points the bare specifier `codemirror` at the bundle this emits.
++//
++// Usage: node build-codemirror-vendor.mjs <install_dir> <out_file> <esbuild_bin>
++//   install_dir  dir whose node_modules has @codemirror/* + @lezer/*
++//   out_file     where to write the bundle (served as
++//                /vendor/codemirror@<v>/codemirror.mjs)
++//   esbuild_bin  path to the esbuild binary
++import { execFileSync } from 'node:child_process'
++import { writeFileSync, mkdirSync, readFileSync } from 'node:fs'
++import { join, dirname } from 'node:path'
++
++const [, , installDir, outFile, esbuild] = process.argv
++if (!installDir || !outFile || !esbuild) {
++  console.error('usage: build-codemirror-vendor.mjs <install_dir> <out_file> <esbuild_bin>')
++  process.exit(2)
++}
++mkdirSync(dirname(outFile), { recursive: true })
++
++// A single entry that re-exports exactly the API the editor uses. esbuild
++// bundles the whole @codemirror/* + @lezer/* graph behind it into one module,
++// so `@codemirror/state` is included once. Extend this surface when the editor
++// needs more — keep it curated so the bundle stays ~React-sized.
++const entry = join(installDir, '_cm-entry.js')
++writeFileSync(entry, [
++  "export {EditorState, StateField, StateEffect, RangeSet, RangeSetBuilder, Compartment, Prec, Text, Facet} from '@codemirror/state'",
++  "export {EditorView, Decoration, WidgetType, ViewPlugin, keymap, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, placeholder, lineNumbers, gutter} from '@codemirror/view'",
++  "export {history, historyKeymap, defaultKeymap, indentWithTab, standardKeymap} from '@codemirror/commands'",
++  "export {syntaxTree, HighlightStyle, syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap, LanguageSupport, Language} from '@codemirror/language'",
++  "export {markdown, markdownLanguage} from '@codemirror/lang-markdown'",
++  "export {tags} from '@lezer/highlight'",
++].join('\n') + '\n')
++
++// cwd = installDir so esbuild resolves bare `@codemirror/*` from its
++// node_modules. No externals → everything is bundled (singleton state).
++execFileSync(esbuild, [
++  entry,
++  '--bundle',
++  '--format=esm',
++  '--minify',
++  `--outfile=${outFile}`,
++], { stdio: 'inherit', cwd: installDir })
++
++// Fail loudly if the public API the import map promises isn't in the bundle —
++// a silent miss surfaces as the editor failing to mount in every app. We grep
++// the emitted module rather than import() it (some CM view code touches the DOM
++// at eval time, which a headless Node import can't provide).
++const out = readFileSync(outFile, 'utf8')
++const required = [
++  'EditorState', 'EditorView', 'Decoration', 'WidgetType', 'ViewPlugin',
++  'keymap', 'history', 'defaultKeymap', 'markdown', 'syntaxTree',
++  'HighlightStyle', 'syntaxHighlighting', 'tags',
++]
++const missing = required.filter((n) => !out.includes(n))
++if (missing.length) {
++  console.error('build-codemirror-vendor: bundle missing exports: ' + missing.join(', '))
++  process.exit(1)
++}
++console.log(
++  'build-codemirror-vendor: OK (' + required.length + ' core exports present, ' +
++  Math.round(out.length / 1024) + ' KB)',
++)
+diff --git a/frontend/public/app-frame.html b/frontend/public/app-frame.html
+index 9600c0b..09fbe75 100644
+--- a/frontend/public/app-frame.html
++++ b/frontend/public/app-frame.html
+@@ -14,7 +14,9 @@
+       "recharts": "https://esm.sh/recharts@2.15.4?exports=LineChart,BarChart,PieChart,AreaChart,Line,Bar,Pie,Area,XAxis,YAxis,ZAxis,Tooltip,CartesianGrid,Legend,ResponsiveContainer,Cell,LabelList,Brush,ComposedChart,ScatterChart,Scatter,RadarChart,Radar,PolarGrid,PolarAngleAxis,PolarRadiusAxis,RadialBarChart,RadialBar&external=react,react-dom",
+       "date-fns": "https://esm.sh/date-fns@4.3.0",
+       "three": "/vendor/three@0.184.0/three.module.js",
+-      "three/addons/": "/vendor/three@0.184.0/addons/"
++      "three/addons/": "/vendor/three@0.184.0/addons/",
++      "codemirror": "/vendor/codemirror@6/codemirror.mjs",
++      "katex": "/vendor/katex@0.17.0/katex.mjs"
+     }
+   }
+   </script>
+-- 
+2.43.0
+
+
+From 0144d12e2488f1d154ddf7da4d5b71305f278578 Mon Sep 17 00:00:00 2001
+From: mobius-os <agent@mobius>
+Date: Wed, 3 Jun 2026 03:56:08 +0000
+Subject: [PATCH 2/3] feat(vendor): externalize codemirror + katex in the
+ mini-app compiler
+
+RUNTIME_LIBS gains codemirror + katex so apps importing them compile (esbuild
+leaves them external, resolved by the /vendor import map at runtime). Pairs
+with the CM6/KaTeX vendoring.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ backend/app/runtime_libs.py | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/backend/app/runtime_libs.py b/backend/app/runtime_libs.py
+index f9a98d9..51c5475 100644
+--- a/backend/app/runtime_libs.py
++++ b/backend/app/runtime_libs.py
+@@ -8,4 +8,6 @@ RUNTIME_LIBS: tuple[str, ...] = (
+   "date-fns",
+   "three",
+   "three/addons/*",
++  "codemirror",
++  "katex",
+ )
+-- 
+2.43.0
+
+
+From 3ab28cf36a341ab6530289c95cc0d5c74668608f Mon Sep 17 00:00:00 2001
+From: mobius-os <agent@mobius>
+Date: Wed, 3 Jun 2026 08:17:34 +0000
+Subject: [PATCH 3/3] fix(vendor): export EditorSelection (+
+ Transaction/Annotation) from CM6 bundle
+
+The editor's formatting keymap uses EditorSelection.range; without it in the
+vendored bundle, bold/italic/etc. would throw at runtime in a real build.
+---
+ backend/scripts/build-codemirror-vendor.mjs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/backend/scripts/build-codemirror-vendor.mjs b/backend/scripts/build-codemirror-vendor.mjs
+index bccbb8f..15feb83 100644
+--- a/backend/scripts/build-codemirror-vendor.mjs
++++ b/backend/scripts/build-codemirror-vendor.mjs
+@@ -37,7 +37,7 @@ mkdirSync(dirname(outFile), { recursive: true })
+ // needs more — keep it curated so the bundle stays ~React-sized.
+ const entry = join(installDir, '_cm-entry.js')
+ writeFileSync(entry, [
+-  "export {EditorState, StateField, StateEffect, RangeSet, RangeSetBuilder, Compartment, Prec, Text, Facet} from '@codemirror/state'",
++  "export {EditorState, EditorSelection, StateField, StateEffect, RangeSet, RangeSetBuilder, Compartment, Prec, Text, Facet, Transaction, Annotation} from '@codemirror/state'",
+   "export {EditorView, Decoration, WidgetType, ViewPlugin, keymap, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, placeholder, lineNumbers, gutter} from '@codemirror/view'",
+   "export {history, historyKeymap, defaultKeymap, indentWithTab, standardKeymap} from '@codemirror/commands'",
+   "export {syntaxTree, HighlightStyle, syntaxHighlighting, defaultHighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap, LanguageSupport, Language} from '@codemirror/language'",
+-- 
+2.43.0
+
