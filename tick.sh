@@ -23,8 +23,10 @@ if [ ! -d .git ]; then
 fi
 # Never snapshot transitional state: drafts, open conflicts, leases, the derived
 # index, or half-written *.tmp files (canonical writes rename .tmp -> final).
-printf 'drafts/\nconflicts/\nleases/\nindex.json\n*.tmp\n' > .gitignore
-git add notes/ notes-meta.json .gitignore 2>/dev/null || true
+# Ignore transient sync state, the derived index, half-written tmp files, and
+# the (content-addressed, immutable) attachment blobs — git tracks note CONTENT.
+printf 'drafts/\nconflicts/\nleases/\nattachments/\nindex.json\n*.tmp\n' > .gitignore
+git add -A 2>/dev/null || true
 if ! git diff --cached --quiet 2>/dev/null; then
   git commit -q -m "snapshot $(date -u +%FT%TZ)" 2>>"$LOG" || true
 fi
