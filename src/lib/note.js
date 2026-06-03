@@ -4,7 +4,7 @@
 // files; this module just defines what a note *is* and how its identity is
 // computed (DESIGN §5, plan Phase C / Tasks C2–C3).
 
-import {sha256Hex, cryptoProvider} from './hash.js'
+import {sha256Hex} from './hash.js'
 
 // The fields that define a note's *content identity*. Everything else in
 // frontmatter is volatile bookkeeping (updated, content_hash, mobius_rev,
@@ -49,7 +49,7 @@ function nowIso() {
 export function newNote({title} = {}) {
   const ts = nowIso()
   return {
-    id: cryptoProvider.randomUUID(),
+    id: globalThis.crypto.randomUUID(),
     title: title ?? '',
     pinned: false,
     color: null,

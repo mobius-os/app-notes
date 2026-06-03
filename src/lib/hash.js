@@ -1,27 +1,16 @@
 // SHA-256 hex digest via the Web Crypto API.
 //
-// In the browser (the mini-app's real home) `globalThis.crypto.subtle` is
-// always present. Under Node it is a global from v20 on, but the `node --test`
-// worker on v18 does not expose the experimental global — so we fall back to
-// `node:crypto`'s `webcrypto`, which is the same WebCrypto interface. Resolving
-// the provider once, here, lets every other module call `subtle`/`randomUUID`
-// without knowing which host it runs in.
-
-import {webcrypto} from 'node:crypto'
-
-// Prefer the platform global (browser, modern Node); fall back to node:crypto.
-// `globalThis.crypto` is guarded because it can be undefined in a Node test
-// worker, and reading `.subtle` off undefined would throw at import time.
-export const cryptoProvider =
-  (typeof globalThis !== 'undefined' && globalThis.crypto && globalThis.crypto.subtle)
-    ? globalThis.crypto
-    : webcrypto
+// Uses `globalThis.crypto.subtle` directly — always present in the browser (the
+// mini-app's real home) and in modern Node. We deliberately do NOT import
+// `node:crypto`: a static node-builtin import breaks the browser bundle esbuild
+// produces for the mini-app. The test runner polyfills the global on older Node
+// (see test/setup.mjs), so `src/` stays browser-pure.
 
 const encoder = new TextEncoder()
 
 export async function sha256Hex(str) {
   const data = encoder.encode(String(str))
-  const digest = await cryptoProvider.subtle.digest('SHA-256', data)
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', data)
   const bytes = new Uint8Array(digest)
   let hex = ''
   for (let i = 0; i < bytes.length; i++) {
