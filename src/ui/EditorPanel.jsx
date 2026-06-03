@@ -8,7 +8,18 @@ import Editor from '../editor/Editor.jsx'
 
 const AUTOSAVE_MS = 600
 
-export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment, status }) {
+// Ask the owner shell to spawn an agent chat to resolve a note's merge conflict
+// (the autonomous cron resolver also handles it; this is the on-demand path).
+function resolveNow(note) {
+  try {
+    window.parent.postMessage({
+      type: 'moebius:new-chat',
+      draft: `Resolve the Notes merge conflict for note ${note.meta.id}: read the descriptor under /data/apps/notes/conflicts/${note.meta.id}/, 3-way-merge mine + server against base (preserve attachment refs), write the result to /data/apps/notes/notes/${note.meta.id}.md, then mark the descriptor resolved.`,
+    }, window.location.origin)
+  } catch (e) {}
+}
+
+export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment, conflict, status }) {
   const t = T()
   const [title, setTitle] = useState(note.meta.title || '')
   const [body, setBody] = useState(note.body || '')
@@ -72,6 +83,13 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
         <input ref={fileRef} type="file" onChange={handleFile} style={{ display: 'none' }} />
         <button onClick={() => onDelete(note.meta.id)} aria-label="Delete" style={hdrBtn(t, false, true)}>🗑</button>
       </header>
+
+      {conflict && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px', background: `${t.accent}1f`, color: t.text, fontSize: 13 }}>
+          <span style={{ flex: 1 }}>Edited in two places — merging…</span>
+          <button onClick={() => resolveNow(note)} style={{ border: `1px solid ${t.accent}`, background: 'transparent', color: t.accent, borderRadius: 8, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>Resolve now</button>
+        </div>
+      )}
 
       {attachErr && (
         <div style={{ padding: '8px 16px', background: `${t.danger}22`, color: t.danger, fontSize: 13 }}>{attachErr}</div>

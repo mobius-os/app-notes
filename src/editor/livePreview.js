@@ -68,8 +68,13 @@ export function livePreview({ resolveAttachment } = {}) {
               enter: (node) => {
                 const name = node.name
                 if (name === 'TaskMarker') {
-                  const text = state.sliceDoc(node.from, node.to)
-                  out.push({ from: node.from, to: node.to, deco: Decoration.replace({ widget: new CheckboxWidget(/x/i.test(text), node.from) }) })
+                  // Show the raw `[ ]` on the cursor's line so typing isn't
+                  // corrupted by an atomic replace-widget; render the checkbox
+                  // only on inactive lines (Obsidian's Live Preview behavior).
+                  if (!onActive(node.from, node.to)) {
+                    const text = state.sliceDoc(node.from, node.to)
+                    out.push({ from: node.from, to: node.to, deco: Decoration.replace({ widget: new CheckboxWidget(/x/i.test(text), node.from) }) })
+                  }
                 } else if (name === 'Image') {
                   if (!onActive(node.from, node.to)) {
                     const md = state.sliceDoc(node.from, node.to)

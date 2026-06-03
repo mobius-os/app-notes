@@ -257,6 +257,10 @@ async function listNotes() {
   }
   return out;
 }
+async function loadNote(id) {
+  const text = await S().getText(notePath(id));
+  return text == null ? null : parseFrontmatter(text);
+}
 async function saveNote(meta, body) {
   return S().setText(notePath(meta.id), serializeNote(meta, body), {
     contentType: "text/markdown;charset=utf-8"
@@ -287,6 +291,554 @@ async function attachmentURL(path) {
 }
 var pendingCount = () => S().pendingCount();
 var isOnline = () => window.mobius ? window.mobius.online : true;
+
+// src/lib/idb.js
+var DB_NAME = "notes-local";
+var STORE = "kv";
+function open() {
+  return new Promise((resolve, reject) => {
+    const r = indexedDB.open(DB_NAME, 1);
+    r.onupgradeneeded = () => {
+      const db = r.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+    };
+    r.onsuccess = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+  });
+}
+async function run(mode, fn) {
+  const db = await open();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, mode);
+      const store = tx.objectStore(STORE);
+      const box = {};
+      fn(store, box);
+      tx.oncomplete = () => resolve(box.value);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+function idbGet(key) {
+  return run("readonly", (store, box) => {
+    const r = store.get(key);
+    r.onsuccess = () => {
+      box.value = r.result;
+    };
+  });
+}
+function idbSet(key, value) {
+  return run("readwrite", (store) => {
+    store.put(value, key);
+  });
+}
+function idbEntries() {
+  return run("readonly", (store, box) => {
+    box.value = [];
+    const r = store.openCursor();
+    r.onsuccess = (e) => {
+      const cur = e.target.result;
+      if (!cur) return;
+      box.value.push([cur.key, cur.value]);
+      cur.continue();
+    };
+  });
+}
+
+// src/lib/local.js
+var KEY = (id) => `note:${id}`;
+async function ensureBase(id, rec) {
+  if (!await idbGet(KEY(id))) await idbSet(KEY(id), { base: rec, working: rec });
+}
+async function recordWorking(id, working) {
+  const prev = await idbGet(KEY(id)) || {};
+  const base = prev.base || working;
+  await idbSet(KEY(id), { base, working });
+}
+async function promote(id, synced) {
+  await idbSet(KEY(id), { base: synced, working: synced });
+}
+async function unsyncedLocals() {
+  const entries = await idbEntries();
+  const out = [];
+  for (const [k, v] of entries) {
+    if (!k.startsWith("note:") || !v || !v.base || !v.working) continue;
+    if (v.working.hash !== v.base.hash) out.push([k.slice(5), v]);
+  }
+  return out;
+}
+
+// node_modules/node-diff3/dist/diff3.mjs
+function LCS(buffer1, buffer2) {
+  let equivalenceClasses = {};
+  for (let j = 0; j < buffer2.length; j++) {
+    const item = buffer2[j];
+    if (equivalenceClasses[item]) {
+      equivalenceClasses[item].push(j);
+    } else {
+      equivalenceClasses[item] = [j];
+    }
+  }
+  const NULLRESULT = { buffer1index: -1, buffer2index: -1, chain: null };
+  let candidates = [NULLRESULT];
+  for (let i = 0; i < buffer1.length; i++) {
+    const item = buffer1[i];
+    const buffer2indices = equivalenceClasses[item] || [];
+    let r = 0;
+    let c = candidates[0];
+    for (let jx = 0; jx < buffer2indices.length; jx++) {
+      const j = buffer2indices[jx];
+      let s;
+      for (s = r; s < candidates.length; s++) {
+        if (candidates[s].buffer2index < j && (s === candidates.length - 1 || candidates[s + 1].buffer2index > j)) {
+          break;
+        }
+      }
+      if (s < candidates.length) {
+        const newCandidate = { buffer1index: i, buffer2index: j, chain: candidates[s] };
+        if (r === candidates.length) {
+          candidates.push(c);
+        } else {
+          candidates[r] = c;
+        }
+        r = s + 1;
+        c = newCandidate;
+        if (r === candidates.length) {
+          break;
+        }
+      }
+    }
+    candidates[r] = c;
+  }
+  return candidates[candidates.length - 1];
+}
+function diffComm(buffer1, buffer2) {
+  const lcs = LCS(buffer1, buffer2);
+  let result = [];
+  let tail1 = buffer1.length;
+  let tail2 = buffer2.length;
+  let common = { common: [] };
+  function processCommon() {
+    if (common.common.length) {
+      common.common.reverse();
+      result.push(common);
+      common = { common: [] };
+    }
+  }
+  for (let candidate = lcs; candidate !== null; candidate = candidate.chain) {
+    let different = { buffer1: [], buffer2: [] };
+    while (--tail1 > candidate.buffer1index) {
+      different.buffer1.push(buffer1[tail1]);
+    }
+    while (--tail2 > candidate.buffer2index) {
+      different.buffer2.push(buffer2[tail2]);
+    }
+    if (different.buffer1.length || different.buffer2.length) {
+      processCommon();
+      different.buffer1.reverse();
+      different.buffer2.reverse();
+      result.push(different);
+    }
+    if (tail1 >= 0) {
+      common.common.push(buffer1[tail1]);
+    }
+  }
+  processCommon();
+  result.reverse();
+  return result;
+}
+function diffIndices(buffer1, buffer2) {
+  const lcs = LCS(buffer1, buffer2);
+  let result = [];
+  let tail1 = buffer1.length;
+  let tail2 = buffer2.length;
+  for (let candidate = lcs; candidate !== null; candidate = candidate.chain) {
+    const mismatchLength1 = tail1 - candidate.buffer1index - 1;
+    const mismatchLength2 = tail2 - candidate.buffer2index - 1;
+    tail1 = candidate.buffer1index;
+    tail2 = candidate.buffer2index;
+    if (mismatchLength1 || mismatchLength2) {
+      result.push({
+        buffer1: [tail1 + 1, mismatchLength1],
+        buffer1Content: buffer1.slice(tail1 + 1, tail1 + 1 + mismatchLength1),
+        buffer2: [tail2 + 1, mismatchLength2],
+        buffer2Content: buffer2.slice(tail2 + 1, tail2 + 1 + mismatchLength2)
+      });
+    }
+  }
+  result.reverse();
+  return result;
+}
+function diff3MergeRegions(a, o, b) {
+  let hunks = [];
+  function addHunk(h, ab) {
+    hunks.push({
+      ab,
+      oStart: h.buffer1[0],
+      oLength: h.buffer1[1],
+      abStart: h.buffer2[0],
+      abLength: h.buffer2[1]
+    });
+  }
+  diffIndices(o, a).forEach((item) => addHunk(item, "a"));
+  diffIndices(o, b).forEach((item) => addHunk(item, "b"));
+  hunks.sort((x, y) => x.oStart - y.oStart);
+  let results = [];
+  let currOffset = 0;
+  function advanceTo(endOffset) {
+    if (endOffset > currOffset) {
+      results.push({
+        stable: true,
+        buffer: "o",
+        bufferStart: currOffset,
+        bufferLength: endOffset - currOffset,
+        bufferContent: o.slice(currOffset, endOffset)
+      });
+      currOffset = endOffset;
+    }
+  }
+  while (hunks.length) {
+    let hunk = hunks.shift();
+    let regionStart = hunk.oStart;
+    let regionEnd = hunk.oStart + hunk.oLength;
+    let regionHunks = [hunk];
+    advanceTo(regionStart);
+    while (hunks.length) {
+      const nextHunk = hunks[0];
+      const nextHunkStart = nextHunk.oStart;
+      if (nextHunkStart > regionEnd)
+        break;
+      regionEnd = Math.max(regionEnd, nextHunkStart + nextHunk.oLength);
+      regionHunks.push(hunks.shift());
+    }
+    if (regionHunks.length === 1) {
+      if (hunk.abLength > 0) {
+        const buffer = hunk.ab === "a" ? a : b;
+        results.push({
+          stable: true,
+          buffer: hunk.ab,
+          bufferStart: hunk.abStart,
+          bufferLength: hunk.abLength,
+          bufferContent: buffer.slice(hunk.abStart, hunk.abStart + hunk.abLength)
+        });
+      }
+    } else {
+      let bounds = {
+        a: [a.length, -1, o.length, -1],
+        b: [b.length, -1, o.length, -1]
+      };
+      while (regionHunks.length) {
+        hunk = regionHunks.shift();
+        const oStart = hunk.oStart;
+        const oEnd = oStart + hunk.oLength;
+        const abStart = hunk.abStart;
+        const abEnd = abStart + hunk.abLength;
+        let b2 = bounds[hunk.ab];
+        b2[0] = Math.min(abStart, b2[0]);
+        b2[1] = Math.max(abEnd, b2[1]);
+        b2[2] = Math.min(oStart, b2[2]);
+        b2[3] = Math.max(oEnd, b2[3]);
+      }
+      const aStart = bounds.a[0] + (regionStart - bounds.a[2]);
+      const aEnd = bounds.a[1] + (regionEnd - bounds.a[3]);
+      const bStart = bounds.b[0] + (regionStart - bounds.b[2]);
+      const bEnd = bounds.b[1] + (regionEnd - bounds.b[3]);
+      let result = {
+        stable: false,
+        aStart,
+        aLength: aEnd - aStart,
+        aContent: a.slice(aStart, aEnd),
+        oStart: regionStart,
+        oLength: regionEnd - regionStart,
+        oContent: o.slice(regionStart, regionEnd),
+        bStart,
+        bLength: bEnd - bStart,
+        bContent: b.slice(bStart, bEnd)
+      };
+      results.push(result);
+    }
+    currOffset = regionEnd;
+  }
+  advanceTo(o.length);
+  return results;
+}
+function diff3Merge(a, o, b, options) {
+  let defaults = {
+    excludeFalseConflicts: true,
+    stringSeparator: /\s+/
+  };
+  options = Object.assign(defaults, options);
+  if (typeof a === "string")
+    a = a.split(options.stringSeparator);
+  if (typeof o === "string")
+    o = o.split(options.stringSeparator);
+  if (typeof b === "string")
+    b = b.split(options.stringSeparator);
+  let results = [];
+  const regions = diff3MergeRegions(a, o, b);
+  let okBuffer = [];
+  function flushOk() {
+    if (okBuffer.length) {
+      results.push({ ok: okBuffer });
+    }
+    okBuffer = [];
+  }
+  function isFalseConflict(a2, b2) {
+    if (a2.length !== b2.length)
+      return false;
+    for (let i = 0; i < a2.length; i++) {
+      if (a2[i] !== b2[i])
+        return false;
+    }
+    return true;
+  }
+  regions.forEach((region) => {
+    if (region.stable) {
+      okBuffer.push(...region.bufferContent);
+    } else {
+      if (options.excludeFalseConflicts && isFalseConflict(region.aContent, region.bContent)) {
+        okBuffer.push(...region.aContent);
+      } else {
+        flushOk();
+        results.push({
+          conflict: {
+            a: region.aContent,
+            aIndex: region.aStart,
+            o: region.oContent,
+            oIndex: region.oStart,
+            b: region.bContent,
+            bIndex: region.bStart
+          }
+        });
+      }
+    }
+  });
+  flushOk();
+  return results;
+}
+function mergeDigIn(a, o, b, options) {
+  const defaults = {
+    excludeFalseConflicts: true,
+    stringSeparator: /\s+/,
+    label: {}
+  };
+  options = Object.assign(defaults, options);
+  const aSection = "<<<<<<<" + (options.label.a ? ` ${options.label.a}` : "");
+  const xSection = "=======";
+  const bSection = ">>>>>>>" + (options.label.b ? ` ${options.label.b}` : "");
+  const regions = diff3Merge(a, o, b, options);
+  let conflict = false;
+  let result = [];
+  regions.forEach((region) => {
+    if (region.ok) {
+      result = result.concat(region.ok);
+    } else {
+      const c = diffComm(region.conflict.a, region.conflict.b);
+      for (let j = 0; j < c.length; j++) {
+        let inner = c[j];
+        if (inner.common) {
+          result = result.concat(inner.common);
+        } else {
+          conflict = true;
+          result = result.concat([aSection], inner.buffer1, [xSection], inner.buffer2, [bSection]);
+        }
+      }
+    }
+  });
+  return {
+    conflict,
+    result
+  };
+}
+
+// src/lib/merge.js
+function toLines(text) {
+  return text.split("\n");
+}
+function changedRanges(baseLines, sideLines) {
+  return diffIndices(baseLines, sideLines).map((d) => ({
+    start: d.buffer1[0],
+    len: d.buffer1[1],
+    repl: d.buffer2Content
+  }));
+}
+function rangesOverlap(a, b) {
+  if (a.len === 0 && b.len === 0) return a.start === b.start;
+  const aEnd = a.start + Math.max(a.len, 0);
+  const bEnd = b.start + Math.max(b.len, 0);
+  return a.start < bEnd && b.start < aEnd;
+}
+function resolveDisjoint(baseLines, mineLines, theirsLines) {
+  const mineRanges = changedRanges(baseLines, mineLines);
+  const theirsRanges = changedRanges(baseLines, theirsLines);
+  for (const a of mineRanges) {
+    for (const b of theirsRanges) {
+      if (rangesOverlap(a, b)) return null;
+    }
+  }
+  const edits = [...mineRanges, ...theirsRanges].sort((p, q) => q.start - p.start);
+  const out = baseLines.slice();
+  for (const e of edits) out.splice(e.start, e.len, ...e.repl);
+  return out;
+}
+function conflictHunks(baseLines, mineLines, theirsLines) {
+  const mineRanges = changedRanges(baseLines, mineLines);
+  const theirsRanges = changedRanges(baseLines, theirsLines);
+  const hunks = [];
+  for (const a of mineRanges) {
+    for (const b of theirsRanges) {
+      if (!rangesOverlap(a, b)) continue;
+      const start = Math.min(a.start, b.start);
+      const end = Math.max(a.start + Math.max(a.len, 0), b.start + Math.max(b.len, 0));
+      hunks.push({
+        conflict: true,
+        base: baseLines.slice(start, end),
+        mine: a.repl,
+        theirs: b.repl
+      });
+    }
+  }
+  return hunks;
+}
+function merge3(base, mine, theirs) {
+  const baseLines = toLines(base);
+  const mineLines = toLines(mine);
+  const theirsLines = toLines(theirs);
+  const dig = mergeDigIn(mineLines, baseLines, theirsLines);
+  if (!dig.conflict) {
+    return { clean: true, conflict: false, text: dig.result.join("\n") };
+  }
+  const merged = resolveDisjoint(baseLines, mineLines, theirsLines);
+  if (merged) {
+    return { clean: true, conflict: false, text: merged.join("\n") };
+  }
+  return {
+    clean: false,
+    conflict: true,
+    text: dig.result.join("\n"),
+    hunks: conflictHunks(baseLines, mineLines, theirsLines)
+  };
+}
+function laterSide(mine, theirs) {
+  const m = mine?.updated ?? "";
+  const t = theirs?.updated ?? "";
+  return t > m ? theirs : mine;
+}
+function mergeMeta(base, mine, theirs) {
+  const winner = laterSide(mine, theirs);
+  const tags2 = [.../* @__PURE__ */ new Set([...mine?.tags ?? [], ...theirs?.tags ?? []])];
+  const mineRev = mine?.mobius_rev ?? 0;
+  const theirsRev = theirs?.mobius_rev ?? 0;
+  return {
+    id: base?.id,
+    created: base?.created,
+    title: winner?.title,
+    color: winner?.color ?? null,
+    pinned: winner?.pinned ?? false,
+    tags: tags2,
+    updated: winner?.updated,
+    mobius_rev: Math.max(mineRev, theirsRev) + 1,
+    parent_revs: [mineRev, theirsRev]
+  };
+}
+
+// src/lib/sync.js
+var hashOf = (side) => side ? side.hash : null;
+var attachmentsOf = (side) => side?.meta?.attachments ?? [];
+function buildConflict({ base, mine, server }) {
+  const noteId = base?.meta?.id ?? mine?.meta?.id ?? server?.meta?.id;
+  const baseHash = hashOf(base);
+  const mineHash = hashOf(mine);
+  const serverHash = hashOf(server);
+  return {
+    action: "conflict",
+    descriptor: {
+      noteId,
+      baseHash,
+      mineHash,
+      serverHash,
+      base,
+      mine,
+      server,
+      attachmentsMine: attachmentsOf(mine),
+      attachmentsServer: attachmentsOf(server),
+      status: "open",
+      path: `conflicts/${noteId}/${baseHash}.${mineHash}.${serverHash}.json`
+    }
+  };
+}
+function reconcile({ base, mine, server }) {
+  if (mine === null && server === null) return { action: "noop" };
+  if (hashOf(mine) === hashOf(server)) return { action: "noop" };
+  if (mine === null || server === null) {
+    return buildConflict({ base, mine, server });
+  }
+  if (base && hashOf(server) === hashOf(base)) {
+    const baseRev = base.meta?.mobius_rev ?? 0;
+    return {
+      action: "fast-forward",
+      note: {
+        meta: { ...mine.meta, parent_rev: baseRev, mobius_rev: baseRev + 1 },
+        body: mine.body
+      }
+    };
+  }
+  const baseBody = base?.body ?? "";
+  const bodyMerge = merge3(baseBody, mine.body, server.body);
+  if (bodyMerge.clean) {
+    return {
+      action: "merged",
+      note: {
+        meta: mergeMeta(base?.meta ?? {}, mine.meta, server.meta),
+        body: bodyMerge.text
+      }
+    };
+  }
+  return buildConflict({ base, mine, server });
+}
+
+// src/lib/reconciler.js
+var _running = false;
+async function reconcileAll({ onApplied, onConflict } = {}) {
+  if (_running || !isOnline()) return { ran: false };
+  _running = true;
+  const results = [];
+  try {
+    const work = await unsyncedLocals();
+    for (const [id, rec] of work) {
+      try {
+        const loaded = await loadNote(id);
+        const server = loaded ? { meta: loaded.meta, body: loaded.body, hash: await contentHash(loaded.meta, loaded.body) } : null;
+        const decision = reconcile({ base: rec.base, mine: rec.working, server });
+        if (decision.action === "noop") {
+          await promote(id, rec.working);
+        } else if (decision.action === "fast-forward" || decision.action === "merged") {
+          const note = decision.note;
+          note.meta.content_hash = await contentHash(note.meta, note.body);
+          note.meta.updated = note.meta.updated || (/* @__PURE__ */ new Date()).toISOString();
+          const res = await saveNote(note.meta, note.body);
+          if (res && res.synced) {
+            await promote(id, { meta: note.meta, body: note.body, hash: note.meta.content_hash });
+            if (onApplied) onApplied(id, note);
+          }
+        } else if (decision.action === "conflict") {
+          const d = decision.descriptor;
+          await (void 0)(d.path, d);
+          if (onConflict) onConflict(id, d);
+        }
+        results.push([id, decision.action]);
+      } catch (e) {
+        results.push([id, "error"]);
+      }
+    }
+  } finally {
+    _running = false;
+  }
+  return { ran: true, results };
+}
 
 // src/ui/Card.jsx
 import { useState, useEffect } from "react";
@@ -703,8 +1255,10 @@ function livePreview({ resolveAttachment } = {}) {
               enter: (node) => {
                 const name = node.name;
                 if (name === "TaskMarker") {
-                  const text = state.sliceDoc(node.from, node.to);
-                  out.push({ from: node.from, to: node.to, deco: Decoration.replace({ widget: new CheckboxWidget(/x/i.test(text), node.from) }) });
+                  if (!onActive(node.from, node.to)) {
+                    const text = state.sliceDoc(node.from, node.to);
+                    out.push({ from: node.from, to: node.to, deco: Decoration.replace({ widget: new CheckboxWidget(/x/i.test(text), node.from) }) });
+                  }
                 } else if (name === "Image") {
                   if (!onActive(node.from, node.to)) {
                     const md = state.sliceDoc(node.from, node.to);
@@ -849,7 +1403,16 @@ function Editor({ value, onChange, resolveAttachment, viewRef }) {
 // src/ui/EditorPanel.jsx
 import { jsx as jsx5, jsxs as jsxs3 } from "react/jsx-runtime";
 var AUTOSAVE_MS = 600;
-function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment: putAttachment2, status }) {
+function resolveNow(note) {
+  try {
+    window.parent.postMessage({
+      type: "moebius:new-chat",
+      draft: `Resolve the Notes merge conflict for note ${note.meta.id}: read the descriptor under /data/apps/notes/conflicts/${note.meta.id}/, 3-way-merge mine + server against base (preserve attachment refs), write the result to /data/apps/notes/notes/${note.meta.id}.md, then mark the descriptor resolved.`
+    }, window.location.origin);
+  } catch (e) {
+  }
+}
+function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment: putAttachment2, conflict, status }) {
   const t = T();
   const [title, setTitle] = useState2(note.meta.title || "");
   const [body, setBody] = useState2(note.body || "");
@@ -919,6 +1482,10 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
       /* @__PURE__ */ jsx5("input", { ref: fileRef, type: "file", onChange: handleFile, style: { display: "none" } }),
       /* @__PURE__ */ jsx5("button", { onClick: () => onDelete(note.meta.id), "aria-label": "Delete", style: hdrBtn(t, false, true), children: "\u{1F5D1}" })
     ] }),
+    conflict && /* @__PURE__ */ jsxs3("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", background: `${t.accent}1f`, color: t.text, fontSize: 13 }, children: [
+      /* @__PURE__ */ jsx5("span", { style: { flex: 1 }, children: "Edited in two places \u2014 merging\u2026" }),
+      /* @__PURE__ */ jsx5("button", { onClick: () => resolveNow(note), style: { border: `1px solid ${t.accent}`, background: "transparent", color: t.accent, borderRadius: 8, padding: "4px 10px", fontSize: 12, cursor: "pointer" }, children: "Resolve now" })
+    ] }),
     attachErr && /* @__PURE__ */ jsx5("div", { style: { padding: "8px 16px", background: `${t.danger}22`, color: t.danger, fontSize: 13 }, children: attachErr }),
     /* @__PURE__ */ jsx5("div", { style: { flex: 1, overflow: "hidden" }, children: /* @__PURE__ */ jsx5(Editor, { value: body, onChange: setBody, resolveAttachment, viewRef }) })
   ] });
@@ -942,8 +1509,8 @@ function hdrBtn(t, active, danger) {
 
 // src/ui/ConfirmModal.jsx
 import { jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
-function ConfirmModal({ open, title, message, confirmLabel = "Confirm", danger, onConfirm, onCancel }) {
-  if (!open) return null;
+function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", danger, onConfirm, onCancel }) {
+  if (!open2) return null;
   const t = T();
   return /* @__PURE__ */ jsx6(
     "div",
@@ -1104,21 +1671,80 @@ function App({ appId, token }) {
   const [view, setView] = useState3({ mode: "grid", id: null });
   const [confirmId, setConfirmId] = useState3(null);
   const [pending, setPending] = useState3(0);
+  const [conflicts, setConflicts] = useState3(() => /* @__PURE__ */ new Set());
+  const reconTimer = useRef3(null);
   const online = isOnline();
+  const upsert = useCallback((meta, body) => {
+    setNotes((prev) => {
+      const next = prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { meta, body } : n) : [{ meta, body }, ...prev];
+      writeIndex(next).catch(() => {
+      });
+      return next;
+    });
+  }, []);
+  const onApplied = useCallback((id, note) => {
+    setConflicts((prev) => {
+      if (!prev.has(id)) return prev;
+      const n = new Set(prev);
+      n.delete(id);
+      return n;
+    });
+    setNotes((prev) => prev.map((n) => n.meta.id === id ? { meta: note.meta, body: note.body } : n));
+  }, []);
+  const onConflict = useCallback((id) => {
+    setConflicts((prev) => {
+      const n = new Set(prev);
+      n.add(id);
+      return n;
+    });
+  }, []);
+  const runReconcile = useCallback(() => {
+    reconcileAll({ onApplied, onConflict }).catch(() => {
+    });
+  }, [onApplied, onConflict]);
+  const scheduleReconcile = useCallback(() => {
+    if (reconTimer.current) clearTimeout(reconTimer.current);
+    reconTimer.current = setTimeout(runReconcile, 400);
+  }, [runReconcile]);
   useEffect4(() => {
     let live = true;
-    listNotes().then((list) => {
-      if (live) {
-        setNotes(list);
-        setLoading(false);
+    (async () => {
+      const canonical = await listNotes().catch(() => []);
+      let merged = canonical;
+      try {
+        const unsynced = await unsyncedLocals();
+        if (unsynced.length) {
+          const map = new Map(canonical.map((n) => [n.meta.id, n]));
+          for (const [id, rec] of unsynced) map.set(id, { meta: rec.working.meta, body: rec.working.body });
+          merged = [...map.values()];
+        }
+      } catch (e) {
       }
-    }).catch(() => {
-      if (live) setLoading(false);
-    });
+      if (!live) return;
+      setNotes(merged);
+      setLoading(false);
+      for (const n of canonical) {
+        contentHash(n.meta, n.body).then((hash) => ensureBase(n.meta.id, { meta: n.meta, body: n.body, hash })).catch(() => {
+        });
+      }
+      runReconcile();
+    })();
     return () => {
       live = false;
     };
-  }, []);
+  }, [runReconcile]);
+  useEffect4(() => {
+    const h = () => runReconcile();
+    for (const ev of ["online", "focus"]) window.addEventListener(ev, h);
+    const vis = () => {
+      if (document.visibilityState === "visible") runReconcile();
+    };
+    document.addEventListener("visibilitychange", vis);
+    return () => {
+      for (const ev of ["online", "focus"]) window.removeEventListener(ev, h);
+      document.removeEventListener("visibilitychange", vis);
+    };
+  }, [runReconcile]);
   useEffect4(() => {
     let live = true;
     const tick = () => pendingCount().then((n) => {
@@ -1132,28 +1758,24 @@ function App({ appId, token }) {
       clearInterval(h);
     };
   }, []);
-  const upsert = useCallback((meta, body) => {
-    setNotes((prev) => {
-      const next = prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { meta, body } : n) : [{ meta, body }, ...prev];
-      writeIndex(next).catch(() => {
-      });
-      return next;
-    });
-  }, []);
-  const persist = useCallback(async (meta, body) => {
-    const m = { ...meta, updated: (/* @__PURE__ */ new Date()).toISOString() };
-    m.content_hash = await contentHash(m, body);
-    upsert(m, body);
-    await saveNote(m, body);
-  }, [upsert]);
   const createNote = useCallback(async () => {
     const meta = newNote({});
     meta.content_hash = await contentHash(meta, "");
     upsert(meta, "");
-    saveNote(meta, "").catch(() => {
+    await saveNote(meta, "").catch(() => {
+    });
+    await promote(meta.id, { meta, body: "", hash: meta.content_hash }).catch(() => {
     });
     setView({ mode: "editor", id: meta.id });
   }, [upsert]);
+  const persist = useCallback(async (meta, body) => {
+    const m = { ...meta, updated: (/* @__PURE__ */ new Date()).toISOString() };
+    m.content_hash = await contentHash(m, body);
+    upsert(m, body);
+    await recordWorking(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {
+    });
+    scheduleReconcile();
+  }, [upsert, scheduleReconcile]);
   const togglePin = useCallback((id) => {
     const n = notes.find((x) => x.meta.id === id);
     if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body);
@@ -1192,27 +1814,10 @@ function App({ appId, token }) {
     });
   }, [notes, query]);
   const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id) : null;
-  const status = !online ? "Offline" : pending > 0 ? "Saving\u2026" : "Synced";
-  return /* @__PURE__ */ jsxs5("div", { style: {
-    position: "relative",
-    height: "100%",
-    display: "flex",
-    flexDirection: "column",
-    background: t.bg,
-    color: t.text,
-    fontFamily: t.font
-  }, children: [
+  const status = !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : pending > 0 ? "Saving\u2026" : "Synced";
+  return /* @__PURE__ */ jsxs5("div", { style: { position: "relative", height: "100%", display: "flex", flexDirection: "column", background: t.bg, color: t.text, fontFamily: t.font }, children: [
     /* @__PURE__ */ jsx7(TopBar, { query, onQuery: setQuery, onNew: createNote }),
-    /* @__PURE__ */ jsx7("main", { style: { flex: 1, overflow: "auto" }, children: loading ? /* @__PURE__ */ jsx7("div", { style: { padding: "18vh 0", textAlign: "center", color: t.muted, fontSize: 14 }, children: "Loading\u2026" }) : visible.length === 0 ? /* @__PURE__ */ jsx7(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx7(
-      Grid,
-      {
-        notes: visible,
-        onOpen: (id) => setView({ mode: "editor", id }),
-        onPin: togglePin,
-        onColor: setColor,
-        onDelete: setConfirmId
-      }
-    ) }),
+    /* @__PURE__ */ jsx7("main", { style: { flex: 1, overflow: "auto" }, children: loading ? /* @__PURE__ */ jsx7("div", { style: { padding: "18vh 0", textAlign: "center", color: t.muted, fontSize: 14 }, children: "Loading\u2026" }) : visible.length === 0 ? /* @__PURE__ */ jsx7(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx7(Grid, { notes: visible, onOpen: (id) => setView({ mode: "editor", id }), onPin: togglePin, onColor: setColor, onDelete: setConfirmId }) }),
     editing && /* @__PURE__ */ jsx7(
       EditorPanel,
       {
@@ -1224,6 +1829,7 @@ function App({ appId, token }) {
         onDelete: setConfirmId,
         resolveAttachment: attachmentURL,
         putAttachment,
+        conflict: conflicts.has(editing.meta.id),
         status
       }
     ),
