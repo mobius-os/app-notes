@@ -1,0 +1,28 @@
+{
+  "id": "notes",
+  "name": "Notes",
+  "version": "1.0.0",
+  "description": "Markdown notes that render as you type — pin, color, search, inline images & files. Works offline; git-tracked; conflicts auto-merge or get an agent.",
+  "author": "mobius-os",
+  "license": "MIT",
+  "homepage": "https://github.com/mobius-os/app-notes",
+  "entry": "index.jsx",
+  "icon": "icon.png",
+  "offline_capable": true,
+  "permissions": { "cross_app_access": "none", "share_with_apps": "none" },
+  "runtime": {
+    "imports": ["react", "react-dom", "codemirror", "katex"],
+    "esm_deps": ["marked", "dompurify"]
+  },
+  "storage_seeds": {
+    "notes-meta.json": {
+      "app": "notes",
+      "data_type": "notes",
+      "format": "markdown+frontmatter",
+      "dir": "notes/",
+      "index": "index.json",
+      "attachments": "attachments/"
+    }
+  },
+  "schedule": { "default": "*/10 * * * *", "user_configurable": false, "job": "tick.sh" }
+}

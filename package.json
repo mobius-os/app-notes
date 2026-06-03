@@ -1,0 +1,13 @@
+{
+  "name": "app-notes",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Markdown notes for Möbius — live-inline editor, offline, git-tracked.",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "node-diff3": "^3.1.2"
+  }
+}
