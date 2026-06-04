@@ -2,7 +2,7 @@
 // Edit src/app.jsx + src/{lib,ui,editor}/*, then run `npm run build`.
 
 // src/app.jsx
-import { useState as useState3, useEffect as useEffect4, useMemo, useCallback, useRef as useRef3 } from "react";
+import { useState as useState3, useEffect as useEffect4, useMemo, useCallback as useCallback2, useRef as useRef3 } from "react";
 
 // src/ui/theme.js
 function cssVar(name, fallback) {
@@ -1087,34 +1087,38 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete }) {
 }
 
 // src/ui/EditorPanel.jsx
-import { useState as useState2, useEffect as useEffect3, useRef as useRef2 } from "react";
+import { useState as useState2, useEffect as useEffect3, useRef as useRef2, useCallback } from "react";
 
 // src/editor/Editor.jsx
 import { useRef, useEffect as useEffect2 } from "react";
-import { EditorView as EditorView2, EditorState } from "codemirror";
+import { EditorState } from "@codemirror/state";
+import { EditorView as EditorView2 } from "@codemirror/view";
 
 // src/editor/extensions.js
 import {
-  EditorView,
-  EditorSelection,
-  keymap,
+  EditorSelection
+} from "@codemirror/state";
+import {
   history,
   historyKeymap,
   defaultKeymap,
-  indentWithTab,
-  markdown,
-  markdownLanguage,
+  indentWithTab
+} from "@codemirror/commands";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import {
   syntaxHighlighting,
   HighlightStyle,
-  tags,
   indentOnInput
-} from "codemirror";
+} from "@codemirror/language";
+import { tags } from "@lezer/highlight";
+import { EditorView, keymap } from "@codemirror/view";
 
 // src/editor/livePreview.js
-import { ViewPlugin, Decoration, syntaxTree } from "codemirror";
+import { syntaxTree } from "@codemirror/language";
+import { ViewPlugin, Decoration } from "@codemirror/view";
 
 // src/editor/widgets.js
-import { WidgetType } from "codemirror";
+import { WidgetType } from "@codemirror/view";
 import katex from "katex";
 var CheckboxWidget = class extends WidgetType {
   constructor(checked, pos) {
@@ -1462,6 +1466,19 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
   const timer = useRef2(null);
   const viewRef = useRef2(null);
   const fileRef = useRef2(null);
+  const latest = useRef2({ note, title: note.meta.title || "", body: note.body || "" });
+  useEffect3(() => {
+    latest.current = { note, title, body };
+  }, [note, title, body]);
+  const flushSave = useCallback(() => {
+    const cur = latest.current;
+    if (!cur?.note) return Promise.resolve();
+    if (cur.title === (cur.note.meta.title || "") && cur.body === (cur.note.body || "")) {
+      return Promise.resolve();
+    }
+    if (timer.current) clearTimeout(timer.current);
+    return Promise.resolve(onSave({ ...cur.note.meta, title: cur.title }, cur.body));
+  }, [onSave]);
   useEffect3(() => {
     setTitle(note.meta.title || "");
     setBody(note.body || "");
@@ -1469,9 +1486,25 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
   useEffect3(() => {
     if (title === (note.meta.title || "") && body === (note.body || "")) return;
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => onSave({ ...note.meta, title }, body), AUTOSAVE_MS);
+    timer.current = setTimeout(() => {
+      flushSave();
+    }, AUTOSAVE_MS);
     return () => clearTimeout(timer.current);
-  }, [title, body]);
+  }, [title, body, flushSave]);
+  useEffect3(() => {
+    const flushOnHide = () => {
+      if (document.visibilityState === "hidden") flushSave();
+    };
+    const flushOnUnload = () => {
+      flushSave();
+    };
+    document.addEventListener("visibilitychange", flushOnHide);
+    window.addEventListener("beforeunload", flushOnUnload);
+    return () => {
+      document.removeEventListener("visibilitychange", flushOnHide);
+      window.removeEventListener("beforeunload", flushOnUnload);
+    };
+  }, [flushSave]);
   async function handleFile(e) {
     const f = e.target.files && e.target.files[0];
     e.target.value = "";
@@ -1498,7 +1531,10 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
   const statusColor = status === "Synced" ? t.green : status === "Resolving\u2026" ? t.accent : t.muted;
   return /* @__PURE__ */ jsxs3("div", { style: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: t.bg, zIndex: 10 }, children: [
     /* @__PURE__ */ jsxs3("header", { style: { display: "flex", alignItems: "center", gap: 6, padding: "10px 12px", borderBottom: `1px solid ${t.border}` }, children: [
-      /* @__PURE__ */ jsx5("button", { onClick: onBack, "aria-label": "Back", style: hdrBtn(t), children: "\u2190" }),
+      /* @__PURE__ */ jsx5("button", { onClick: async () => {
+        await flushSave();
+        onBack();
+      }, "aria-label": "Back", style: hdrBtn(t), children: "\u2190" }),
       colorHex(note.meta.color) && /* @__PURE__ */ jsx5("span", { style: { width: 8, height: 8, borderRadius: "50%", background: colorHex(note.meta.color) } }),
       /* @__PURE__ */ jsx5(
         "input",
@@ -1715,7 +1751,7 @@ function App({ appId, token }) {
   const [conflicts, setConflicts] = useState3(() => /* @__PURE__ */ new Set());
   const reconTimer = useRef3(null);
   const online = isOnline();
-  const upsert = useCallback((meta, body) => {
+  const upsert = useCallback2((meta, body) => {
     setNotes((prev) => {
       const next = prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { meta, body } : n) : [{ meta, body }, ...prev];
       writeIndex(next).catch(() => {
@@ -1723,7 +1759,7 @@ function App({ appId, token }) {
       return next;
     });
   }, []);
-  const onApplied = useCallback((id, note) => {
+  const onApplied = useCallback2((id, note) => {
     setConflicts((prev) => {
       if (!prev.has(id)) return prev;
       const n = new Set(prev);
@@ -1732,7 +1768,7 @@ function App({ appId, token }) {
     });
     setNotes((prev) => prev.map((n) => n.meta.id === id ? { meta: note.meta, body: note.body } : n));
   }, []);
-  const onDeleted = useCallback((id) => {
+  const onDeleted = useCallback2((id) => {
     setConflicts((prev) => {
       if (!prev.has(id)) return prev;
       const n = new Set(prev);
@@ -1741,18 +1777,18 @@ function App({ appId, token }) {
     });
     setNotes((prev) => prev.filter((n) => n.meta.id !== id));
   }, []);
-  const onConflict = useCallback((id) => {
+  const onConflict = useCallback2((id) => {
     setConflicts((prev) => {
       const n = new Set(prev);
       n.add(id);
       return n;
     });
   }, []);
-  const runReconcile = useCallback(() => {
+  const runReconcile = useCallback2(() => {
     reconcileAll({ onApplied, onDeleted, onConflict }).catch(() => {
     });
   }, [onApplied, onDeleted, onConflict]);
-  const scheduleReconcile = useCallback(() => {
+  const scheduleReconcile = useCallback2(() => {
     if (reconTimer.current) clearTimeout(reconTimer.current);
     reconTimer.current = setTimeout(runReconcile, 400);
   }, [runReconcile]);
@@ -1808,7 +1844,7 @@ function App({ appId, token }) {
       clearInterval(h);
     };
   }, []);
-  const createNote = useCallback(async () => {
+  const createNote = useCallback2(async () => {
     const meta = newNote({});
     meta.content_hash = await contentHash(meta, "");
     upsert(meta, "");
@@ -1818,7 +1854,7 @@ function App({ appId, token }) {
     });
     setView({ mode: "editor", id: meta.id });
   }, [upsert]);
-  const persist = useCallback(async (meta, body) => {
+  const persist = useCallback2(async (meta, body) => {
     const m = { ...meta, updated: (/* @__PURE__ */ new Date()).toISOString() };
     m.content_hash = await contentHash(m, body);
     upsert(m, body);
@@ -1826,21 +1862,21 @@ function App({ appId, token }) {
     });
     scheduleReconcile();
   }, [upsert, scheduleReconcile]);
-  const togglePin = useCallback((id) => {
+  const togglePin = useCallback2((id) => {
     const n = notes.find((x) => x.meta.id === id);
     if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body);
   }, [notes, persist]);
-  const setColor = useCallback((id, color) => {
+  const setColor = useCallback2((id, color) => {
     const n = notes.find((x) => x.meta.id === id);
     if (n) persist({ ...n.meta, color }, n.body);
   }, [notes, persist]);
-  const queueDelete = useCallback(async (note) => {
+  const queueDelete = useCallback2(async (note) => {
     const hash = await contentHash(note.meta, note.body);
     await recordDeletion(note.meta.id, { meta: note.meta, body: note.body, hash }).catch(() => {
     });
     scheduleReconcile();
   }, [scheduleReconcile]);
-  const doDelete = useCallback((id) => {
+  const doDelete = useCallback2((id) => {
     const n = notes.find((x) => x.meta.id === id);
     if (n) queueDelete(n).catch(() => {
     });
@@ -1853,7 +1889,7 @@ function App({ appId, token }) {
     setConfirmId(null);
     setView((v) => v.mode === "editor" && v.id === id ? { mode: "grid" } : v);
   }, [notes, queueDelete]);
-  const back = useCallback(() => {
+  const back = useCallback2(() => {
     const n = notes.find((x) => x.meta.id === view.id);
     if (n && !(n.meta.title || "").trim() && !(n.body || "").trim()) {
       queueDelete(n).catch(() => {

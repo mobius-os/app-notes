@@ -1,7 +1,7 @@
 {
   "id": "notes",
   "name": "Notes",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Markdown notes that render as you type — pin, color, search, inline images & files. Works offline; git-tracked; conflicts auto-merge or get an agent.",
   "author": "mobius-os",
   "license": "MIT",
@@ -11,7 +11,7 @@
   "offline_capable": true,
   "permissions": { "cross_app_access": "none", "share_with_apps": "none" },
   "runtime": {
-    "imports": ["react", "react-dom", "codemirror", "katex"],
+    "imports": ["react", "react-dom", "codemirror", "@codemirror/state", "@codemirror/view", "@codemirror/commands", "@codemirror/lang-markdown", "@codemirror/language", "@lezer/highlight", "katex"],
     "esm_deps": ["marked", "dompurify"]
   },
   "storage_seeds": {

@@ -10,7 +10,8 @@
 // The whole build is wrapped in try/catch returning Decoration.none, so a
 // decoration bug degrades to a plain (still excellent) CodeMirror markdown
 // editor rather than crashing the view.
-import { ViewPlugin, Decoration, syntaxTree } from 'codemirror'
+import { syntaxTree } from '@codemirror/language'
+import { ViewPlugin, Decoration } from '@codemirror/view'
 import { CheckboxWidget, ImageWidget, FileChipWidget, MathWidget } from './widgets.js'
 
 const HIDE_MARKS = new Set(['HeaderMark', 'EmphasisMark', 'StrikethroughMark'])

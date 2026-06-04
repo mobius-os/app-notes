@@ -1,6 +1,6 @@
 // Full-screen note editor: header (back, title, pin, color, attach, status,
 // delete) + the live-inline CodeMirror body. Title + body autosave (debounced).
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { T } from './theme.js'
 import { colorHex } from './colors.js'
 import ColorPicker from './ColorPicker.jsx'
@@ -28,6 +28,21 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
   const timer = useRef(null)
   const viewRef = useRef(null)
   const fileRef = useRef(null)
+  const latest = useRef({ note, title: note.meta.title || '', body: note.body || '' })
+
+  useEffect(() => {
+    latest.current = { note, title, body }
+  }, [note, title, body])
+
+  const flushSave = useCallback(() => {
+    const cur = latest.current
+    if (!cur?.note) return Promise.resolve()
+    if (cur.title === (cur.note.meta.title || '') && cur.body === (cur.note.body || '')) {
+      return Promise.resolve()
+    }
+    if (timer.current) clearTimeout(timer.current)
+    return Promise.resolve(onSave({ ...cur.note.meta, title: cur.title }, cur.body))
+  }, [onSave])
 
   useEffect(() => {
     setTitle(note.meta.title || '')
@@ -37,10 +52,21 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
   useEffect(() => {
     if (title === (note.meta.title || '') && body === (note.body || '')) return
     if (timer.current) clearTimeout(timer.current)
-    timer.current = setTimeout(() => onSave({ ...note.meta, title }, body), AUTOSAVE_MS)
+    timer.current = setTimeout(() => { flushSave() }, AUTOSAVE_MS)
     return () => clearTimeout(timer.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, body])
+  }, [title, body, flushSave])
+
+  useEffect(() => {
+    const flushOnHide = () => { if (document.visibilityState === 'hidden') flushSave() }
+    const flushOnUnload = () => { flushSave() }
+    document.addEventListener('visibilitychange', flushOnHide)
+    window.addEventListener('beforeunload', flushOnUnload)
+    return () => {
+      document.removeEventListener('visibilitychange', flushOnHide)
+      window.removeEventListener('beforeunload', flushOnUnload)
+    }
+  }, [flushSave])
 
   async function handleFile(e) {
     const f = e.target.files && e.target.files[0]
@@ -64,7 +90,7 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: t.bg, zIndex: 10 }}>
       <header style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 12px', borderBottom: `1px solid ${t.border}` }}>
-        <button onClick={onBack} aria-label="Back" style={hdrBtn(t)}>←</button>
+        <button onClick={async () => { await flushSave(); onBack() }} aria-label="Back" style={hdrBtn(t)}>←</button>
         {colorHex(note.meta.color) && <span style={{ width: 8, height: 8, borderRadius: '50%', background: colorHex(note.meta.color) }} />}
         <input
           value={title}

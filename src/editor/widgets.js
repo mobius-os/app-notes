@@ -2,7 +2,7 @@
 // checkboxes, inline images (resolved from content-addressed attachment blobs),
 // file chips, and KaTeX-rendered math. Each replaces its markdown source range
 // when the cursor isn't on that line (see livePreview.js).
-import { WidgetType } from 'codemirror'
+import { WidgetType } from '@codemirror/view'
 import katex from 'katex'
 
 export class CheckboxWidget extends WidgetType {

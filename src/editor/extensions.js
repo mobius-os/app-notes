@@ -3,10 +3,17 @@
 // preview decorations (livePreview.js), formatting shortcuts, history, and
 // line wrapping. Only the pieces we use are pulled from the vendored bundle.
 import {
-  EditorView, EditorSelection, keymap, history, historyKeymap, defaultKeymap,
-  indentWithTab, markdown, markdownLanguage, syntaxHighlighting, HighlightStyle,
-  tags, indentOnInput,
-} from 'codemirror'
+  EditorSelection,
+} from '@codemirror/state'
+import {
+  history, historyKeymap, defaultKeymap, indentWithTab,
+} from '@codemirror/commands'
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import {
+  syntaxHighlighting, HighlightStyle, indentOnInput,
+} from '@codemirror/language'
+import { tags } from '@lezer/highlight'
+import { EditorView, keymap } from '@codemirror/view'
 import { livePreview } from './livePreview.js'
 
 const heading = (size, weight) => ({ fontSize: size, fontWeight: weight, lineHeight: '1.3' })

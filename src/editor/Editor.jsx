@@ -4,7 +4,8 @@
 // flows out through `onChange`. `viewRef` exposes the EditorView so the panel
 // can insert attachment markdown at the cursor.
 import { useRef, useEffect } from 'react'
-import { EditorView, EditorState } from 'codemirror'
+import { EditorState } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
 import { buildExtensions } from './extensions.js'
 
 export default function Editor({ value, onChange, resolveAttachment, viewRef }) {
