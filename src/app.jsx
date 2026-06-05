@@ -72,6 +72,7 @@ export default function App({ appId, token }) {
   const [pending, setPending] = useState(0)
   const [conflicts, setConflicts] = useState(() => new Set())
   const reconTimer = useRef(null)
+  const editorNavOwned = useRef(false)
   const online = store.isOnline()
 
   const upsert = useCallback((meta, body) => {
@@ -153,11 +154,56 @@ export default function App({ appId, token }) {
   // empty-card flash before the full editor opens. Once meaningful, the first
   // save lands canonical directly (no ancestor yet, so no conflict is possible)
   // and seeds its base; later edits go through the working copy + reconcile.
+  const pushEditorNav = useCallback(() => {
+    if (typeof window === 'undefined' || !window.parent) return Promise.resolve(false)
+    const requestId = `notes-editor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    return new Promise((resolve) => {
+      const done = (owned) => {
+        clearTimeout(timer)
+        window.removeEventListener('message', onMessage)
+        resolve(owned)
+      }
+      const timer = setTimeout(() => done(false), 1200)
+      const onMessage = (event) => {
+        if (event.origin !== window.location.origin) return
+        if (event.data?.requestId !== requestId) return
+        if (event.data.type === 'moebius:nav-push-ack') done(true)
+        else if (event.data.type === 'moebius:nav-push-rejected') done(false)
+      }
+      window.addEventListener('message', onMessage)
+      try {
+        window.parent.postMessage(
+          { type: 'moebius:nav-push', label: 'notes-editor', requestId },
+          window.location.origin,
+        )
+      } catch {
+        done(false)
+      }
+    })
+  }, [])
+
+  const popEditorNav = useCallback(() => {
+    if (!editorNavOwned.current || typeof window === 'undefined' || !window.parent) return
+    editorNavOwned.current = false
+    try {
+      window.parent.postMessage({ type: 'moebius:nav-pop' }, window.location.origin)
+    } catch {}
+  }, [])
+
+  const openEditor = useCallback(async (id) => {
+    if (view.mode === 'editor') {
+      setView({ mode: 'editor', id })
+      return
+    }
+    editorNavOwned.current = await pushEditorNav()
+    setView({ mode: 'editor', id })
+  }, [pushEditorNav, view.mode])
+
   const createNote = useCallback(() => {
     const meta = newNote({})
     setDraft({ meta, body: '' })
-    setView({ mode: 'editor', id: meta.id })
-  }, [])
+    openEditor(meta.id).catch(() => setView({ mode: 'editor', id: meta.id }))
+  }, [openEditor])
 
   const commitDraft = useCallback(async (meta, body) => {
     const m = { ...meta, updated: meta.updated || new Date().toISOString() }
@@ -204,6 +250,7 @@ export default function App({ appId, token }) {
 
   const doDelete = useCallback((id) => {
     if (draft && draft.meta.id === id) {
+      if (view.mode === 'editor' && view.id === id) popEditorNav()
       setDraft(null)
       setConfirmId(null)
       setView({ mode: 'grid' })
@@ -217,10 +264,18 @@ export default function App({ appId, token }) {
       return next
     })
     setConfirmId(null)
-    setView((v) => (v.mode === 'editor' && v.id === id ? { mode: 'grid' } : v))
-  }, [draft, notes, queueDelete])
+    setView((v) => {
+      if (v.mode === 'editor' && v.id === id) {
+        popEditorNav()
+        return { mode: 'grid' }
+      }
+      return v
+    })
+  }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode])
 
-  const back = useCallback(() => {
+  const back = useCallback((fromShell = false) => {
+    if (!fromShell) popEditorNav()
+    else editorNavOwned.current = false
     if (draft && draft.meta.id === view.id) {
       setDraft(null)
       setView({ mode: 'grid' })
@@ -236,7 +291,16 @@ export default function App({ appId, token }) {
       })
     }
     setView({ mode: 'grid' })
-  }, [draft, notes, view.id, queueDelete])
+  }, [draft, notes, popEditorNav, view.id, queueDelete])
+
+  useEffect(() => {
+    const onMessage = (event) => {
+      if (event.origin !== window.location.origin) return
+      if (event.data?.type === 'moebius:nav-back') back(true)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [back])
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -263,7 +327,7 @@ export default function App({ appId, token }) {
           ? <div style={{ padding: '18vh 0', textAlign: 'center', color: t.muted, fontSize: 14 }}>Loading…</div>
           : visible.length === 0
             ? <EmptyState filtered={!!query.trim()} />
-            : <Grid notes={visible} onOpen={(id) => setView({ mode: 'editor', id })} onPin={togglePin} onColor={setColor} onDelete={setConfirmId} resolveAttachment={store.attachmentURL} />}
+            : <Grid notes={visible} onOpen={(id) => { openEditor(id).catch(() => setView({ mode: 'editor', id })) }} onPin={togglePin} onColor={setColor} onDelete={setConfirmId} resolveAttachment={store.attachmentURL} />}
       </main>
 
       {editing && (

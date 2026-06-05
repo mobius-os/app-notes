@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert'
-import {firstLocalImageRef, neutralizePreviewMarkdown, PREVIEW_SANITIZE_OPTIONS} from '../src/lib/preview.js'
+import {firstLocalImageRef, localImageRefs, neutralizePreviewMarkdown, PREVIEW_SANITIZE_OPTIONS} from '../src/lib/preview.js'
 
 test('neutralizePreviewMarkdown preserves labels but removes URLs', () => {
   const md = [
@@ -38,11 +38,45 @@ test('firstLocalImageRef picks the first local image in the markdown body', () =
   assert.equal(firstLocalImageRef({}, md), 'attachments/abc123.png')
 })
 
+test('localImageRefs returns multiple body images in order, deduped', () => {
+  const md = [
+    '![one](attachments/one.png)',
+    '![remote](https://example.test/a.png)',
+    '![two](attachments/two.webp)',
+    '![dupe](attachments/one.png)',
+    '![three](attachments/three.jpg)',
+  ].join('\n')
+
+  assert.deepEqual(localImageRefs({}, md), [
+    'attachments/one.png',
+    'attachments/two.webp',
+    'attachments/three.jpg',
+  ])
+})
+
 test('firstLocalImageRef falls back to image attachments in frontmatter', () => {
   assert.equal(
     firstLocalImageRef({attachments: ['attachments/file.pdf', 'attachments/abc123.jpeg']}, ''),
     'attachments/abc123.jpeg',
   )
+})
+
+test('localImageRefs caps previews to the requested limit', () => {
+  const meta = {
+    attachments: [
+      'attachments/a.png',
+      'attachments/b.png',
+      'attachments/c.png',
+      'attachments/d.png',
+      'attachments/e.png',
+    ],
+  }
+
+  assert.deepEqual(localImageRefs(meta, '', 3), [
+    'attachments/a.png',
+    'attachments/b.png',
+    'attachments/c.png',
+  ])
 })
 
 test('firstLocalImageRef ignores non-local and non-image paths', () => {

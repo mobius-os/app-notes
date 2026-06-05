@@ -928,11 +928,17 @@ var PREVIEW_SANITIZE_OPTIONS = {
 function neutralizePreviewMarkdown(md) {
   return (md || "").replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, url) => String(url).startsWith("attachments/") ? ` \u{1F5BC} ${alt || ""} ` : ` ${alt || "image"} `).replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1");
 }
-function firstLocalImageRef(meta = {}, body = "") {
-  const fromBody = [...String(body || "").matchAll(/!\[[^\]]*\]\((attachments\/[^)\s]+)\)/g)].map((m) => m[1]).find((path) => isLocalImagePath(path));
-  if (fromBody) return fromBody;
-  const fromMeta = Array.isArray(meta.attachments) ? meta.attachments.find((path) => isLocalImagePath(path)) : null;
-  return fromMeta || null;
+function localImageRefs(meta = {}, body = "", limit = 4) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  const add = (path) => {
+    if (out.length >= limit || seen.has(path) || !isLocalImagePath(path)) return;
+    seen.add(path);
+    out.push(path);
+  };
+  [...String(body || "").matchAll(/!\[[^\]]*\]\((attachments\/[^)\s]+)\)/g)].map((m) => m[1]).forEach(add);
+  if (Array.isArray(meta.attachments)) meta.attachments.forEach(add);
+  return out;
 }
 function isLocalImagePath(path) {
   return /^attachments\/[^/]+\.(png|jpe?g|gif|webp|avif)$/i.test(String(path || ""));
@@ -1096,7 +1102,7 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const { meta, body } = note;
   const [html, setHtml] = useState("");
   const [showColors, setShowColors] = useState(false);
-  const [thumbUrl, setThumbUrl] = useState(null);
+  const [thumbUrls, setThumbUrls] = useState([]);
   useEffect(() => {
     let live = true;
     renderPreviewHTML((body || "").slice(0, 700)).then((h) => {
@@ -1109,23 +1115,24 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   }, [body]);
   useEffect(() => {
     let live = true;
-    let url = null;
-    const ref = firstLocalImageRef(meta, body);
-    setThumbUrl(null);
-    if (!ref || !resolveAttachment) return () => {
+    let urls = [];
+    const refs = localImageRefs(meta, body, 4);
+    setThumbUrls([]);
+    if (!refs.length || !resolveAttachment) return () => {
     };
-    resolveAttachment(ref).then((u) => {
-      if (!live || !u) {
-        if (u) URL.revokeObjectURL(u);
+    Promise.all(refs.map((ref) => resolveAttachment(ref).catch(() => null))).then((resolved) => {
+      const next = resolved.filter(Boolean);
+      if (!live) {
+        next.forEach((u) => URL.revokeObjectURL(u));
         return;
       }
-      url = u;
-      setThumbUrl(u);
+      urls = next;
+      setThumbUrls(next);
     }).catch(() => {
     });
     return () => {
       live = false;
-      if (url) URL.revokeObjectURL(url);
+      urls.forEach((u) => URL.revokeObjectURL(u));
     };
   }, [body, meta, resolveAttachment]);
   const bar = colorHex(meta.color);
@@ -1145,23 +1152,29 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
         onClick: () => onOpen(meta.id),
         style: { cursor: "pointer", padding: "14px 16px 10px" },
         children: [
-          thumbUrl && /* @__PURE__ */ jsx3(
+          thumbUrls.length > 0 && /* @__PURE__ */ jsx3("div", { style: {
+            display: "grid",
+            gridTemplateColumns: thumbUrls.length === 1 ? "1fr" : "repeat(2, minmax(0, 1fr))",
+            gap: 6,
+            marginBottom: 10
+          }, children: thumbUrls.map((url, index) => /* @__PURE__ */ jsx3(
             "img",
             {
-              src: thumbUrl,
+              src: url,
               alt: "",
               style: {
                 width: "100%",
-                aspectRatio: "16 / 10",
+                aspectRatio: thumbUrls.length === 1 ? "16 / 10" : "1 / 1",
                 objectFit: "cover",
                 display: "block",
                 borderRadius: 6,
-                marginBottom: 10,
                 border: `1px solid ${bar ? colorTint(meta.color, 0.28) : t.border}`,
-                background: t.surface2
+                background: t.surface2,
+                gridColumn: thumbUrls.length === 3 && index === 0 ? "span 2" : void 0
               }
-            }
-          ),
+            },
+            url
+          )) }),
           meta.title && /* @__PURE__ */ jsx3("div", { style: { fontSize: 15, fontWeight: 650, color: t.text, marginBottom: 6, overflowWrap: "anywhere" }, children: meta.title }),
           empty ? /* @__PURE__ */ jsx3("div", { style: { fontSize: 13.5, color: t.muted, opacity: 0.6, fontStyle: "italic" }, children: "Empty note" }) : /* @__PURE__ */ jsx3(
             "div",
@@ -1211,7 +1224,7 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   }, children: txt });
   const cards = (list) => /* @__PURE__ */ jsx4("div", { style: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 220px), 1fr))",
+    gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 180px), 1fr))",
     gap: 12,
     alignItems: "start"
   }, children: list.map((n) => /* @__PURE__ */ jsx4(
@@ -1226,7 +1239,7 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
     },
     n.meta.id
   )) });
-  return /* @__PURE__ */ jsxs3("div", { style: { padding: "16px 12px 90px", maxWidth: 1120, margin: "0 auto" }, children: [
+  return /* @__PURE__ */ jsxs3("div", { style: { padding: "16px 8px 90px", maxWidth: 1120, margin: "0 auto" }, children: [
     pinned.length > 0 && /* @__PURE__ */ jsxs3("section", { style: { marginBottom: 18 }, children: [
       header("Pinned"),
       cards(pinned)
@@ -1943,6 +1956,7 @@ function App({ appId, token }) {
   const [pending, setPending] = useState3(0);
   const [conflicts, setConflicts] = useState3(() => /* @__PURE__ */ new Set());
   const reconTimer = useRef3(null);
+  const editorNavOwned = useRef3(false);
   const online = isOnline();
   const upsert = useCallback2((meta, body) => {
     setNotes((prev) => {
@@ -2037,11 +2051,54 @@ function App({ appId, token }) {
       clearInterval(h);
     };
   }, []);
+  const pushEditorNav = useCallback2(() => {
+    if (typeof window === "undefined" || !window.parent) return Promise.resolve(false);
+    const requestId = `notes-editor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    return new Promise((resolve) => {
+      const done = (owned) => {
+        clearTimeout(timer);
+        window.removeEventListener("message", onMessage);
+        resolve(owned);
+      };
+      const timer = setTimeout(() => done(false), 1200);
+      const onMessage = (event) => {
+        if (event.origin !== window.location.origin) return;
+        if (event.data?.requestId !== requestId) return;
+        if (event.data.type === "moebius:nav-push-ack") done(true);
+        else if (event.data.type === "moebius:nav-push-rejected") done(false);
+      };
+      window.addEventListener("message", onMessage);
+      try {
+        window.parent.postMessage(
+          { type: "moebius:nav-push", label: "notes-editor", requestId },
+          window.location.origin
+        );
+      } catch {
+        done(false);
+      }
+    });
+  }, []);
+  const popEditorNav = useCallback2(() => {
+    if (!editorNavOwned.current || typeof window === "undefined" || !window.parent) return;
+    editorNavOwned.current = false;
+    try {
+      window.parent.postMessage({ type: "moebius:nav-pop" }, window.location.origin);
+    } catch {
+    }
+  }, []);
+  const openEditor = useCallback2(async (id) => {
+    if (view.mode === "editor") {
+      setView({ mode: "editor", id });
+      return;
+    }
+    editorNavOwned.current = await pushEditorNav();
+    setView({ mode: "editor", id });
+  }, [pushEditorNav, view.mode]);
   const createNote = useCallback2(() => {
     const meta = newNote({});
     setDraft({ meta, body: "" });
-    setView({ mode: "editor", id: meta.id });
-  }, []);
+    openEditor(meta.id).catch(() => setView({ mode: "editor", id: meta.id }));
+  }, [openEditor]);
   const commitDraft = useCallback2(async (meta, body) => {
     const m = { ...meta, updated: meta.updated || (/* @__PURE__ */ new Date()).toISOString() };
     m.content_hash = await contentHash(m, body);
@@ -2087,6 +2144,7 @@ function App({ appId, token }) {
   }, [scheduleReconcile]);
   const doDelete = useCallback2((id) => {
     if (draft && draft.meta.id === id) {
+      if (view.mode === "editor" && view.id === id) popEditorNav();
       setDraft(null);
       setConfirmId(null);
       setView({ mode: "grid" });
@@ -2102,9 +2160,17 @@ function App({ appId, token }) {
       return next;
     });
     setConfirmId(null);
-    setView((v) => v.mode === "editor" && v.id === id ? { mode: "grid" } : v);
-  }, [draft, notes, queueDelete]);
-  const back = useCallback2(() => {
+    setView((v) => {
+      if (v.mode === "editor" && v.id === id) {
+        popEditorNav();
+        return { mode: "grid" };
+      }
+      return v;
+    });
+  }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode]);
+  const back = useCallback2((fromShell = false) => {
+    if (!fromShell) popEditorNav();
+    else editorNavOwned.current = false;
     if (draft && draft.meta.id === view.id) {
       setDraft(null);
       setView({ mode: "grid" });
@@ -2122,7 +2188,15 @@ function App({ appId, token }) {
       });
     }
     setView({ mode: "grid" });
-  }, [draft, notes, view.id, queueDelete]);
+  }, [draft, notes, popEditorNav, view.id, queueDelete]);
+  useEffect4(() => {
+    const onMessage = (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type === "moebius:nav-back") back(true);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [back]);
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = q ? notes.filter((n) => (n.meta.title || "").toLowerCase().includes(q) || (n.body || "").toLowerCase().includes(q) || (n.meta.tags || []).join(" ").toLowerCase().includes(q)) : notes;
@@ -2135,7 +2209,9 @@ function App({ appId, token }) {
   const status = !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : pending > 0 ? "Saving\u2026" : "Synced";
   return /* @__PURE__ */ jsxs6("div", { style: { position: "relative", height: "100%", display: "flex", flexDirection: "column", background: t.bg, color: t.text, fontFamily: t.font }, children: [
     /* @__PURE__ */ jsx8(TopBar, { query, onQuery: setQuery, onNew: createNote }),
-    /* @__PURE__ */ jsx8("main", { style: { flex: 1, overflow: "auto" }, children: loading ? /* @__PURE__ */ jsx8("div", { style: { padding: "18vh 0", textAlign: "center", color: t.muted, fontSize: 14 }, children: "Loading\u2026" }) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(Grid, { notes: visible, onOpen: (id) => setView({ mode: "editor", id }), onPin: togglePin, onColor: setColor, onDelete: setConfirmId, resolveAttachment: attachmentURL }) }),
+    /* @__PURE__ */ jsx8("main", { style: { flex: 1, overflow: "auto" }, children: loading ? /* @__PURE__ */ jsx8("div", { style: { padding: "18vh 0", textAlign: "center", color: t.muted, fontSize: 14 }, children: "Loading\u2026" }) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(Grid, { notes: visible, onOpen: (id) => {
+      openEditor(id).catch(() => setView({ mode: "editor", id }));
+    }, onPin: togglePin, onColor: setColor, onDelete: setConfirmId, resolveAttachment: attachmentURL }) }),
     editing && /* @__PURE__ */ jsx8(
       EditorPanel,
       {

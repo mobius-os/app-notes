@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { T } from './theme.js'
 import { colorHex, colorTint } from './colors.js'
-import { firstLocalImageRef, renderPreviewHTML } from '../lib/preview.js'
+import { localImageRefs, renderPreviewHTML } from '../lib/preview.js'
 import ColorPicker from './ColorPicker.jsx'
 import { Icon } from './icons.jsx'
 
@@ -30,7 +30,7 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
   const { meta, body } = note
   const [html, setHtml] = useState('')
   const [showColors, setShowColors] = useState(false)
-  const [thumbUrl, setThumbUrl] = useState(null)
+  const [thumbUrls, setThumbUrls] = useState([])
 
   useEffect(() => {
     let live = true
@@ -42,23 +42,24 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
 
   useEffect(() => {
     let live = true
-    let url = null
-    const ref = firstLocalImageRef(meta, body)
-    setThumbUrl(null)
-    if (!ref || !resolveAttachment) return () => {}
-    resolveAttachment(ref)
-      .then((u) => {
-        if (!live || !u) {
-          if (u) URL.revokeObjectURL(u)
+    let urls = []
+    const refs = localImageRefs(meta, body, 4)
+    setThumbUrls([])
+    if (!refs.length || !resolveAttachment) return () => {}
+    Promise.all(refs.map((ref) => resolveAttachment(ref).catch(() => null)))
+      .then((resolved) => {
+        const next = resolved.filter(Boolean)
+        if (!live) {
+          next.forEach((u) => URL.revokeObjectURL(u))
           return
         }
-        url = u
-        setThumbUrl(u)
+        urls = next
+        setThumbUrls(next)
       })
       .catch(() => {})
     return () => {
       live = false
-      if (url) URL.revokeObjectURL(url)
+      urls.forEach((u) => URL.revokeObjectURL(u))
     }
   }, [body, meta, resolveAttachment])
 
@@ -79,17 +80,31 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
           onClick={() => onOpen(meta.id)}
           style={{ cursor: 'pointer', padding: '14px 16px 10px' }}
         >
-          {thumbUrl && (
-            <img
-              src={thumbUrl}
-              alt=""
-              style={{
-                width: '100%', aspectRatio: '16 / 10', objectFit: 'cover',
-                display: 'block', borderRadius: 6, marginBottom: 10,
-                border: `1px solid ${bar ? colorTint(meta.color, 0.28) : t.border}`,
-                background: t.surface2,
-              }}
-            />
+          {thumbUrls.length > 0 && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: thumbUrls.length === 1 ? '1fr' : 'repeat(2, minmax(0, 1fr))',
+              gap: 6,
+              marginBottom: 10,
+            }}>
+              {thumbUrls.map((url, index) => (
+                <img
+                  key={url}
+                  src={url}
+                  alt=""
+                  style={{
+                    width: '100%',
+                    aspectRatio: thumbUrls.length === 1 ? '16 / 10' : '1 / 1',
+                    objectFit: 'cover',
+                    display: 'block',
+                    borderRadius: 6,
+                    border: `1px solid ${bar ? colorTint(meta.color, 0.28) : t.border}`,
+                    background: t.surface2,
+                    gridColumn: thumbUrls.length === 3 && index === 0 ? 'span 2' : undefined,
+                  }}
+                />
+              ))}
+            </div>
           )}
           {meta.title && <div style={{ fontSize: 15, fontWeight: 650, color: t.text, marginBottom: 6, overflowWrap: 'anywhere' }}>{meta.title}</div>}
           {empty

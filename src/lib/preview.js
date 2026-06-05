@@ -34,16 +34,25 @@ export function neutralizePreviewMarkdown(md) {
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
 }
 
-export function firstLocalImageRef(meta = {}, body = '') {
-  const fromBody = [...String(body || '').matchAll(/!\[[^\]]*\]\((attachments\/[^)\s]+)\)/g)]
-    .map((m) => m[1])
-    .find((path) => isLocalImagePath(path))
-  if (fromBody) return fromBody
+export function localImageRefs(meta = {}, body = '', limit = 4) {
+  const seen = new Set()
+  const out = []
+  const add = (path) => {
+    if (out.length >= limit || seen.has(path) || !isLocalImagePath(path)) return
+    seen.add(path)
+    out.push(path)
+  }
 
-  const fromMeta = Array.isArray(meta.attachments)
-    ? meta.attachments.find((path) => isLocalImagePath(path))
-    : null
-  return fromMeta || null
+  ;[...String(body || '').matchAll(/!\[[^\]]*\]\((attachments\/[^)\s]+)\)/g)]
+    .map((m) => m[1])
+    .forEach(add)
+
+  if (Array.isArray(meta.attachments)) meta.attachments.forEach(add)
+  return out
+}
+
+export function firstLocalImageRef(meta = {}, body = '') {
+  return localImageRefs(meta, body, 1)[0] || null
 }
 
 function isLocalImagePath(path) {

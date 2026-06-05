@@ -1,6 +1,6 @@
 {
   "name": "app-notes",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": true,
   "type": "module",
   "description": "Markdown notes for Möbius — live-inline editor, offline, git-tracked.",

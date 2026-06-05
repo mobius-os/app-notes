@@ -18,7 +18,7 @@ export default function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveA
   const cards = (list) => (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 220px), 1fr))',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 180px), 1fr))',
       gap: 12,
       alignItems: 'start',
     }}>
@@ -37,7 +37,7 @@ export default function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveA
   )
 
   return (
-    <div style={{ padding: '16px 12px 90px', maxWidth: 1120, margin: '0 auto' }}>
+    <div style={{ padding: '16px 8px 90px', maxWidth: 1120, margin: '0 auto' }}>
       {pinned.length > 0 && <section style={{ marginBottom: 18 }}>{header('Pinned')}{cards(pinned)}</section>}
       {others.length > 0 && <section>{pinned.length > 0 && header('Others')}{cards(others)}</section>}
     </div>
