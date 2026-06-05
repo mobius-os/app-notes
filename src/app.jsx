@@ -263,7 +263,7 @@ export default function App({ appId, token }) {
           ? <div style={{ padding: '18vh 0', textAlign: 'center', color: t.muted, fontSize: 14 }}>Loading…</div>
           : visible.length === 0
             ? <EmptyState filtered={!!query.trim()} />
-            : <Grid notes={visible} onOpen={(id) => setView({ mode: 'editor', id })} onPin={togglePin} onColor={setColor} onDelete={setConfirmId} />}
+            : <Grid notes={visible} onOpen={(id) => setView({ mode: 'editor', id })} onPin={togglePin} onColor={setColor} onDelete={setConfirmId} resolveAttachment={store.attachmentURL} />}
       </main>
 
       {editing && (

@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert'
-import {neutralizePreviewMarkdown, PREVIEW_SANITIZE_OPTIONS} from '../src/lib/preview.js'
+import {firstLocalImageRef, neutralizePreviewMarkdown, PREVIEW_SANITIZE_OPTIONS} from '../src/lib/preview.js'
 
 test('neutralizePreviewMarkdown preserves labels but removes URLs', () => {
   const md = [
@@ -26,4 +26,26 @@ test('preview sanitizer forbids network-bearing tags and attributes', () => {
   assert.ok(PREVIEW_SANITIZE_OPTIONS.FORBID_ATTR.includes('href'))
   assert.ok(PREVIEW_SANITIZE_OPTIONS.FORBID_ATTR.includes('src'))
   assert.ok(PREVIEW_SANITIZE_OPTIONS.FORBID_ATTR.includes('srcset'))
+})
+
+test('firstLocalImageRef picks the first local image in the markdown body', () => {
+  const md = [
+    '![remote](https://example.test/a.png)',
+    '![receipt](attachments/abc123.png)',
+    '![later](attachments/later.webp)',
+  ].join('\n')
+
+  assert.equal(firstLocalImageRef({}, md), 'attachments/abc123.png')
+})
+
+test('firstLocalImageRef falls back to image attachments in frontmatter', () => {
+  assert.equal(
+    firstLocalImageRef({attachments: ['attachments/file.pdf', 'attachments/abc123.jpeg']}, ''),
+    'attachments/abc123.jpeg',
+  )
+})
+
+test('firstLocalImageRef ignores non-local and non-image paths', () => {
+  assert.equal(firstLocalImageRef({attachments: ['attachments/file.pdf']}, '![x](https://example.test/x.png)'), null)
+  assert.equal(firstLocalImageRef({attachments: ['../oops.png']}, ''), null)
 })

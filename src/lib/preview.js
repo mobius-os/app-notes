@@ -34,6 +34,22 @@ export function neutralizePreviewMarkdown(md) {
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
 }
 
+export function firstLocalImageRef(meta = {}, body = '') {
+  const fromBody = [...String(body || '').matchAll(/!\[[^\]]*\]\((attachments\/[^)\s]+)\)/g)]
+    .map((m) => m[1])
+    .find((path) => isLocalImagePath(path))
+  if (fromBody) return fromBody
+
+  const fromMeta = Array.isArray(meta.attachments)
+    ? meta.attachments.find((path) => isLocalImagePath(path))
+    : null
+  return fromMeta || null
+}
+
+function isLocalImagePath(path) {
+  return /^attachments\/[^/]+\.(png|jpe?g|gif|webp|avif)$/i.test(String(path || ''))
+}
+
 export async function renderPreviewHTML(md) {
   const { marked, purify } = await libs()
   const html = marked(neutralizePreviewMarkdown(md), { breaks: true, gfm: true })

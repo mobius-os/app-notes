@@ -928,6 +928,15 @@ var PREVIEW_SANITIZE_OPTIONS = {
 function neutralizePreviewMarkdown(md) {
   return (md || "").replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_m, alt, url) => String(url).startsWith("attachments/") ? ` \u{1F5BC} ${alt || ""} ` : ` ${alt || "image"} `).replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1");
 }
+function firstLocalImageRef(meta = {}, body = "") {
+  const fromBody = [...String(body || "").matchAll(/!\[[^\]]*\]\((attachments\/[^)\s]+)\)/g)].map((m) => m[1]).find((path) => isLocalImagePath(path));
+  if (fromBody) return fromBody;
+  const fromMeta = Array.isArray(meta.attachments) ? meta.attachments.find((path) => isLocalImagePath(path)) : null;
+  return fromMeta || null;
+}
+function isLocalImagePath(path) {
+  return /^attachments\/[^/]+\.(png|jpe?g|gif|webp|avif)$/i.test(String(path || ""));
+}
 async function renderPreviewHTML(md) {
   const { marked, purify } = await libs();
   const html = marked(neutralizePreviewMarkdown(md), { breaks: true, gfm: true });
@@ -1082,11 +1091,12 @@ function IconBtn({ children, title, onClick, active, danger }) {
     }
   );
 }
-function Card({ note, onOpen, onPin, onColor, onDelete }) {
+function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const t = T();
   const { meta, body } = note;
   const [html, setHtml] = useState("");
   const [showColors, setShowColors] = useState(false);
+  const [thumbUrl, setThumbUrl] = useState(null);
   useEffect(() => {
     let live = true;
     renderPreviewHTML((body || "").slice(0, 700)).then((h) => {
@@ -1097,6 +1107,27 @@ function Card({ note, onOpen, onPin, onColor, onDelete }) {
       live = false;
     };
   }, [body]);
+  useEffect(() => {
+    let live = true;
+    let url = null;
+    const ref = firstLocalImageRef(meta, body);
+    setThumbUrl(null);
+    if (!ref || !resolveAttachment) return () => {
+    };
+    resolveAttachment(ref).then((u) => {
+      if (!live || !u) {
+        if (u) URL.revokeObjectURL(u);
+        return;
+      }
+      url = u;
+      setThumbUrl(u);
+    }).catch(() => {
+    });
+    return () => {
+      live = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [body, meta, resolveAttachment]);
   const bar = colorHex(meta.color);
   const tint = colorTint(meta.color);
   const empty = !meta.title && !(body || "").trim();
@@ -1114,6 +1145,23 @@ function Card({ note, onOpen, onPin, onColor, onDelete }) {
         onClick: () => onOpen(meta.id),
         style: { cursor: "pointer", padding: "14px 16px 10px" },
         children: [
+          thumbUrl && /* @__PURE__ */ jsx3(
+            "img",
+            {
+              src: thumbUrl,
+              alt: "",
+              style: {
+                width: "100%",
+                aspectRatio: "16 / 10",
+                objectFit: "cover",
+                display: "block",
+                borderRadius: 6,
+                marginBottom: 10,
+                border: `1px solid ${bar ? colorTint(meta.color, 0.28) : t.border}`,
+                background: t.surface2
+              }
+            }
+          ),
           meta.title && /* @__PURE__ */ jsx3("div", { style: { fontSize: 15, fontWeight: 650, color: t.text, marginBottom: 6, overflowWrap: "anywhere" }, children: meta.title }),
           empty ? /* @__PURE__ */ jsx3("div", { style: { fontSize: 13.5, color: t.muted, opacity: 0.6, fontStyle: "italic" }, children: "Empty note" }) : /* @__PURE__ */ jsx3(
             "div",
@@ -1149,7 +1197,7 @@ function Card({ note, onOpen, onPin, onColor, onDelete }) {
 
 // src/ui/Grid.jsx
 import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
-function Grid({ notes, onOpen, onPin, onColor, onDelete }) {
+function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const t = T();
   const pinned = notes.filter((n) => n.meta.pinned);
   const others = notes.filter((n) => !n.meta.pinned);
@@ -1161,7 +1209,23 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete }) {
     color: t.muted,
     margin: "4px 8px 10px"
   }, children: txt });
-  const cards = (list) => /* @__PURE__ */ jsx4("div", { style: { columnGap: 12, columns: "220px" }, children: list.map((n) => /* @__PURE__ */ jsx4(Card, { note: n, onOpen, onPin, onColor, onDelete }, n.meta.id)) });
+  const cards = (list) => /* @__PURE__ */ jsx4("div", { style: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 220px), 1fr))",
+    gap: 12,
+    alignItems: "start"
+  }, children: list.map((n) => /* @__PURE__ */ jsx4(
+    Card,
+    {
+      note: n,
+      onOpen,
+      onPin,
+      onColor,
+      onDelete,
+      resolveAttachment
+    },
+    n.meta.id
+  )) });
   return /* @__PURE__ */ jsxs3("div", { style: { padding: "16px 12px 90px", maxWidth: 1120, margin: "0 auto" }, children: [
     pinned.length > 0 && /* @__PURE__ */ jsxs3("section", { style: { marginBottom: 18 }, children: [
       header("Pinned"),
@@ -2071,7 +2135,7 @@ function App({ appId, token }) {
   const status = !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : pending > 0 ? "Saving\u2026" : "Synced";
   return /* @__PURE__ */ jsxs6("div", { style: { position: "relative", height: "100%", display: "flex", flexDirection: "column", background: t.bg, color: t.text, fontFamily: t.font }, children: [
     /* @__PURE__ */ jsx8(TopBar, { query, onQuery: setQuery, onNew: createNote }),
-    /* @__PURE__ */ jsx8("main", { style: { flex: 1, overflow: "auto" }, children: loading ? /* @__PURE__ */ jsx8("div", { style: { padding: "18vh 0", textAlign: "center", color: t.muted, fontSize: 14 }, children: "Loading\u2026" }) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(Grid, { notes: visible, onOpen: (id) => setView({ mode: "editor", id }), onPin: togglePin, onColor: setColor, onDelete: setConfirmId }) }),
+    /* @__PURE__ */ jsx8("main", { style: { flex: 1, overflow: "auto" }, children: loading ? /* @__PURE__ */ jsx8("div", { style: { padding: "18vh 0", textAlign: "center", color: t.muted, fontSize: 14 }, children: "Loading\u2026" }) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(Grid, { notes: visible, onOpen: (id) => setView({ mode: "editor", id }), onPin: togglePin, onColor: setColor, onDelete: setConfirmId, resolveAttachment: attachmentURL }) }),
     editing && /* @__PURE__ */ jsx8(
       EditorPanel,
       {

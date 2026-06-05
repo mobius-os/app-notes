@@ -1,9 +1,10 @@
-// Masonry grid of note cards (CSS columns — true masonry, no JS layout).
+// Responsive grid of note cards. Fixed card tracks keep the home view boxy and
+// scannable while still wrapping down to one column on narrow phones.
 // Pinned notes get their own section above the rest.
 import { T } from './theme.js'
 import Card from './Card.jsx'
 
-export default function Grid({ notes, onOpen, onPin, onColor, onDelete }) {
+export default function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const t = T()
   const pinned = notes.filter((n) => n.meta.pinned)
   const others = notes.filter((n) => !n.meta.pinned)
@@ -15,9 +16,22 @@ export default function Grid({ notes, onOpen, onPin, onColor, onDelete }) {
     }}>{txt}</h2>
   )
   const cards = (list) => (
-    <div style={{ columnGap: 12, columns: '220px' }}>
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 220px), 1fr))',
+      gap: 12,
+      alignItems: 'start',
+    }}>
       {list.map((n) => (
-        <Card key={n.meta.id} note={n} onOpen={onOpen} onPin={onPin} onColor={onColor} onDelete={onDelete} />
+        <Card
+          key={n.meta.id}
+          note={n}
+          onOpen={onOpen}
+          onPin={onPin}
+          onColor={onColor}
+          onDelete={onDelete}
+          resolveAttachment={resolveAttachment}
+        />
       ))}
     </div>
   )

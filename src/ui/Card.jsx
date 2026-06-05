@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { T } from './theme.js'
 import { colorHex, colorTint } from './colors.js'
-import { renderPreviewHTML } from '../lib/preview.js'
+import { firstLocalImageRef, renderPreviewHTML } from '../lib/preview.js'
 import ColorPicker from './ColorPicker.jsx'
 import { Icon } from './icons.jsx'
 
@@ -25,11 +25,12 @@ function IconBtn({ children, title, onClick, active, danger }) {
   )
 }
 
-export default function Card({ note, onOpen, onPin, onColor, onDelete }) {
+export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const t = T()
   const { meta, body } = note
   const [html, setHtml] = useState('')
   const [showColors, setShowColors] = useState(false)
+  const [thumbUrl, setThumbUrl] = useState(null)
 
   useEffect(() => {
     let live = true
@@ -38,6 +39,28 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete }) {
       .catch(() => {})
     return () => { live = false }
   }, [body])
+
+  useEffect(() => {
+    let live = true
+    let url = null
+    const ref = firstLocalImageRef(meta, body)
+    setThumbUrl(null)
+    if (!ref || !resolveAttachment) return () => {}
+    resolveAttachment(ref)
+      .then((u) => {
+        if (!live || !u) {
+          if (u) URL.revokeObjectURL(u)
+          return
+        }
+        url = u
+        setThumbUrl(u)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [body, meta, resolveAttachment])
 
   const bar = colorHex(meta.color)
   const tint = colorTint(meta.color)
@@ -56,6 +79,18 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete }) {
           onClick={() => onOpen(meta.id)}
           style={{ cursor: 'pointer', padding: '14px 16px 10px' }}
         >
+          {thumbUrl && (
+            <img
+              src={thumbUrl}
+              alt=""
+              style={{
+                width: '100%', aspectRatio: '16 / 10', objectFit: 'cover',
+                display: 'block', borderRadius: 6, marginBottom: 10,
+                border: `1px solid ${bar ? colorTint(meta.color, 0.28) : t.border}`,
+                background: t.surface2,
+              }}
+            />
+          )}
           {meta.title && <div style={{ fontSize: 15, fontWeight: 650, color: t.text, marginBottom: 6, overflowWrap: 'anywhere' }}>{meta.title}</div>}
           {empty
             ? <div style={{ fontSize: 13.5, color: t.muted, opacity: 0.6, fontStyle: 'italic' }}>Empty note</div>
