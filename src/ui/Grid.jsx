@@ -15,7 +15,7 @@ export default function Grid({ notes, onOpen, onPin, onColor, onDelete }) {
     }}>{txt}</h2>
   )
   const cards = (list) => (
-    <div style={{ columnGap: 14, columns: '240px' }}>
+    <div style={{ columnGap: 12, columns: '220px' }}>
       {list.map((n) => (
         <Card key={n.meta.id} note={n} onOpen={onOpen} onPin={onPin} onColor={onColor} onDelete={onDelete} />
       ))}
@@ -23,7 +23,7 @@ export default function Grid({ notes, onOpen, onPin, onColor, onDelete }) {
   )
 
   return (
-    <div style={{ padding: '16px 14px 90px', maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ padding: '16px 12px 90px', maxWidth: 1120, margin: '0 auto' }}>
       {pinned.length > 0 && <section style={{ marginBottom: 18 }}>{header('Pinned')}{cards(pinned)}</section>}
       {others.length > 0 && <section>{pinned.length > 0 && header('Others')}{cards(others)}</section>}
     </div>

@@ -898,6 +898,15 @@ function colorHex(name) {
   const c = NOTE_COLORS.find((x) => x.name === name);
   return c ? c.hex : null;
 }
+function colorTint(name, alpha = 0.16) {
+  const hex = colorHex(name);
+  if (!hex) return null;
+  const n = hex.replace("#", "");
+  const r = parseInt(n.slice(0, 2), 16);
+  const g = parseInt(n.slice(2, 4), 16);
+  const b = parseInt(n.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 // src/lib/preview.js
 var _libs;
@@ -927,9 +936,10 @@ async function renderPreviewHTML(md) {
 
 // src/ui/ColorPicker.jsx
 import { jsx } from "react/jsx-runtime";
-function ColorPicker({ current, onPick, placement = "above" }) {
+function ColorPicker({ current, onPick, placement = "above", align = "start" }) {
   const t = T();
   const vertical = placement === "below" ? { top: "calc(100% + 6px)" } : { bottom: "calc(100% + 6px)" };
+  const horizontal = align === "end" ? { right: 0 } : { left: 0 };
   return /* @__PURE__ */ jsx(
     "div",
     {
@@ -938,15 +948,17 @@ function ColorPicker({ current, onPick, placement = "above" }) {
       onClick: (e) => e.stopPropagation(),
       style: {
         position: "absolute",
-        left: 0,
         zIndex: 20,
         ...vertical,
-        display: "flex",
-        gap: 6,
+        ...horizontal,
+        display: "grid",
+        gridTemplateColumns: "repeat(4, 28px)",
+        gap: 7,
+        maxWidth: "calc(100vw - 24px)",
         padding: 8,
         background: t.surface2,
         border: `1px solid ${t.border}`,
-        borderRadius: 12,
+        borderRadius: 8,
         boxShadow: "0 8px 24px rgba(0,0,0,0.4)"
       },
       children: NOTE_COLORS.map((c) => /* @__PURE__ */ jsx(
@@ -956,9 +968,9 @@ function ColorPicker({ current, onPick, placement = "above" }) {
           "aria-label": c.label,
           onClick: () => onPick(c.name),
           style: {
-            width: 22,
-            height: 22,
-            borderRadius: "50%",
+            width: 28,
+            height: 28,
+            borderRadius: 7,
             cursor: "pointer",
             padding: 0,
             border: current === c.name ? `2px solid ${t.text}` : `1px solid ${t.border}`,
@@ -1001,6 +1013,19 @@ function Icon({ name, size = 17 }) {
   }
   if (name === "paperclip") {
     return /* @__PURE__ */ jsx2("svg", { ...common, children: /* @__PURE__ */ jsx2("path", { d: "m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l8.5-8.5a4 4 0 0 1 5.7 5.7l-8.5 8.5a2 2 0 1 1-2.8-2.8l7.8-7.8" }) });
+  }
+  if (name === "image") {
+    return /* @__PURE__ */ jsxs("svg", { ...common, children: [
+      /* @__PURE__ */ jsx2("rect", { x: "3", y: "5", width: "18", height: "14", rx: "2" }),
+      /* @__PURE__ */ jsx2("circle", { cx: "8.5", cy: "10", r: "1.5" }),
+      /* @__PURE__ */ jsx2("path", { d: "m21 16-5-5L5 19" })
+    ] });
+  }
+  if (name === "file") {
+    return /* @__PURE__ */ jsxs("svg", { ...common, children: [
+      /* @__PURE__ */ jsx2("path", { d: "M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" }),
+      /* @__PURE__ */ jsx2("path", { d: "M14 3v6h6" })
+    ] });
   }
   if (name === "trash") {
     return /* @__PURE__ */ jsxs("svg", { ...common, children: [
@@ -1073,22 +1098,23 @@ function Card({ note, onOpen, onPin, onColor, onDelete }) {
     };
   }, [body]);
   const bar = colorHex(meta.color);
+  const tint = colorTint(meta.color);
   const empty = !meta.title && !(body || "").trim();
   return /* @__PURE__ */ jsx3("div", { style: { breakInside: "avoid", marginBottom: 14 }, children: /* @__PURE__ */ jsxs2("div", { style: {
     position: "relative",
-    background: t.surface,
-    border: `1px solid ${t.border}`,
-    borderRadius: 14,
+    background: tint ? `linear-gradient(180deg, ${tint}, ${t.surface} 44%)` : t.surface,
+    border: `1px solid ${bar ? colorTint(meta.color, 0.5) : t.border}`,
+    borderRadius: 8,
     overflow: "hidden"
   }, children: [
-    bar && /* @__PURE__ */ jsx3("div", { style: { position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: bar } }),
+    bar && /* @__PURE__ */ jsx3("div", { style: { height: 4, background: bar } }),
     /* @__PURE__ */ jsxs2(
       "div",
       {
         onClick: () => onOpen(meta.id),
-        style: { cursor: "pointer", padding: "14px 16px 10px", paddingLeft: bar ? 20 : 16 },
+        style: { cursor: "pointer", padding: "14px 16px 10px" },
         children: [
-          meta.title && /* @__PURE__ */ jsx3("div", { style: { fontSize: 15, fontWeight: 600, color: t.text, marginBottom: 6 }, children: meta.title }),
+          meta.title && /* @__PURE__ */ jsx3("div", { style: { fontSize: 15, fontWeight: 650, color: t.text, marginBottom: 6, overflowWrap: "anywhere" }, children: meta.title }),
           empty ? /* @__PURE__ */ jsx3("div", { style: { fontSize: 13.5, color: t.muted, opacity: 0.6, fontStyle: "italic" }, children: "Empty note" }) : /* @__PURE__ */ jsx3(
             "div",
             {
@@ -1100,7 +1126,7 @@ function Card({ note, onOpen, onPin, onColor, onDelete }) {
         ]
       }
     ),
-    /* @__PURE__ */ jsxs2("div", { style: { display: "flex", alignItems: "center", gap: 2, padding: "6px 8px", borderTop: `1px solid ${t.border}` }, children: [
+    /* @__PURE__ */ jsxs2("div", { style: { display: "flex", alignItems: "center", gap: 2, padding: "6px 8px", borderTop: `1px solid ${bar ? colorTint(meta.color, 0.32) : t.border}`, background: bar ? colorTint(meta.color, 0.08) : "transparent" }, children: [
       /* @__PURE__ */ jsx3(IconBtn, { title: meta.pinned ? "Unpin" : "Pin", active: meta.pinned, onClick: () => onPin(meta.id), children: /* @__PURE__ */ jsx3(Icon, { name: "pin", size: 15 }) }),
       /* @__PURE__ */ jsxs2("div", { style: { position: "relative" }, children: [
         /* @__PURE__ */ jsx3(IconBtn, { title: "Color", onClick: () => setShowColors((v) => !v), children: /* @__PURE__ */ jsx3(Icon, { name: "palette", size: 16 }) }),
@@ -1135,8 +1161,8 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete }) {
     color: t.muted,
     margin: "4px 8px 10px"
   }, children: txt });
-  const cards = (list) => /* @__PURE__ */ jsx4("div", { style: { columnGap: 14, columns: "240px" }, children: list.map((n) => /* @__PURE__ */ jsx4(Card, { note: n, onOpen, onPin, onColor, onDelete }, n.meta.id)) });
-  return /* @__PURE__ */ jsxs3("div", { style: { padding: "16px 14px 90px", maxWidth: 1100, margin: "0 auto" }, children: [
+  const cards = (list) => /* @__PURE__ */ jsx4("div", { style: { columnGap: 12, columns: "220px" }, children: list.map((n) => /* @__PURE__ */ jsx4(Card, { note: n, onOpen, onPin, onColor, onDelete }, n.meta.id)) });
+  return /* @__PURE__ */ jsxs3("div", { style: { padding: "16px 12px 90px", maxWidth: 1120, margin: "0 auto" }, children: [
     pinned.length > 0 && /* @__PURE__ */ jsxs3("section", { style: { marginBottom: 18 }, children: [
       header("Pinned"),
       cards(pinned)
@@ -1527,6 +1553,7 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
   const [attachErr, setAttachErr] = useState2("");
   const timer = useRef2(null);
   const viewRef = useRef2(null);
+  const imageRef = useRef2(null);
   const fileRef = useRef2(null);
   const latest = useRef2({ note, title: note.meta.title || "", body: note.body || "" });
   useEffect3(() => {
@@ -1567,6 +1594,17 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
       window.removeEventListener("beforeunload", flushOnUnload);
     };
   }, [flushSave]);
+  function insertMarkdown(md) {
+    const v = viewRef.current;
+    if (v) {
+      v.dispatch(v.state.replaceSelection(md));
+      v.focus();
+      return v.state.doc.toString();
+    }
+    const next = body + md;
+    setBody(next);
+    return next;
+  }
   async function handleFile(e) {
     const f = e.target.files && e.target.files[0];
     e.target.value = "";
@@ -1577,13 +1615,9 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
       const md = isImage ? `
 ![${res.name}](${res.path})
 ` : `[${res.name}](${res.path})`;
-      const v = viewRef.current;
-      if (v) {
-        v.dispatch(v.state.replaceSelection(md));
-        v.focus();
-      } else {
-        setBody((b) => b + md);
-      }
+      const nextBody = insertMarkdown(md);
+      const attachments = Array.from(/* @__PURE__ */ new Set([...note.meta.attachments || [], res.path]));
+      await onSave({ ...note.meta, title, attachments }, nextBody);
       setAttachErr("");
     } catch (err) {
       setAttachErr(String(err && err.message || err).includes("limit") ? "File too large (max 25 MB)." : "Could not attach file.");
@@ -1592,34 +1626,47 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
   }
   const statusColor = status === "Synced" ? t.green : status === "Resolving\u2026" ? t.accent : t.muted;
   return /* @__PURE__ */ jsxs4("div", { style: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: t.bg, zIndex: 10 }, children: [
-    /* @__PURE__ */ jsxs4("header", { style: { display: "flex", alignItems: "center", gap: 6, padding: "10px 12px", borderBottom: `1px solid ${t.border}` }, children: [
-      /* @__PURE__ */ jsx6("button", { onClick: async () => {
-        await flushSave();
-        onBack();
-      }, "aria-label": "Back", style: hdrBtn(t), children: /* @__PURE__ */ jsx6(Icon, { name: "back", size: 18 }) }),
-      colorHex(note.meta.color) && /* @__PURE__ */ jsx6("span", { style: { width: 8, height: 8, borderRadius: "50%", background: colorHex(note.meta.color) } }),
-      /* @__PURE__ */ jsx6(
-        "input",
-        {
-          value: title,
-          onChange: (e) => setTitle(e.target.value),
-          placeholder: "Title",
-          "aria-label": "Note title",
-          style: { flex: 1, minWidth: 0, padding: "6px 8px", border: "none", outline: "none", background: "transparent", color: t.text, fontSize: 17, fontWeight: 600 }
-        }
-      ),
-      status && /* @__PURE__ */ jsx6("span", { style: { fontSize: 12, color: statusColor, whiteSpace: "nowrap", marginRight: 2 }, children: status }),
-      /* @__PURE__ */ jsx6("button", { onClick: () => onPin(note.meta.id), "aria-label": note.meta.pinned ? "Unpin" : "Pin", style: hdrBtn(t, note.meta.pinned), children: /* @__PURE__ */ jsx6(Icon, { name: "pin", size: 16 }) }),
-      /* @__PURE__ */ jsxs4("div", { style: { position: "relative" }, children: [
-        /* @__PURE__ */ jsx6("button", { onClick: () => setShowColors((v) => !v), "aria-label": "Color", style: hdrBtn(t), children: /* @__PURE__ */ jsx6(Icon, { name: "palette", size: 17 }) }),
-        showColors && /* @__PURE__ */ jsx6(ColorPicker, { placement: "below", current: note.meta.color, onPick: (c) => {
-          onColor(note.meta.id, c);
-          setShowColors(false);
-        } })
+    /* @__PURE__ */ jsxs4("header", { style: { padding: "8px 10px 9px", borderBottom: `1px solid ${t.border}`, display: "flex", flexDirection: "column", gap: 7 }, children: [
+      /* @__PURE__ */ jsxs4("div", { style: { display: "flex", alignItems: "center", gap: 6, minWidth: 0 }, children: [
+        /* @__PURE__ */ jsx6("button", { onClick: async () => {
+          await flushSave();
+          onBack();
+        }, "aria-label": "Back", style: hdrBtn(t), children: /* @__PURE__ */ jsx6(Icon, { name: "back", size: 18 }) }),
+        colorHex(note.meta.color) && /* @__PURE__ */ jsx6("span", { style: { width: 9, height: 9, borderRadius: 3, background: colorHex(note.meta.color), flexShrink: 0 } }),
+        /* @__PURE__ */ jsx6(
+          "input",
+          {
+            value: title,
+            onChange: (e) => setTitle(e.target.value),
+            placeholder: "Title",
+            "aria-label": "Note title",
+            style: { flex: 1, minWidth: 0, padding: "7px 6px", border: "none", outline: "none", background: "transparent", color: t.text, fontSize: 17, fontWeight: 650 }
+          }
+        ),
+        status && /* @__PURE__ */ jsx6("span", { style: { fontSize: 12, color: statusColor, whiteSpace: "nowrap", marginRight: 2, flexShrink: 0 }, children: status })
       ] }),
-      /* @__PURE__ */ jsx6("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": "Attach image or file", style: hdrBtn(t), children: /* @__PURE__ */ jsx6(Icon, { name: "paperclip", size: 17 }) }),
-      /* @__PURE__ */ jsx6("input", { ref: fileRef, type: "file", onChange: handleFile, style: { display: "none" } }),
-      /* @__PURE__ */ jsx6("button", { onClick: () => onDelete(note.meta.id), "aria-label": "Delete", style: hdrBtn(t, false, true), children: /* @__PURE__ */ jsx6(Icon, { name: "trash", size: 16 }) })
+      /* @__PURE__ */ jsxs4("div", { style: { display: "flex", alignItems: "center", gap: 6, overflowX: "auto", paddingBottom: 1 }, children: [
+        /* @__PURE__ */ jsx6("button", { onClick: () => onPin(note.meta.id), "aria-label": note.meta.pinned ? "Unpin" : "Pin", title: note.meta.pinned ? "Unpin" : "Pin", style: hdrBtn(t, note.meta.pinned), children: /* @__PURE__ */ jsx6(Icon, { name: "pin", size: 16 }) }),
+        /* @__PURE__ */ jsxs4("div", { style: { position: "relative", flexShrink: 0 }, children: [
+          /* @__PURE__ */ jsx6("button", { onClick: () => setShowColors((v) => !v), "aria-label": "Color", title: "Color", style: hdrBtn(t), children: /* @__PURE__ */ jsx6(Icon, { name: "palette", size: 17 }) }),
+          showColors && /* @__PURE__ */ jsx6(ColorPicker, { placement: "below", align: "start", current: note.meta.color, onPick: (c) => {
+            onColor(note.meta.id, c);
+            setShowColors(false);
+          } })
+        ] }),
+        /* @__PURE__ */ jsxs4("button", { onClick: () => imageRef.current && imageRef.current.click(), "aria-label": "Insert image", title: "Insert image", style: labelBtn(t), children: [
+          /* @__PURE__ */ jsx6(Icon, { name: "image", size: 16 }),
+          "Image"
+        ] }),
+        /* @__PURE__ */ jsxs4("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": "Attach file", title: "Attach file", style: labelBtn(t), children: [
+          /* @__PURE__ */ jsx6(Icon, { name: "file", size: 16 }),
+          "File"
+        ] }),
+        /* @__PURE__ */ jsx6("div", { style: { flex: 1, minWidth: 4 } }),
+        /* @__PURE__ */ jsx6("button", { onClick: () => onDelete(note.meta.id), "aria-label": "Delete", title: "Delete", style: hdrBtn(t, false, true), children: /* @__PURE__ */ jsx6(Icon, { name: "trash", size: 16 }) })
+      ] }),
+      /* @__PURE__ */ jsx6("input", { ref: imageRef, type: "file", accept: "image/*", onChange: handleFile, style: { display: "none" } }),
+      /* @__PURE__ */ jsx6("input", { ref: fileRef, type: "file", onChange: handleFile, style: { display: "none" } })
     ] }),
     conflict && /* @__PURE__ */ jsxs4("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", background: `${t.accent}1f`, color: t.text, fontSize: 13 }, children: [
       /* @__PURE__ */ jsx6("span", { style: { flex: 1 }, children: "Edited in two places \u2014 merging\u2026" }),
@@ -1642,6 +1689,25 @@ function hdrBtn(t, active, danger) {
     color: danger ? t.danger : t.text,
     cursor: "pointer",
     fontSize: 16,
+    flexShrink: 0
+  };
+}
+function labelBtn(t) {
+  return {
+    height: 34,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    border: `1px solid ${t.border}`,
+    borderRadius: 8,
+    padding: "0 10px",
+    background: t.surface2,
+    color: t.text,
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 600,
+    whiteSpace: "nowrap",
     flexShrink: 0
   };
 }

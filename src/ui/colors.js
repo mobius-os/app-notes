@@ -14,3 +14,13 @@ export function colorHex(name) {
   const c = NOTE_COLORS.find((x) => x.name === name)
   return c ? c.hex : null
 }
+
+export function colorTint(name, alpha = 0.16) {
+  const hex = colorHex(name)
+  if (!hex) return null
+  const n = hex.replace('#', '')
+  const r = parseInt(n.slice(0, 2), 16)
+  const g = parseInt(n.slice(2, 4), 16)
+  const b = parseInt(n.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}

@@ -2,7 +2,7 @@
 // toolbar (pin, color, delete). Tapping the body opens the editor.
 import { useState, useEffect } from 'react'
 import { T } from './theme.js'
-import { colorHex } from './colors.js'
+import { colorHex, colorTint } from './colors.js'
 import { renderPreviewHTML } from '../lib/preview.js'
 import ColorPicker from './ColorPicker.jsx'
 import { Icon } from './icons.jsx'
@@ -40,20 +40,23 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete }) {
   }, [body])
 
   const bar = colorHex(meta.color)
+  const tint = colorTint(meta.color)
   const empty = !meta.title && !(body || '').trim()
 
   return (
     <div style={{ breakInside: 'avoid', marginBottom: 14 }}>
       <div style={{
-        position: 'relative', background: t.surface,
-        border: `1px solid ${t.border}`, borderRadius: 14, overflow: 'hidden',
+        position: 'relative',
+        background: tint ? `linear-gradient(180deg, ${tint}, ${t.surface} 44%)` : t.surface,
+        border: `1px solid ${bar ? colorTint(meta.color, 0.5) : t.border}`,
+        borderRadius: 8, overflow: 'hidden',
       }}>
-        {bar && <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: bar }} />}
+        {bar && <div style={{ height: 4, background: bar }} />}
         <div
           onClick={() => onOpen(meta.id)}
-          style={{ cursor: 'pointer', padding: '14px 16px 10px', paddingLeft: bar ? 20 : 16 }}
+          style={{ cursor: 'pointer', padding: '14px 16px 10px' }}
         >
-          {meta.title && <div style={{ fontSize: 15, fontWeight: 600, color: t.text, marginBottom: 6 }}>{meta.title}</div>}
+          {meta.title && <div style={{ fontSize: 15, fontWeight: 650, color: t.text, marginBottom: 6, overflowWrap: 'anywhere' }}>{meta.title}</div>}
           {empty
             ? <div style={{ fontSize: 13.5, color: t.muted, opacity: 0.6, fontStyle: 'italic' }}>Empty note</div>
             : <div
@@ -62,7 +65,7 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete }) {
                 dangerouslySetInnerHTML={{ __html: html }}
               />}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '6px 8px', borderTop: `1px solid ${t.border}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '6px 8px', borderTop: `1px solid ${bar ? colorTint(meta.color, 0.32) : t.border}`, background: bar ? colorTint(meta.color, 0.08) : 'transparent' }}>
           <IconBtn title={meta.pinned ? 'Unpin' : 'Pin'} active={meta.pinned} onClick={() => onPin(meta.id)}><Icon name="pin" size={15} /></IconBtn>
           <div style={{ position: 'relative' }}>
             <IconBtn title="Color" onClick={() => setShowColors((v) => !v)}><Icon name="palette" size={16} /></IconBtn>

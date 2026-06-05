@@ -35,6 +35,23 @@ export function Icon({ name, size = 17 }) {
       </svg>
     )
   }
+  if (name === 'image') {
+    return (
+      <svg {...common}>
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <circle cx="8.5" cy="10" r="1.5" />
+        <path d="m21 16-5-5L5 19" />
+      </svg>
+    )
+  }
+  if (name === 'file') {
+    return (
+      <svg {...common}>
+        <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
+        <path d="M14 3v6h6" />
+      </svg>
+    )
+  }
   if (name === 'trash') {
     return (
       <svg {...common}>

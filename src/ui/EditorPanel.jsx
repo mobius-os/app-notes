@@ -28,6 +28,7 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
   const [attachErr, setAttachErr] = useState('')
   const timer = useRef(null)
   const viewRef = useRef(null)
+  const imageRef = useRef(null)
   const fileRef = useRef(null)
   const latest = useRef({ note, title: note.meta.title || '', body: note.body || '' })
 
@@ -69,6 +70,18 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
     }
   }, [flushSave])
 
+  function insertMarkdown(md) {
+    const v = viewRef.current
+    if (v) {
+      v.dispatch(v.state.replaceSelection(md))
+      v.focus()
+      return v.state.doc.toString()
+    }
+    const next = body + md
+    setBody(next)
+    return next
+  }
+
   async function handleFile(e) {
     const f = e.target.files && e.target.files[0]
     e.target.value = ''
@@ -77,8 +90,9 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
       const res = await putAttachment(f)
       const isImage = (f.type || '').startsWith('image/')
       const md = isImage ? `\n![${res.name}](${res.path})\n` : `[${res.name}](${res.path})`
-      const v = viewRef.current
-      if (v) { v.dispatch(v.state.replaceSelection(md)); v.focus() } else { setBody((b) => b + md) }
+      const nextBody = insertMarkdown(md)
+      const attachments = Array.from(new Set([...(note.meta.attachments || []), res.path]))
+      await onSave({ ...note.meta, title, attachments }, nextBody)
       setAttachErr('')
     } catch (err) {
       setAttachErr(String(err && err.message || err).includes('limit') ? 'File too large (max 25 MB).' : 'Could not attach file.')
@@ -90,25 +104,32 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
 
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: t.bg, zIndex: 10 }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 12px', borderBottom: `1px solid ${t.border}` }}>
-        <button onClick={async () => { await flushSave(); onBack() }} aria-label="Back" style={hdrBtn(t)}><Icon name="back" size={18} /></button>
-        {colorHex(note.meta.color) && <span style={{ width: 8, height: 8, borderRadius: '50%', background: colorHex(note.meta.color) }} />}
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Title"
-          aria-label="Note title"
-          style={{ flex: 1, minWidth: 0, padding: '6px 8px', border: 'none', outline: 'none', background: 'transparent', color: t.text, fontSize: 17, fontWeight: 600 }}
-        />
-        {status && <span style={{ fontSize: 12, color: statusColor, whiteSpace: 'nowrap', marginRight: 2 }}>{status}</span>}
-        <button onClick={() => onPin(note.meta.id)} aria-label={note.meta.pinned ? 'Unpin' : 'Pin'} style={hdrBtn(t, note.meta.pinned)}><Icon name="pin" size={16} /></button>
-        <div style={{ position: 'relative' }}>
-          <button onClick={() => setShowColors((v) => !v)} aria-label="Color" style={hdrBtn(t)}><Icon name="palette" size={17} /></button>
-          {showColors && <ColorPicker placement="below" current={note.meta.color} onPick={(c) => { onColor(note.meta.id, c); setShowColors(false) }} />}
+      <header style={{ padding: '8px 10px 9px', borderBottom: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', gap: 7 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <button onClick={async () => { await flushSave(); onBack() }} aria-label="Back" style={hdrBtn(t)}><Icon name="back" size={18} /></button>
+          {colorHex(note.meta.color) && <span style={{ width: 9, height: 9, borderRadius: 3, background: colorHex(note.meta.color), flexShrink: 0 }} />}
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Title"
+            aria-label="Note title"
+            style={{ flex: 1, minWidth: 0, padding: '7px 6px', border: 'none', outline: 'none', background: 'transparent', color: t.text, fontSize: 17, fontWeight: 650 }}
+          />
+          {status && <span style={{ fontSize: 12, color: statusColor, whiteSpace: 'nowrap', marginRight: 2, flexShrink: 0 }}>{status}</span>}
         </div>
-        <button onClick={() => fileRef.current && fileRef.current.click()} aria-label="Attach image or file" style={hdrBtn(t)}><Icon name="paperclip" size={17} /></button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto', paddingBottom: 1 }}>
+          <button onClick={() => onPin(note.meta.id)} aria-label={note.meta.pinned ? 'Unpin' : 'Pin'} title={note.meta.pinned ? 'Unpin' : 'Pin'} style={hdrBtn(t, note.meta.pinned)}><Icon name="pin" size={16} /></button>
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <button onClick={() => setShowColors((v) => !v)} aria-label="Color" title="Color" style={hdrBtn(t)}><Icon name="palette" size={17} /></button>
+            {showColors && <ColorPicker placement="below" align="start" current={note.meta.color} onPick={(c) => { onColor(note.meta.id, c); setShowColors(false) }} />}
+          </div>
+          <button onClick={() => imageRef.current && imageRef.current.click()} aria-label="Insert image" title="Insert image" style={labelBtn(t)}><Icon name="image" size={16} />Image</button>
+          <button onClick={() => fileRef.current && fileRef.current.click()} aria-label="Attach file" title="Attach file" style={labelBtn(t)}><Icon name="file" size={16} />File</button>
+          <div style={{ flex: 1, minWidth: 4 }} />
+          <button onClick={() => onDelete(note.meta.id)} aria-label="Delete" title="Delete" style={hdrBtn(t, false, true)}><Icon name="trash" size={16} /></button>
+        </div>
+        <input ref={imageRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
         <input ref={fileRef} type="file" onChange={handleFile} style={{ display: 'none' }} />
-        <button onClick={() => onDelete(note.meta.id)} aria-label="Delete" style={hdrBtn(t, false, true)}><Icon name="trash" size={16} /></button>
       </header>
 
       {conflict && (
@@ -135,5 +156,14 @@ function hdrBtn(t, active, danger) {
     justifyContent: 'center', border: 'none', borderRadius: 9,
     background: active ? `${t.accent}22` : 'transparent',
     color: danger ? t.danger : t.text, cursor: 'pointer', fontSize: 16, flexShrink: 0,
+  }
+}
+
+function labelBtn(t) {
+  return {
+    height: 34, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    gap: 6, border: `1px solid ${t.border}`, borderRadius: 8, padding: '0 10px',
+    background: t.surface2, color: t.text, cursor: 'pointer', fontSize: 13,
+    fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0,
   }
 }
