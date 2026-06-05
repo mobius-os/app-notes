@@ -5,6 +5,7 @@ import { T } from './theme.js'
 import { colorHex } from './colors.js'
 import ColorPicker from './ColorPicker.jsx'
 import Editor from '../editor/Editor.jsx'
+import { Icon } from './icons.jsx'
 
 const AUTOSAVE_MS = 600
 
@@ -90,7 +91,7 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: t.bg, zIndex: 10 }}>
       <header style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 12px', borderBottom: `1px solid ${t.border}` }}>
-        <button onClick={async () => { await flushSave(); onBack() }} aria-label="Back" style={hdrBtn(t)}>←</button>
+        <button onClick={async () => { await flushSave(); onBack() }} aria-label="Back" style={hdrBtn(t)}><Icon name="back" size={18} /></button>
         {colorHex(note.meta.color) && <span style={{ width: 8, height: 8, borderRadius: '50%', background: colorHex(note.meta.color) }} />}
         <input
           value={title}
@@ -100,14 +101,14 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
           style={{ flex: 1, minWidth: 0, padding: '6px 8px', border: 'none', outline: 'none', background: 'transparent', color: t.text, fontSize: 17, fontWeight: 600 }}
         />
         {status && <span style={{ fontSize: 12, color: statusColor, whiteSpace: 'nowrap', marginRight: 2 }}>{status}</span>}
-        <button onClick={() => onPin(note.meta.id)} aria-label={note.meta.pinned ? 'Unpin' : 'Pin'} style={hdrBtn(t, note.meta.pinned)}>📌</button>
+        <button onClick={() => onPin(note.meta.id)} aria-label={note.meta.pinned ? 'Unpin' : 'Pin'} style={hdrBtn(t, note.meta.pinned)}><Icon name="pin" size={16} /></button>
         <div style={{ position: 'relative' }}>
-          <button onClick={() => setShowColors((v) => !v)} aria-label="Color" style={hdrBtn(t)}>🎨</button>
-          {showColors && <ColorPicker current={note.meta.color} onPick={(c) => { onColor(note.meta.id, c); setShowColors(false) }} />}
+          <button onClick={() => setShowColors((v) => !v)} aria-label="Color" style={hdrBtn(t)}><Icon name="palette" size={17} /></button>
+          {showColors && <ColorPicker placement="below" current={note.meta.color} onPick={(c) => { onColor(note.meta.id, c); setShowColors(false) }} />}
         </div>
-        <button onClick={() => fileRef.current && fileRef.current.click()} aria-label="Attach image or file" style={hdrBtn(t)}>📎</button>
+        <button onClick={() => fileRef.current && fileRef.current.click()} aria-label="Attach image or file" style={hdrBtn(t)}><Icon name="paperclip" size={17} /></button>
         <input ref={fileRef} type="file" onChange={handleFile} style={{ display: 'none' }} />
-        <button onClick={() => onDelete(note.meta.id)} aria-label="Delete" style={hdrBtn(t, false, true)}>🗑</button>
+        <button onClick={() => onDelete(note.meta.id)} aria-label="Delete" style={hdrBtn(t, false, true)}><Icon name="trash" size={16} /></button>
       </header>
 
       {conflict && (

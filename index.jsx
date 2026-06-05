@@ -76,6 +76,12 @@ function newNote({ title } = {}) {
     attachments: []
   };
 }
+function isBlankNote(meta = {}, body = "") {
+  const hasTitle = Boolean((meta.title || "").trim());
+  const hasBody = Boolean(String(body || "").trim());
+  const hasAttachments = Array.isArray(meta.attachments) && meta.attachments.length > 0;
+  return !hasTitle && !hasBody && !hasAttachments;
+}
 
 // src/lib/frontmatter.js
 var FENCE = "---";
@@ -393,7 +399,7 @@ async function unsyncedLocals() {
   return out;
 }
 
-// node_modules/node-diff3/dist/diff3.mjs
+// ../../../node_modules/node-diff3/dist/diff3.mjs
 function LCS(buffer1, buffer2) {
   let equivalenceClasses = {};
   for (let j = 0; j < buffer2.length; j++) {
@@ -921,8 +927,9 @@ async function renderPreviewHTML(md) {
 
 // src/ui/ColorPicker.jsx
 import { jsx } from "react/jsx-runtime";
-function ColorPicker({ current, onPick }) {
+function ColorPicker({ current, onPick, placement = "above" }) {
   const t = T();
+  const vertical = placement === "below" ? { top: "calc(100% + 6px)" } : { bottom: "calc(100% + 6px)" };
   return /* @__PURE__ */ jsx(
     "div",
     {
@@ -931,9 +938,9 @@ function ColorPicker({ current, onPick }) {
       onClick: (e) => e.stopPropagation(),
       style: {
         position: "absolute",
-        bottom: "calc(100% + 6px)",
         left: 0,
         zIndex: 20,
+        ...vertical,
         display: "flex",
         gap: 6,
         padding: 8,
@@ -964,11 +971,66 @@ function ColorPicker({ current, onPick }) {
   );
 }
 
-// src/ui/Card.jsx
+// src/ui/icons.jsx
 import { jsx as jsx2, jsxs } from "react/jsx-runtime";
+function Icon({ name, size = 17 }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true"
+  };
+  if (name === "pin") {
+    return /* @__PURE__ */ jsxs("svg", { ...common, children: [
+      /* @__PURE__ */ jsx2("path", { d: "M12 17v5" }),
+      /* @__PURE__ */ jsx2("path", { d: "M9 3h6l1 7 3 3v2H5v-2l3-3 1-7Z" })
+    ] });
+  }
+  if (name === "palette") {
+    return /* @__PURE__ */ jsxs("svg", { ...common, children: [
+      /* @__PURE__ */ jsx2("path", { d: "M12 3a9 9 0 0 0 0 18h1.5a1.8 1.8 0 0 0 1.2-3.15 1.6 1.6 0 0 1 1.05-2.85H17a4 4 0 0 0 4-4c0-4.42-4.03-8-9-8Z" }),
+      /* @__PURE__ */ jsx2("circle", { cx: "7.5", cy: "10", r: ".6", fill: "currentColor", stroke: "none" }),
+      /* @__PURE__ */ jsx2("circle", { cx: "10", cy: "7.5", r: ".6", fill: "currentColor", stroke: "none" }),
+      /* @__PURE__ */ jsx2("circle", { cx: "14", cy: "7.5", r: ".6", fill: "currentColor", stroke: "none" })
+    ] });
+  }
+  if (name === "paperclip") {
+    return /* @__PURE__ */ jsx2("svg", { ...common, children: /* @__PURE__ */ jsx2("path", { d: "m21.4 11.6-8.5 8.5a6 6 0 0 1-8.5-8.5l8.5-8.5a4 4 0 0 1 5.7 5.7l-8.5 8.5a2 2 0 1 1-2.8-2.8l7.8-7.8" }) });
+  }
+  if (name === "trash") {
+    return /* @__PURE__ */ jsxs("svg", { ...common, children: [
+      /* @__PURE__ */ jsx2("path", { d: "M3 6h18" }),
+      /* @__PURE__ */ jsx2("path", { d: "M8 6V4h8v2" }),
+      /* @__PURE__ */ jsx2("path", { d: "m6 6 1 15h10l1-15" }),
+      /* @__PURE__ */ jsx2("path", { d: "M10 11v6" }),
+      /* @__PURE__ */ jsx2("path", { d: "M14 11v6" })
+    ] });
+  }
+  if (name === "back") {
+    return /* @__PURE__ */ jsxs("svg", { ...common, children: [
+      /* @__PURE__ */ jsx2("path", { d: "M19 12H5" }),
+      /* @__PURE__ */ jsx2("path", { d: "m12 19-7-7 7-7" })
+    ] });
+  }
+  if (name === "edit") {
+    return /* @__PURE__ */ jsxs("svg", { ...common, children: [
+      /* @__PURE__ */ jsx2("path", { d: "M12 20h9" }),
+      /* @__PURE__ */ jsx2("path", { d: "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" })
+    ] });
+  }
+  return null;
+}
+
+// src/ui/Card.jsx
+import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
 function IconBtn({ children, title, onClick, active, danger }) {
   const t = T();
-  return /* @__PURE__ */ jsx2(
+  return /* @__PURE__ */ jsx3(
     "button",
     {
       title,
@@ -1012,22 +1074,22 @@ function Card({ note, onOpen, onPin, onColor, onDelete }) {
   }, [body]);
   const bar = colorHex(meta.color);
   const empty = !meta.title && !(body || "").trim();
-  return /* @__PURE__ */ jsx2("div", { style: { breakInside: "avoid", marginBottom: 14 }, children: /* @__PURE__ */ jsxs("div", { style: {
+  return /* @__PURE__ */ jsx3("div", { style: { breakInside: "avoid", marginBottom: 14 }, children: /* @__PURE__ */ jsxs2("div", { style: {
     position: "relative",
     background: t.surface,
     border: `1px solid ${t.border}`,
     borderRadius: 14,
     overflow: "hidden"
   }, children: [
-    bar && /* @__PURE__ */ jsx2("div", { style: { position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: bar } }),
-    /* @__PURE__ */ jsxs(
+    bar && /* @__PURE__ */ jsx3("div", { style: { position: "absolute", left: 0, top: 0, bottom: 0, width: 4, background: bar } }),
+    /* @__PURE__ */ jsxs2(
       "div",
       {
         onClick: () => onOpen(meta.id),
         style: { cursor: "pointer", padding: "14px 16px 10px", paddingLeft: bar ? 20 : 16 },
         children: [
-          meta.title && /* @__PURE__ */ jsx2("div", { style: { fontSize: 15, fontWeight: 600, color: t.text, marginBottom: 6 }, children: meta.title }),
-          empty ? /* @__PURE__ */ jsx2("div", { style: { fontSize: 13.5, color: t.muted, opacity: 0.6, fontStyle: "italic" }, children: "Empty note" }) : /* @__PURE__ */ jsx2(
+          meta.title && /* @__PURE__ */ jsx3("div", { style: { fontSize: 15, fontWeight: 600, color: t.text, marginBottom: 6 }, children: meta.title }),
+          empty ? /* @__PURE__ */ jsx3("div", { style: { fontSize: 13.5, color: t.muted, opacity: 0.6, fontStyle: "italic" }, children: "Empty note" }) : /* @__PURE__ */ jsx3(
             "div",
             {
               className: "note-preview",
@@ -1038,11 +1100,11 @@ function Card({ note, onOpen, onPin, onColor, onDelete }) {
         ]
       }
     ),
-    /* @__PURE__ */ jsxs("div", { style: { display: "flex", alignItems: "center", gap: 2, padding: "6px 8px", borderTop: `1px solid ${t.border}` }, children: [
-      /* @__PURE__ */ jsx2(IconBtn, { title: meta.pinned ? "Unpin" : "Pin", active: meta.pinned, onClick: () => onPin(meta.id), children: "\u{1F4CC}" }),
-      /* @__PURE__ */ jsxs("div", { style: { position: "relative" }, children: [
-        /* @__PURE__ */ jsx2(IconBtn, { title: "Color", onClick: () => setShowColors((v) => !v), children: "\u{1F3A8}" }),
-        showColors && /* @__PURE__ */ jsx2(
+    /* @__PURE__ */ jsxs2("div", { style: { display: "flex", alignItems: "center", gap: 2, padding: "6px 8px", borderTop: `1px solid ${t.border}` }, children: [
+      /* @__PURE__ */ jsx3(IconBtn, { title: meta.pinned ? "Unpin" : "Pin", active: meta.pinned, onClick: () => onPin(meta.id), children: /* @__PURE__ */ jsx3(Icon, { name: "pin", size: 15 }) }),
+      /* @__PURE__ */ jsxs2("div", { style: { position: "relative" }, children: [
+        /* @__PURE__ */ jsx3(IconBtn, { title: "Color", onClick: () => setShowColors((v) => !v), children: /* @__PURE__ */ jsx3(Icon, { name: "palette", size: 16 }) }),
+        showColors && /* @__PURE__ */ jsx3(
           ColorPicker,
           {
             current: meta.color,
@@ -1053,19 +1115,19 @@ function Card({ note, onOpen, onPin, onColor, onDelete }) {
           }
         )
       ] }),
-      /* @__PURE__ */ jsx2("div", { style: { flex: 1 } }),
-      /* @__PURE__ */ jsx2(IconBtn, { title: "Delete", danger: true, onClick: () => onDelete(meta.id), children: "\u{1F5D1}" })
+      /* @__PURE__ */ jsx3("div", { style: { flex: 1 } }),
+      /* @__PURE__ */ jsx3(IconBtn, { title: "Delete", danger: true, onClick: () => onDelete(meta.id), children: /* @__PURE__ */ jsx3(Icon, { name: "trash", size: 15 }) })
     ] })
   ] }) });
 }
 
 // src/ui/Grid.jsx
-import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
+import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
 function Grid({ notes, onOpen, onPin, onColor, onDelete }) {
   const t = T();
   const pinned = notes.filter((n) => n.meta.pinned);
   const others = notes.filter((n) => !n.meta.pinned);
-  const header = (txt) => /* @__PURE__ */ jsx3("h2", { style: {
+  const header = (txt) => /* @__PURE__ */ jsx4("h2", { style: {
     fontSize: 11,
     fontWeight: 700,
     letterSpacing: "0.08em",
@@ -1073,13 +1135,13 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete }) {
     color: t.muted,
     margin: "4px 8px 10px"
   }, children: txt });
-  const cards = (list) => /* @__PURE__ */ jsx3("div", { style: { columnGap: 14, columns: "240px" }, children: list.map((n) => /* @__PURE__ */ jsx3(Card, { note: n, onOpen, onPin, onColor, onDelete }, n.meta.id)) });
-  return /* @__PURE__ */ jsxs2("div", { style: { padding: "16px 14px 90px", maxWidth: 1100, margin: "0 auto" }, children: [
-    pinned.length > 0 && /* @__PURE__ */ jsxs2("section", { style: { marginBottom: 18 }, children: [
+  const cards = (list) => /* @__PURE__ */ jsx4("div", { style: { columnGap: 14, columns: "240px" }, children: list.map((n) => /* @__PURE__ */ jsx4(Card, { note: n, onOpen, onPin, onColor, onDelete }, n.meta.id)) });
+  return /* @__PURE__ */ jsxs3("div", { style: { padding: "16px 14px 90px", maxWidth: 1100, margin: "0 auto" }, children: [
+    pinned.length > 0 && /* @__PURE__ */ jsxs3("section", { style: { marginBottom: 18 }, children: [
       header("Pinned"),
       cards(pinned)
     ] }),
-    others.length > 0 && /* @__PURE__ */ jsxs2("section", { children: [
+    others.length > 0 && /* @__PURE__ */ jsxs3("section", { children: [
       pinned.length > 0 && header("Others"),
       cards(others)
     ] })
@@ -1407,7 +1469,7 @@ function buildExtensions({ onDocChange, resolveAttachment }) {
 }
 
 // src/editor/Editor.jsx
-import { jsx as jsx4 } from "react/jsx-runtime";
+import { jsx as jsx5 } from "react/jsx-runtime";
 function Editor({ value, onChange, resolveAttachment, viewRef }) {
   const host = useRef(null);
   const view = useRef(null);
@@ -1442,11 +1504,11 @@ function Editor({ value, onChange, resolveAttachment, viewRef }) {
       v.dispatch({ changes: { from: 0, to: cur.length, insert: value } });
     }
   }, [value]);
-  return /* @__PURE__ */ jsx4("div", { ref: host, style: { height: "100%" } });
+  return /* @__PURE__ */ jsx5("div", { ref: host, style: { height: "100%" } });
 }
 
 // src/ui/EditorPanel.jsx
-import { jsx as jsx5, jsxs as jsxs3 } from "react/jsx-runtime";
+import { jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
 var AUTOSAVE_MS = 600;
 function resolveNow(note) {
   try {
@@ -1529,14 +1591,14 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
     }
   }
   const statusColor = status === "Synced" ? t.green : status === "Resolving\u2026" ? t.accent : t.muted;
-  return /* @__PURE__ */ jsxs3("div", { style: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: t.bg, zIndex: 10 }, children: [
-    /* @__PURE__ */ jsxs3("header", { style: { display: "flex", alignItems: "center", gap: 6, padding: "10px 12px", borderBottom: `1px solid ${t.border}` }, children: [
-      /* @__PURE__ */ jsx5("button", { onClick: async () => {
+  return /* @__PURE__ */ jsxs4("div", { style: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: t.bg, zIndex: 10 }, children: [
+    /* @__PURE__ */ jsxs4("header", { style: { display: "flex", alignItems: "center", gap: 6, padding: "10px 12px", borderBottom: `1px solid ${t.border}` }, children: [
+      /* @__PURE__ */ jsx6("button", { onClick: async () => {
         await flushSave();
         onBack();
-      }, "aria-label": "Back", style: hdrBtn(t), children: "\u2190" }),
-      colorHex(note.meta.color) && /* @__PURE__ */ jsx5("span", { style: { width: 8, height: 8, borderRadius: "50%", background: colorHex(note.meta.color) } }),
-      /* @__PURE__ */ jsx5(
+      }, "aria-label": "Back", style: hdrBtn(t), children: /* @__PURE__ */ jsx6(Icon, { name: "back", size: 18 }) }),
+      colorHex(note.meta.color) && /* @__PURE__ */ jsx6("span", { style: { width: 8, height: 8, borderRadius: "50%", background: colorHex(note.meta.color) } }),
+      /* @__PURE__ */ jsx6(
         "input",
         {
           value: title,
@@ -1546,25 +1608,25 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
           style: { flex: 1, minWidth: 0, padding: "6px 8px", border: "none", outline: "none", background: "transparent", color: t.text, fontSize: 17, fontWeight: 600 }
         }
       ),
-      status && /* @__PURE__ */ jsx5("span", { style: { fontSize: 12, color: statusColor, whiteSpace: "nowrap", marginRight: 2 }, children: status }),
-      /* @__PURE__ */ jsx5("button", { onClick: () => onPin(note.meta.id), "aria-label": note.meta.pinned ? "Unpin" : "Pin", style: hdrBtn(t, note.meta.pinned), children: "\u{1F4CC}" }),
-      /* @__PURE__ */ jsxs3("div", { style: { position: "relative" }, children: [
-        /* @__PURE__ */ jsx5("button", { onClick: () => setShowColors((v) => !v), "aria-label": "Color", style: hdrBtn(t), children: "\u{1F3A8}" }),
-        showColors && /* @__PURE__ */ jsx5(ColorPicker, { current: note.meta.color, onPick: (c) => {
+      status && /* @__PURE__ */ jsx6("span", { style: { fontSize: 12, color: statusColor, whiteSpace: "nowrap", marginRight: 2 }, children: status }),
+      /* @__PURE__ */ jsx6("button", { onClick: () => onPin(note.meta.id), "aria-label": note.meta.pinned ? "Unpin" : "Pin", style: hdrBtn(t, note.meta.pinned), children: /* @__PURE__ */ jsx6(Icon, { name: "pin", size: 16 }) }),
+      /* @__PURE__ */ jsxs4("div", { style: { position: "relative" }, children: [
+        /* @__PURE__ */ jsx6("button", { onClick: () => setShowColors((v) => !v), "aria-label": "Color", style: hdrBtn(t), children: /* @__PURE__ */ jsx6(Icon, { name: "palette", size: 17 }) }),
+        showColors && /* @__PURE__ */ jsx6(ColorPicker, { placement: "below", current: note.meta.color, onPick: (c) => {
           onColor(note.meta.id, c);
           setShowColors(false);
         } })
       ] }),
-      /* @__PURE__ */ jsx5("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": "Attach image or file", style: hdrBtn(t), children: "\u{1F4CE}" }),
-      /* @__PURE__ */ jsx5("input", { ref: fileRef, type: "file", onChange: handleFile, style: { display: "none" } }),
-      /* @__PURE__ */ jsx5("button", { onClick: () => onDelete(note.meta.id), "aria-label": "Delete", style: hdrBtn(t, false, true), children: "\u{1F5D1}" })
+      /* @__PURE__ */ jsx6("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": "Attach image or file", style: hdrBtn(t), children: /* @__PURE__ */ jsx6(Icon, { name: "paperclip", size: 17 }) }),
+      /* @__PURE__ */ jsx6("input", { ref: fileRef, type: "file", onChange: handleFile, style: { display: "none" } }),
+      /* @__PURE__ */ jsx6("button", { onClick: () => onDelete(note.meta.id), "aria-label": "Delete", style: hdrBtn(t, false, true), children: /* @__PURE__ */ jsx6(Icon, { name: "trash", size: 16 }) })
     ] }),
-    conflict && /* @__PURE__ */ jsxs3("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", background: `${t.accent}1f`, color: t.text, fontSize: 13 }, children: [
-      /* @__PURE__ */ jsx5("span", { style: { flex: 1 }, children: "Edited in two places \u2014 merging\u2026" }),
-      /* @__PURE__ */ jsx5("button", { onClick: () => resolveNow(note), style: { border: `1px solid ${t.accent}`, background: "transparent", color: t.accent, borderRadius: 8, padding: "4px 10px", fontSize: 12, cursor: "pointer" }, children: "Resolve now" })
+    conflict && /* @__PURE__ */ jsxs4("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", background: `${t.accent}1f`, color: t.text, fontSize: 13 }, children: [
+      /* @__PURE__ */ jsx6("span", { style: { flex: 1 }, children: "Edited in two places \u2014 merging\u2026" }),
+      /* @__PURE__ */ jsx6("button", { onClick: () => resolveNow(note), style: { border: `1px solid ${t.accent}`, background: "transparent", color: t.accent, borderRadius: 8, padding: "4px 10px", fontSize: 12, cursor: "pointer" }, children: "Resolve now" })
     ] }),
-    attachErr && /* @__PURE__ */ jsx5("div", { style: { padding: "8px 16px", background: `${t.danger}22`, color: t.danger, fontSize: 13 }, children: attachErr }),
-    /* @__PURE__ */ jsx5("div", { style: { flex: 1, overflow: "hidden" }, children: /* @__PURE__ */ jsx5(Editor, { value: body, onChange: setBody, resolveAttachment, viewRef }) })
+    attachErr && /* @__PURE__ */ jsx6("div", { style: { padding: "8px 16px", background: `${t.danger}22`, color: t.danger, fontSize: 13 }, children: attachErr }),
+    /* @__PURE__ */ jsx6("div", { style: { flex: 1, overflow: "hidden" }, children: /* @__PURE__ */ jsx6(Editor, { value: body, onChange: setBody, resolveAttachment, viewRef }) })
   ] });
 }
 function hdrBtn(t, active, danger) {
@@ -1585,11 +1647,11 @@ function hdrBtn(t, active, danger) {
 }
 
 // src/ui/ConfirmModal.jsx
-import { jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
+import { jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
 function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", danger, onConfirm, onCancel }) {
   if (!open2) return null;
   const t = T();
-  return /* @__PURE__ */ jsx6(
+  return /* @__PURE__ */ jsx7(
     "div",
     {
       role: "dialog",
@@ -1606,7 +1668,7 @@ function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", d
         background: "rgba(0,0,0,0.55)",
         backdropFilter: "blur(2px)"
       },
-      children: /* @__PURE__ */ jsxs4(
+      children: /* @__PURE__ */ jsxs5(
         "div",
         {
           onClick: (e) => e.stopPropagation(),
@@ -1620,10 +1682,10 @@ function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", d
             boxShadow: "0 12px 40px rgba(0,0,0,0.5)"
           },
           children: [
-            title && /* @__PURE__ */ jsx6("h2", { style: { fontSize: 16, fontWeight: 650, color: t.text, marginBottom: 8 }, children: title }),
-            message && /* @__PURE__ */ jsx6("p", { style: { fontSize: 14, color: t.muted, lineHeight: 1.5, marginBottom: 18 }, children: message }),
-            /* @__PURE__ */ jsxs4("div", { style: { display: "flex", gap: 10, justifyContent: "flex-end" }, children: [
-              /* @__PURE__ */ jsx6(
+            title && /* @__PURE__ */ jsx7("h2", { style: { fontSize: 16, fontWeight: 650, color: t.text, marginBottom: 8 }, children: title }),
+            message && /* @__PURE__ */ jsx7("p", { style: { fontSize: 14, color: t.muted, lineHeight: 1.5, marginBottom: 18 }, children: message }),
+            /* @__PURE__ */ jsxs5("div", { style: { display: "flex", gap: 10, justifyContent: "flex-end" }, children: [
+              /* @__PURE__ */ jsx7(
                 "button",
                 {
                   onClick: onCancel,
@@ -1639,7 +1701,7 @@ function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", d
                   children: "Cancel"
                 }
               ),
-              /* @__PURE__ */ jsx6(
+              /* @__PURE__ */ jsx7(
                 "button",
                 {
                   onClick: onConfirm,
@@ -1665,10 +1727,10 @@ function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", d
 }
 
 // src/app.jsx
-import { jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
+import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
 function TopBar({ query, onQuery, onNew }) {
   const t = T();
-  return /* @__PURE__ */ jsxs5("header", { style: {
+  return /* @__PURE__ */ jsxs6("header", { style: {
     display: "flex",
     alignItems: "center",
     gap: 12,
@@ -1679,8 +1741,8 @@ function TopBar({ query, onQuery, onNew }) {
     background: t.bg,
     zIndex: 5
   }, children: [
-    /* @__PURE__ */ jsx7("h1", { style: { fontSize: 18, fontWeight: 650, color: t.text, letterSpacing: "-0.01em" }, children: "Notes" }),
-    /* @__PURE__ */ jsx7("div", { style: { flex: 1, display: "flex", justifyContent: "center" }, children: /* @__PURE__ */ jsx7(
+    /* @__PURE__ */ jsx8("h1", { style: { fontSize: 18, fontWeight: 650, color: t.text, letterSpacing: "-0.01em" }, children: "Notes" }),
+    /* @__PURE__ */ jsx8("div", { style: { flex: 1, display: "flex", justifyContent: "center" }, children: /* @__PURE__ */ jsx8(
       "input",
       {
         value: query,
@@ -1700,7 +1762,7 @@ function TopBar({ query, onQuery, onNew }) {
         }
       }
     ) }),
-    /* @__PURE__ */ jsxs5("button", { onClick: onNew, "aria-label": "New note", style: {
+    /* @__PURE__ */ jsxs6("button", { onClick: onNew, "aria-label": "New note", style: {
       display: "inline-flex",
       alignItems: "center",
       gap: 6,
@@ -1714,14 +1776,14 @@ function TopBar({ query, onQuery, onNew }) {
       cursor: "pointer",
       flexShrink: 0
     }, children: [
-      /* @__PURE__ */ jsx7("span", { style: { fontSize: 18, lineHeight: 1 }, children: "+" }),
+      /* @__PURE__ */ jsx8("span", { style: { fontSize: 18, lineHeight: 1 }, children: "+" }),
       " New"
     ] })
   ] });
 }
 function EmptyState({ filtered }) {
   const t = T();
-  return /* @__PURE__ */ jsxs5("div", { style: {
+  return /* @__PURE__ */ jsxs6("div", { style: {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -1731,11 +1793,11 @@ function EmptyState({ filtered }) {
     textAlign: "center",
     color: t.muted
   }, children: [
-    /* @__PURE__ */ jsx7("div", { style: { fontSize: 40, opacity: 0.5 }, children: "\u270E" }),
-    /* @__PURE__ */ jsx7("div", { style: { fontSize: 15 }, children: filtered ? "No matching notes" : "No notes yet" }),
-    !filtered && /* @__PURE__ */ jsxs5("div", { style: { fontSize: 13, opacity: 0.8 }, children: [
+    /* @__PURE__ */ jsx8("div", { style: { color: t.muted, opacity: 0.5 }, children: /* @__PURE__ */ jsx8(Icon, { name: "edit", size: 40 }) }),
+    /* @__PURE__ */ jsx8("div", { style: { fontSize: 15 }, children: filtered ? "No matching notes" : "No notes yet" }),
+    !filtered && /* @__PURE__ */ jsxs6("div", { style: { fontSize: 13, opacity: 0.8 }, children: [
       "Tap ",
-      /* @__PURE__ */ jsx7("strong", { children: "+ New" }),
+      /* @__PURE__ */ jsx8("strong", { children: "+ New" }),
       " to write your first note."
     ] })
   ] });
@@ -1746,6 +1808,7 @@ function App({ appId, token }) {
   const [loading, setLoading] = useState3(true);
   const [query, setQuery] = useState3("");
   const [view, setView] = useState3({ mode: "grid", id: null });
+  const [draft, setDraft] = useState3(null);
   const [confirmId, setConfirmId] = useState3(null);
   const [pending, setPending] = useState3(0);
   const [conflicts, setConflicts] = useState3(() => /* @__PURE__ */ new Set());
@@ -1844,32 +1907,48 @@ function App({ appId, token }) {
       clearInterval(h);
     };
   }, []);
-  const createNote = useCallback2(async () => {
+  const createNote = useCallback2(() => {
     const meta = newNote({});
-    meta.content_hash = await contentHash(meta, "");
-    upsert(meta, "");
-    await saveNote(meta, "").catch(() => {
-    });
-    await promote(meta.id, { meta, body: "", hash: meta.content_hash }).catch(() => {
-    });
+    setDraft({ meta, body: "" });
     setView({ mode: "editor", id: meta.id });
-  }, [upsert]);
+  }, []);
+  const commitDraft = useCallback2(async (meta, body) => {
+    const m = { ...meta, updated: meta.updated || (/* @__PURE__ */ new Date()).toISOString() };
+    m.content_hash = await contentHash(m, body);
+    upsert(m, body);
+    setDraft(null);
+    await saveNote(m, body).catch(() => {
+    });
+    await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {
+    });
+    scheduleReconcile();
+    return m;
+  }, [scheduleReconcile, upsert]);
   const persist = useCallback2(async (meta, body) => {
+    if (draft && draft.meta.id === meta.id) {
+      const next = { meta: { ...draft.meta, ...meta }, body };
+      setDraft(next);
+      if (isBlankNote(next.meta, next.body)) return;
+      await commitDraft(next.meta, next.body);
+      return;
+    }
     const m = { ...meta, updated: (/* @__PURE__ */ new Date()).toISOString() };
     m.content_hash = await contentHash(m, body);
     upsert(m, body);
     await recordWorking(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {
     });
     scheduleReconcile();
-  }, [upsert, scheduleReconcile]);
+  }, [commitDraft, draft, upsert, scheduleReconcile]);
   const togglePin = useCallback2((id) => {
     const n = notes.find((x) => x.meta.id === id);
     if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body);
-  }, [notes, persist]);
+    else if (draft && draft.meta.id === id) setDraft((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }));
+  }, [draft, notes, persist]);
   const setColor = useCallback2((id, color) => {
     const n = notes.find((x) => x.meta.id === id);
     if (n) persist({ ...n.meta, color }, n.body);
-  }, [notes, persist]);
+    else if (draft && draft.meta.id === id) setDraft((d) => ({ ...d, meta: { ...d.meta, color } }));
+  }, [draft, notes, persist]);
   const queueDelete = useCallback2(async (note) => {
     const hash = await contentHash(note.meta, note.body);
     await recordDeletion(note.meta.id, { meta: note.meta, body: note.body, hash }).catch(() => {
@@ -1877,6 +1956,12 @@ function App({ appId, token }) {
     scheduleReconcile();
   }, [scheduleReconcile]);
   const doDelete = useCallback2((id) => {
+    if (draft && draft.meta.id === id) {
+      setDraft(null);
+      setConfirmId(null);
+      setView({ mode: "grid" });
+      return;
+    }
     const n = notes.find((x) => x.meta.id === id);
     if (n) queueDelete(n).catch(() => {
     });
@@ -1888,10 +1973,15 @@ function App({ appId, token }) {
     });
     setConfirmId(null);
     setView((v) => v.mode === "editor" && v.id === id ? { mode: "grid" } : v);
-  }, [notes, queueDelete]);
+  }, [draft, notes, queueDelete]);
   const back = useCallback2(() => {
+    if (draft && draft.meta.id === view.id) {
+      setDraft(null);
+      setView({ mode: "grid" });
+      return;
+    }
     const n = notes.find((x) => x.meta.id === view.id);
-    if (n && !(n.meta.title || "").trim() && !(n.body || "").trim()) {
+    if (n && isBlankNote(n.meta, n.body)) {
       queueDelete(n).catch(() => {
       });
       setNotes((prev) => {
@@ -1902,7 +1992,7 @@ function App({ appId, token }) {
       });
     }
     setView({ mode: "grid" });
-  }, [notes, view.id, queueDelete]);
+  }, [draft, notes, view.id, queueDelete]);
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = q ? notes.filter((n) => (n.meta.title || "").toLowerCase().includes(q) || (n.body || "").toLowerCase().includes(q) || (n.meta.tags || []).join(" ").toLowerCase().includes(q)) : notes;
@@ -1911,12 +2001,12 @@ function App({ appId, token }) {
       return (b.meta.updated || "").localeCompare(a.meta.updated || "");
     });
   }, [notes, query]);
-  const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id) : null;
+  const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id) || (draft && draft.meta.id === view.id ? draft : null) : null;
   const status = !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : pending > 0 ? "Saving\u2026" : "Synced";
-  return /* @__PURE__ */ jsxs5("div", { style: { position: "relative", height: "100%", display: "flex", flexDirection: "column", background: t.bg, color: t.text, fontFamily: t.font }, children: [
-    /* @__PURE__ */ jsx7(TopBar, { query, onQuery: setQuery, onNew: createNote }),
-    /* @__PURE__ */ jsx7("main", { style: { flex: 1, overflow: "auto" }, children: loading ? /* @__PURE__ */ jsx7("div", { style: { padding: "18vh 0", textAlign: "center", color: t.muted, fontSize: 14 }, children: "Loading\u2026" }) : visible.length === 0 ? /* @__PURE__ */ jsx7(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx7(Grid, { notes: visible, onOpen: (id) => setView({ mode: "editor", id }), onPin: togglePin, onColor: setColor, onDelete: setConfirmId }) }),
-    editing && /* @__PURE__ */ jsx7(
+  return /* @__PURE__ */ jsxs6("div", { style: { position: "relative", height: "100%", display: "flex", flexDirection: "column", background: t.bg, color: t.text, fontFamily: t.font }, children: [
+    /* @__PURE__ */ jsx8(TopBar, { query, onQuery: setQuery, onNew: createNote }),
+    /* @__PURE__ */ jsx8("main", { style: { flex: 1, overflow: "auto" }, children: loading ? /* @__PURE__ */ jsx8("div", { style: { padding: "18vh 0", textAlign: "center", color: t.muted, fontSize: 14 }, children: "Loading\u2026" }) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(Grid, { notes: visible, onOpen: (id) => setView({ mode: "editor", id }), onPin: togglePin, onColor: setColor, onDelete: setConfirmId }) }),
+    editing && /* @__PURE__ */ jsx8(
       EditorPanel,
       {
         note: editing,
@@ -1931,7 +2021,7 @@ function App({ appId, token }) {
         status
       }
     ),
-    /* @__PURE__ */ jsx7(
+    /* @__PURE__ */ jsx8(
       ConfirmModal,
       {
         open: !!confirmId,

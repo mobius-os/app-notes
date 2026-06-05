@@ -2,15 +2,18 @@
 import { T } from './theme.js'
 import { NOTE_COLORS } from './colors.js'
 
-export default function ColorPicker({ current, onPick }) {
+export default function ColorPicker({ current, onPick, placement = 'above' }) {
   const t = T()
+  const vertical = placement === 'below'
+    ? { top: 'calc(100% + 6px)' }
+    : { bottom: 'calc(100% + 6px)' }
   return (
     <div
       role="menu"
       aria-label="Note color"
       onClick={(e) => e.stopPropagation()}
       style={{
-        position: 'absolute', bottom: 'calc(100% + 6px)', left: 0, zIndex: 20,
+        position: 'absolute', left: 0, zIndex: 20, ...vertical,
         display: 'flex', gap: 6, padding: 8, background: t.surface2,
         border: `1px solid ${t.border}`, borderRadius: 12,
         boxShadow: '0 8px 24px rgba(0,0,0,0.4)',

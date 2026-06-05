@@ -10,13 +10,14 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { T } from './ui/theme.js'
-import { newNote, contentHash } from './lib/note.js'
+import { newNote, contentHash, isBlankNote } from './lib/note.js'
 import * as store from './lib/store.js'
 import { ensureBase, recordWorking, recordDeletion, promote, unsyncedLocals } from './lib/local.js'
 import { reconcileAll } from './lib/reconciler.js'
 import Grid from './ui/Grid.jsx'
 import EditorPanel from './ui/EditorPanel.jsx'
 import ConfirmModal from './ui/ConfirmModal.jsx'
+import { Icon } from './ui/icons.jsx'
 
 function TopBar({ query, onQuery, onNew }) {
   const t = T()
@@ -53,7 +54,7 @@ function EmptyState({ filtered }) {
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       gap: 8, padding: '18vh 24px', textAlign: 'center', color: t.muted,
     }}>
-      <div style={{ fontSize: 40, opacity: 0.5 }}>✎</div>
+      <div style={{ color: t.muted, opacity: 0.5 }}><Icon name="edit" size={40} /></div>
       <div style={{ fontSize: 15 }}>{filtered ? 'No matching notes' : 'No notes yet'}</div>
       {!filtered && <div style={{ fontSize: 13, opacity: 0.8 }}>Tap <strong>+ New</strong> to write your first note.</div>}
     </div>
@@ -66,6 +67,7 @@ export default function App({ appId, token }) {
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [view, setView] = useState({ mode: 'grid', id: null })
+  const [draft, setDraft] = useState(null)
   const [confirmId, setConfirmId] = useState(null)
   const [pending, setPending] = useState(0)
   const [conflicts, setConflicts] = useState(() => new Set())
@@ -146,34 +148,53 @@ export default function App({ appId, token }) {
     return () => { live = false; clearInterval(h) }
   }, [])
 
-  // A brand-new note is created on canonical directly (no ancestor yet, so no
-  // conflict is possible) and its base is seeded; later edits go through the
-  // working copy + reconcile.
-  const createNote = useCallback(async () => {
+  // A brand-new note opens as an in-memory draft first. It is not inserted into
+  // the grid until the user actually writes something, avoiding the distracting
+  // empty-card flash before the full editor opens. Once meaningful, the first
+  // save lands canonical directly (no ancestor yet, so no conflict is possible)
+  // and seeds its base; later edits go through the working copy + reconcile.
+  const createNote = useCallback(() => {
     const meta = newNote({})
-    meta.content_hash = await contentHash(meta, '')
-    upsert(meta, '')
-    await store.saveNote(meta, '').catch(() => {})
-    await promote(meta.id, { meta, body: '', hash: meta.content_hash }).catch(() => {})
+    setDraft({ meta, body: '' })
     setView({ mode: 'editor', id: meta.id })
-  }, [upsert])
+  }, [])
+
+  const commitDraft = useCallback(async (meta, body) => {
+    const m = { ...meta, updated: meta.updated || new Date().toISOString() }
+    m.content_hash = await contentHash(m, body)
+    upsert(m, body)
+    setDraft(null)
+    await store.saveNote(m, body).catch(() => {})
+    await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {})
+    scheduleReconcile()
+    return m
+  }, [scheduleReconcile, upsert])
 
   // Persist an edit: stamp the working copy + update the UI, then let the
   // reconcile driver (the sole canonical writer) land it / merge / flag conflict.
   const persist = useCallback(async (meta, body) => {
+    if (draft && draft.meta.id === meta.id) {
+      const next = { meta: { ...draft.meta, ...meta }, body }
+      setDraft(next)
+      if (isBlankNote(next.meta, next.body)) return
+      await commitDraft(next.meta, next.body)
+      return
+    }
     const m = { ...meta, updated: new Date().toISOString() }
     m.content_hash = await contentHash(m, body)
     upsert(m, body)
     await recordWorking(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {})
     scheduleReconcile()
-  }, [upsert, scheduleReconcile])
+  }, [commitDraft, draft, upsert, scheduleReconcile])
 
   const togglePin = useCallback((id) => {
     const n = notes.find((x) => x.meta.id === id); if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body)
-  }, [notes, persist])
+    else if (draft && draft.meta.id === id) setDraft((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }))
+  }, [draft, notes, persist])
   const setColor = useCallback((id, color) => {
     const n = notes.find((x) => x.meta.id === id); if (n) persist({ ...n.meta, color }, n.body)
-  }, [notes, persist])
+    else if (draft && draft.meta.id === id) setDraft((d) => ({ ...d, meta: { ...d.meta, color } }))
+  }, [draft, notes, persist])
 
   const queueDelete = useCallback(async (note) => {
     const hash = await contentHash(note.meta, note.body)
@@ -182,6 +203,12 @@ export default function App({ appId, token }) {
   }, [scheduleReconcile])
 
   const doDelete = useCallback((id) => {
+    if (draft && draft.meta.id === id) {
+      setDraft(null)
+      setConfirmId(null)
+      setView({ mode: 'grid' })
+      return
+    }
     const n = notes.find((x) => x.meta.id === id)
     if (n) queueDelete(n).catch(() => {})
     setNotes((prev) => {
@@ -191,11 +218,16 @@ export default function App({ appId, token }) {
     })
     setConfirmId(null)
     setView((v) => (v.mode === 'editor' && v.id === id ? { mode: 'grid' } : v))
-  }, [notes, queueDelete])
+  }, [draft, notes, queueDelete])
 
   const back = useCallback(() => {
+    if (draft && draft.meta.id === view.id) {
+      setDraft(null)
+      setView({ mode: 'grid' })
+      return
+    }
     const n = notes.find((x) => x.meta.id === view.id)
-    if (n && !(n.meta.title || '').trim() && !(n.body || '').trim()) {
+    if (n && isBlankNote(n.meta, n.body)) {
       queueDelete(n).catch(() => {})
       setNotes((prev) => {
         const next = prev.filter((x) => x.meta.id !== n.meta.id)
@@ -204,7 +236,7 @@ export default function App({ appId, token }) {
       })
     }
     setView({ mode: 'grid' })
-  }, [notes, view.id, queueDelete])
+  }, [draft, notes, view.id, queueDelete])
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -220,7 +252,7 @@ export default function App({ appId, token }) {
     })
   }, [notes, query])
 
-  const editing = view.mode === 'editor' ? notes.find((n) => n.meta.id === view.id) : null
+  const editing = view.mode === 'editor' ? (notes.find((n) => n.meta.id === view.id) || (draft && draft.meta.id === view.id ? draft : null)) : null
   const status = !online ? 'Offline' : (editing && conflicts.has(editing.meta.id)) ? 'Resolving…' : pending > 0 ? 'Saving…' : 'Synced'
 
   return (

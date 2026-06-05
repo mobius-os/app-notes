@@ -1,7 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert'
 import {sha256Hex} from '../src/lib/hash.js'
-import {contentHash, newNote, bumpRev} from '../src/lib/note.js'
+import {contentHash, newNote, bumpRev, isBlankNote} from '../src/lib/note.js'
 import {
   attachmentPath,
   extFromType,
@@ -127,6 +127,20 @@ test('newNote does not share array references between notes', () => {
   a.attachments.push('y')
   assert.deepEqual(b.tags, [])
   assert.deepEqual(b.attachments, [])
+})
+
+test('isBlankNote treats a fresh empty draft as blank', () => {
+  assert.equal(isBlankNote(newNote(), ''), true)
+})
+
+test('isBlankNote commits drafts with title, body, or attachments', () => {
+  assert.equal(isBlankNote({title: '  hello  '}, ''), false)
+  assert.equal(isBlankNote({title: ''}, '\n- thing'), false)
+  assert.equal(isBlankNote({title: '', attachments: ['attachments/a.png']}, ''), false)
+})
+
+test('isBlankNote ignores purely visual draft choices', () => {
+  assert.equal(isBlankNote({title: '', pinned: true, color: 'sky', tags: []}, '   '), true)
 })
 
 // ---------------------------------------------------------------------------

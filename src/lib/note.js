@@ -62,6 +62,13 @@ export function newNote({title} = {}) {
   }
 }
 
+export function isBlankNote(meta = {}, body = '') {
+  const hasTitle = Boolean((meta.title || '').trim())
+  const hasBody = Boolean(String(body || '').trim())
+  const hasAttachments = Array.isArray(meta.attachments) && meta.attachments.length > 0
+  return !hasTitle && !hasBody && !hasAttachments
+}
+
 // Advance a note one canonical revision: the new rev's parent is the rev we
 // based this write on, and `updated` is refreshed. Returns a NEW object — the
 // caller's input is never mutated, so a failed write can't leave a half-bumped

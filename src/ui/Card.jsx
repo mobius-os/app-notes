@@ -5,6 +5,7 @@ import { T } from './theme.js'
 import { colorHex } from './colors.js'
 import { renderPreviewHTML } from '../lib/preview.js'
 import ColorPicker from './ColorPicker.jsx'
+import { Icon } from './icons.jsx'
 
 function IconBtn({ children, title, onClick, active, danger }) {
   const t = T()
@@ -62,9 +63,9 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete }) {
               />}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '6px 8px', borderTop: `1px solid ${t.border}` }}>
-          <IconBtn title={meta.pinned ? 'Unpin' : 'Pin'} active={meta.pinned} onClick={() => onPin(meta.id)}>📌</IconBtn>
+          <IconBtn title={meta.pinned ? 'Unpin' : 'Pin'} active={meta.pinned} onClick={() => onPin(meta.id)}><Icon name="pin" size={15} /></IconBtn>
           <div style={{ position: 'relative' }}>
-            <IconBtn title="Color" onClick={() => setShowColors((v) => !v)}>🎨</IconBtn>
+            <IconBtn title="Color" onClick={() => setShowColors((v) => !v)}><Icon name="palette" size={16} /></IconBtn>
             {showColors && (
               <ColorPicker
                 current={meta.color}
@@ -73,7 +74,7 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete }) {
             )}
           </div>
           <div style={{ flex: 1 }} />
-          <IconBtn title="Delete" danger onClick={() => onDelete(meta.id)}>🗑</IconBtn>
+          <IconBtn title="Delete" danger onClick={() => onDelete(meta.id)}><Icon name="trash" size={15} /></IconBtn>
         </div>
       </div>
     </div>
