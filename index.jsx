@@ -1913,9 +1913,9 @@ function TopBar({ query, onQuery, onNew }) {
       borderRadius: 10,
       border: "none",
       background: t.accent,
-      color: "#0d0d0d",
+      color: "#ffffff",
       fontSize: 14,
-      fontWeight: 600,
+      fontWeight: 650,
       cursor: "pointer",
       flexShrink: 0
     }, children: [

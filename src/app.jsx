@@ -39,7 +39,7 @@ function TopBar({ query, onQuery, onNew }) {
       </div>
       <button onClick={onNew} aria-label="New note" style={{
         display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10,
-        border: 'none', background: t.accent, color: '#0d0d0d', fontSize: 14, fontWeight: 600, cursor: 'pointer', flexShrink: 0,
+        border: 'none', background: t.accent, color: '#ffffff', fontSize: 14, fontWeight: 650, cursor: 'pointer', flexShrink: 0,
       }}>
         <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> New
       </button>

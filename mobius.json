@@ -1,7 +1,7 @@
 {
   "id": "notes",
   "name": "Notes",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Markdown notes that render as you type — pin, color, search, inline images & files. Works offline; git-tracked; conflicts auto-merge or get an agent.",
   "author": "mobius-os",
   "license": "MIT",
