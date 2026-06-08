@@ -30,6 +30,7 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
   const viewRef = useRef(null)
   const imageRef = useRef(null)
   const fileRef = useRef(null)
+  const colorBtnRef = useRef(null)
   const latest = useRef({ note, title: note.meta.title || '', body: note.body || '' })
 
   useEffect(() => {
@@ -119,9 +120,9 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto', paddingBottom: 1 }}>
           <button onClick={() => onPin(note.meta.id)} aria-label={note.meta.pinned ? 'Unpin' : 'Pin'} title={note.meta.pinned ? 'Unpin' : 'Pin'} style={hdrBtn(t, note.meta.pinned)}><Icon name="pin" size={16} /></button>
-          <div style={{ position: 'relative', flexShrink: 0 }}>
+          <div ref={colorBtnRef} style={{ position: 'relative', flexShrink: 0 }}>
             <button onClick={() => setShowColors((v) => !v)} aria-label="Color" title="Color" style={hdrBtn(t)}><Icon name="palette" size={17} /></button>
-            {showColors && <ColorPicker placement="below" align="start" current={note.meta.color} onPick={(c) => { onColor(note.meta.id, c); setShowColors(false) }} />}
+            {showColors && <ColorPicker anchorRef={colorBtnRef} placement="below" align="start" current={note.meta.color} onPick={(c) => { onColor(note.meta.id, c); setShowColors(false) }} />}
           </div>
           <button onClick={() => imageRef.current && imageRef.current.click()} aria-label="Insert image" title="Insert image" style={labelBtn(t)}><Icon name="image" size={16} />Image</button>
           <button onClick={() => fileRef.current && fileRef.current.click()} aria-label="Attach file" title="Attach file" style={labelBtn(t)}><Icon name="file" size={16} />File</button>

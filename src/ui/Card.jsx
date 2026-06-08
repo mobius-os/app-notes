@@ -1,6 +1,6 @@
 // A single note card: color tab, title, rendered markdown preview, and a footer
 // toolbar (pin, color, delete). Tapping the body opens the editor.
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { T } from './theme.js'
 import { colorHex, colorTint } from './colors.js'
 import { localImageRefs, renderPreviewHTML } from '../lib/preview.js'
@@ -31,6 +31,7 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
   const [html, setHtml] = useState('')
   const [showColors, setShowColors] = useState(false)
   const [thumbUrls, setThumbUrls] = useState([])
+  const colorBtnRef = useRef(null)
 
   useEffect(() => {
     let live = true
@@ -117,10 +118,11 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '6px 8px', borderTop: `1px solid ${bar ? colorTint(meta.color, 0.32) : t.border}`, background: bar ? colorTint(meta.color, 0.08) : 'transparent' }}>
           <IconBtn title={meta.pinned ? 'Unpin' : 'Pin'} active={meta.pinned} onClick={() => onPin(meta.id)}><Icon name="pin" size={15} /></IconBtn>
-          <div style={{ position: 'relative' }}>
+          <div ref={colorBtnRef} style={{ position: 'relative' }}>
             <IconBtn title="Color" onClick={() => setShowColors((v) => !v)}><Icon name="palette" size={16} /></IconBtn>
             {showColors && (
               <ColorPicker
+                anchorRef={colorBtnRef}
                 current={meta.color}
                 onPick={(c) => { onColor(meta.id, c); setShowColors(false) }}
               />

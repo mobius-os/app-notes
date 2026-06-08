@@ -2,7 +2,7 @@
 // Edit src/app.jsx + src/{lib,ui,editor}/*, then run `npm run build`.
 
 // src/app.jsx
-import { useState as useState3, useEffect as useEffect4, useMemo, useCallback as useCallback2, useRef as useRef3 } from "react";
+import { useState as useState4, useEffect as useEffect4, useMemo, useCallback as useCallback2, useRef as useRef4 } from "react";
 
 // src/ui/theme.js
 function cssVar(name, fallback) {
@@ -399,7 +399,7 @@ async function unsyncedLocals() {
   return out;
 }
 
-// ../../../node_modules/node-diff3/dist/diff3.mjs
+// node_modules/node-diff3/dist/diff3.mjs
 function LCS(buffer1, buffer2) {
   let equivalenceClasses = {};
   for (let j = 0; j < buffer2.length; j++) {
@@ -882,7 +882,7 @@ async function reconcileAll({ onApplied, onConflict, onDeleted } = {}) {
 }
 
 // src/ui/Card.jsx
-import { useState, useEffect } from "react";
+import { useState as useState2, useEffect, useRef } from "react";
 
 // src/ui/colors.js
 var NOTE_COLORS = [
@@ -950,51 +950,79 @@ async function renderPreviewHTML(md) {
 }
 
 // src/ui/ColorPicker.jsx
+import { useLayoutEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { jsx } from "react/jsx-runtime";
-function ColorPicker({ current, onPick, placement = "above", align = "start" }) {
+var MARGIN = 12;
+function ColorPicker({ anchorRef, current, onPick, placement = "above", align = "start" }) {
   const t = T();
-  const vertical = placement === "below" ? { top: "calc(100% + 6px)" } : { bottom: "calc(100% + 6px)" };
-  const horizontal = align === "end" ? { right: 0 } : { left: 0 };
-  return /* @__PURE__ */ jsx(
-    "div",
-    {
-      role: "menu",
-      "aria-label": "Note color",
-      onClick: (e) => e.stopPropagation(),
-      style: {
-        position: "absolute",
-        zIndex: 20,
-        ...vertical,
-        ...horizontal,
-        display: "grid",
-        gridTemplateColumns: "repeat(4, 28px)",
-        gap: 7,
-        maxWidth: "calc(100vw - 24px)",
-        padding: 8,
-        background: t.surface2,
-        border: `1px solid ${t.border}`,
-        borderRadius: 8,
-        boxShadow: "0 8px 24px rgba(0,0,0,0.4)"
-      },
-      children: NOTE_COLORS.map((c) => /* @__PURE__ */ jsx(
-        "button",
-        {
-          title: c.label,
-          "aria-label": c.label,
-          onClick: () => onPick(c.name),
-          style: {
-            width: 28,
-            height: 28,
-            borderRadius: 7,
-            cursor: "pointer",
-            padding: 0,
-            border: current === c.name ? `2px solid ${t.text}` : `1px solid ${t.border}`,
-            background: c.hex || `linear-gradient(135deg, ${t.surface} 49%, ${t.muted} 51%)`
-          }
-        },
-        c.name || "default"
-      ))
+  const [pos, setPos] = useState(null);
+  const width = 4 * 28 + 3 * 7 + 2 * 8;
+  const rows = Math.ceil(NOTE_COLORS.length / 4);
+  const height = rows * 28 + (rows - 1) * 7 + 2 * 8;
+  useLayoutEffect(() => {
+    function place() {
+      const el = anchorRef && anchorRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const top = placement === "below" ? r.bottom + 6 : r.top - 6 - height;
+      let left = align === "end" ? r.right - width : r.left;
+      const maxLeft = window.innerWidth - width - MARGIN;
+      left = Math.max(MARGIN, Math.min(left, maxLeft));
+      setPos({ top: Math.max(MARGIN, top), left });
     }
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [anchorRef, placement, align, height, width]);
+  if (!pos) return null;
+  return createPortal(
+    /* @__PURE__ */ jsx(
+      "div",
+      {
+        role: "menu",
+        "aria-label": "Note color",
+        onClick: (e) => e.stopPropagation(),
+        style: {
+          position: "fixed",
+          zIndex: 1e3,
+          top: pos.top,
+          left: pos.left,
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 28px)",
+          gap: 7,
+          maxWidth: `calc(100vw - ${2 * MARGIN}px)`,
+          padding: 8,
+          background: t.surface2,
+          border: `1px solid ${t.border}`,
+          borderRadius: 8,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.4)"
+        },
+        children: NOTE_COLORS.map((c) => /* @__PURE__ */ jsx(
+          "button",
+          {
+            title: c.label,
+            "aria-label": c.label,
+            onClick: () => onPick(c.name),
+            style: {
+              width: 28,
+              height: 28,
+              borderRadius: 7,
+              cursor: "pointer",
+              padding: 0,
+              border: current === c.name ? `2px solid ${t.text}` : `1px solid ${t.border}`,
+              background: c.hex || `linear-gradient(135deg, ${t.surface} 49%, ${t.muted} 51%)`
+            }
+          },
+          c.name || "default"
+        ))
+      }
+    ),
+    document.body
   );
 }
 
@@ -1100,9 +1128,10 @@ function IconBtn({ children, title, onClick, active, danger }) {
 function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const t = T();
   const { meta, body } = note;
-  const [html, setHtml] = useState("");
-  const [showColors, setShowColors] = useState(false);
-  const [thumbUrls, setThumbUrls] = useState([]);
+  const [html, setHtml] = useState2("");
+  const [showColors, setShowColors] = useState2(false);
+  const [thumbUrls, setThumbUrls] = useState2([]);
+  const colorBtnRef = useRef(null);
   useEffect(() => {
     let live = true;
     renderPreviewHTML((body || "").slice(0, 700)).then((h) => {
@@ -1189,11 +1218,12 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
     ),
     /* @__PURE__ */ jsxs2("div", { style: { display: "flex", alignItems: "center", gap: 2, padding: "6px 8px", borderTop: `1px solid ${bar ? colorTint(meta.color, 0.32) : t.border}`, background: bar ? colorTint(meta.color, 0.08) : "transparent" }, children: [
       /* @__PURE__ */ jsx3(IconBtn, { title: meta.pinned ? "Unpin" : "Pin", active: meta.pinned, onClick: () => onPin(meta.id), children: /* @__PURE__ */ jsx3(Icon, { name: "pin", size: 15 }) }),
-      /* @__PURE__ */ jsxs2("div", { style: { position: "relative" }, children: [
+      /* @__PURE__ */ jsxs2("div", { ref: colorBtnRef, style: { position: "relative" }, children: [
         /* @__PURE__ */ jsx3(IconBtn, { title: "Color", onClick: () => setShowColors((v) => !v), children: /* @__PURE__ */ jsx3(Icon, { name: "palette", size: 16 }) }),
         showColors && /* @__PURE__ */ jsx3(
           ColorPicker,
           {
+            anchorRef: colorBtnRef,
             current: meta.color,
             onPick: (c) => {
               onColor(meta.id, c);
@@ -1252,10 +1282,10 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
 }
 
 // src/ui/EditorPanel.jsx
-import { useState as useState2, useEffect as useEffect3, useRef as useRef2, useCallback } from "react";
+import { useState as useState3, useEffect as useEffect3, useRef as useRef3, useCallback } from "react";
 
 // src/editor/Editor.jsx
-import { useRef, useEffect as useEffect2 } from "react";
+import { useRef as useRef2, useEffect as useEffect2 } from "react";
 import { EditorState } from "@codemirror/state";
 import { EditorView as EditorView2 } from "@codemirror/view";
 
@@ -1574,10 +1604,10 @@ function buildExtensions({ onDocChange, resolveAttachment }) {
 // src/editor/Editor.jsx
 import { jsx as jsx5 } from "react/jsx-runtime";
 function Editor({ value, onChange, resolveAttachment, viewRef }) {
-  const host = useRef(null);
-  const view = useRef(null);
-  const onChangeRef = useRef(onChange);
-  const resolveRef = useRef(resolveAttachment);
+  const host = useRef2(null);
+  const view = useRef2(null);
+  const onChangeRef = useRef2(onChange);
+  const resolveRef = useRef2(resolveAttachment);
   onChangeRef.current = onChange;
   resolveRef.current = resolveAttachment;
   useEffect2(() => {
@@ -1624,15 +1654,16 @@ function resolveNow(note) {
 }
 function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment: putAttachment2, conflict, status }) {
   const t = T();
-  const [title, setTitle] = useState2(note.meta.title || "");
-  const [body, setBody] = useState2(note.body || "");
-  const [showColors, setShowColors] = useState2(false);
-  const [attachErr, setAttachErr] = useState2("");
-  const timer = useRef2(null);
-  const viewRef = useRef2(null);
-  const imageRef = useRef2(null);
-  const fileRef = useRef2(null);
-  const latest = useRef2({ note, title: note.meta.title || "", body: note.body || "" });
+  const [title, setTitle] = useState3(note.meta.title || "");
+  const [body, setBody] = useState3(note.body || "");
+  const [showColors, setShowColors] = useState3(false);
+  const [attachErr, setAttachErr] = useState3("");
+  const timer = useRef3(null);
+  const viewRef = useRef3(null);
+  const imageRef = useRef3(null);
+  const fileRef = useRef3(null);
+  const colorBtnRef = useRef3(null);
+  const latest = useRef3({ note, title: note.meta.title || "", body: note.body || "" });
   useEffect3(() => {
     latest.current = { note, title, body };
   }, [note, title, body]);
@@ -1724,9 +1755,9 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
       ] }),
       /* @__PURE__ */ jsxs4("div", { style: { display: "flex", alignItems: "center", gap: 6, overflowX: "auto", paddingBottom: 1 }, children: [
         /* @__PURE__ */ jsx6("button", { onClick: () => onPin(note.meta.id), "aria-label": note.meta.pinned ? "Unpin" : "Pin", title: note.meta.pinned ? "Unpin" : "Pin", style: hdrBtn(t, note.meta.pinned), children: /* @__PURE__ */ jsx6(Icon, { name: "pin", size: 16 }) }),
-        /* @__PURE__ */ jsxs4("div", { style: { position: "relative", flexShrink: 0 }, children: [
+        /* @__PURE__ */ jsxs4("div", { ref: colorBtnRef, style: { position: "relative", flexShrink: 0 }, children: [
           /* @__PURE__ */ jsx6("button", { onClick: () => setShowColors((v) => !v), "aria-label": "Color", title: "Color", style: hdrBtn(t), children: /* @__PURE__ */ jsx6(Icon, { name: "palette", size: 17 }) }),
-          showColors && /* @__PURE__ */ jsx6(ColorPicker, { placement: "below", align: "start", current: note.meta.color, onPick: (c) => {
+          showColors && /* @__PURE__ */ jsx6(ColorPicker, { anchorRef: colorBtnRef, placement: "below", align: "start", current: note.meta.color, onPick: (c) => {
             onColor(note.meta.id, c);
             setShowColors(false);
           } })
@@ -1947,16 +1978,16 @@ function EmptyState({ filtered }) {
 }
 function App({ appId, token }) {
   const t = T();
-  const [notes, setNotes] = useState3([]);
-  const [loading, setLoading] = useState3(true);
-  const [query, setQuery] = useState3("");
-  const [view, setView] = useState3({ mode: "grid", id: null });
-  const [draft, setDraft] = useState3(null);
-  const [confirmId, setConfirmId] = useState3(null);
-  const [pending, setPending] = useState3(0);
-  const [conflicts, setConflicts] = useState3(() => /* @__PURE__ */ new Set());
-  const reconTimer = useRef3(null);
-  const editorNavOwned = useRef3(false);
+  const [notes, setNotes] = useState4([]);
+  const [loading, setLoading] = useState4(true);
+  const [query, setQuery] = useState4("");
+  const [view, setView] = useState4({ mode: "grid", id: null });
+  const [draft, setDraft] = useState4(null);
+  const [confirmId, setConfirmId] = useState4(null);
+  const [pending, setPending] = useState4(0);
+  const [conflicts, setConflicts] = useState4(() => /* @__PURE__ */ new Set());
+  const reconTimer = useRef4(null);
+  const editorNavOwned = useRef4(false);
   const online = isOnline();
   const upsert = useCallback2((meta, body) => {
     setNotes((prev) => {
