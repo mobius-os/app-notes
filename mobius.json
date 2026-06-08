@@ -2,7 +2,7 @@
   "id": "notes",
   "name": "Notes",
   "version": "1.0.7",
-  "description": "Markdown notes that render as you type — pin, color, search, and attach images. Works offline.",
+  "description": "Markdown notes that render as you type, with pin, color, search, and inline images. Works offline.",
   "author": "mobius-os",
   "license": "MIT",
   "homepage": "https://github.com/mobius-os/app-notes",
