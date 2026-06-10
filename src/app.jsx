@@ -375,7 +375,10 @@ export default function App({ appId, token }) {
       <TopBar query={query} onQuery={setQuery} onNew={createNote} />
       <main className="nt-scroll">
         {loading
-          ? <div className="nt-loading">Loading…</div>
+          ? <div className="nt-loading" role="status" aria-live="polite">
+              <span className="nt-spinner" aria-hidden="true" />
+              <span>Loading…</span>
+            </div>
           : visible.length === 0
             ? <EmptyState filtered={!!query.trim()} />
             : <Grid notes={visible} onOpen={(id) => { openEditor(id).catch(() => setView({ mode: 'editor', id })) }} onPin={togglePin} onColor={setColor} onDelete={setConfirmId} resolveAttachment={store.attachmentURL} />}

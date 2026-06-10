@@ -41,8 +41,8 @@ const theme = EditorView.theme({
   '.cm-content': { padding: '16px 18px 40vh', caretColor: 'var(--accent)', maxWidth: '760px', margin: '0 auto', width: '100%' },
   '&.cm-focused': { outline: 'none' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
-  '.cm-selectionBackground': { backgroundColor: 'rgba(167,139,250,0.22)' },
-  '&.cm-focused .cm-selectionBackground': { backgroundColor: 'rgba(167,139,250,0.30)' },
+  '.cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--accent) 22%, transparent)' },
+  '&.cm-focused .cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--accent) 30%, transparent)' },
   '.cm-line': { padding: '0' },
 }, { dark: true })
 

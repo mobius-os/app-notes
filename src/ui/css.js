@@ -27,11 +27,19 @@ export const CSS = `
 }
 /* /mobius-ui:Root */
 
+/* mobius-ui:Focus v1 — shared keyboard focus ring (WCAG 2.4.7); never bare outline:none */
+:where(button,a,input,textarea,select,summary,[role="button"],[tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* /mobius-ui:Focus */
+
 /* ── TopBar ─────────────────────────────────────────────────────────────── */
 /* mobius-ui:Header v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-topbar {
   display: flex; align-items: center; gap: 12px;
-  padding: 12px 16px;
+  /* top-pinned bar: pad past the notch/status bar on notched phones */
+  padding: max(12px, env(safe-area-inset-top)) 16px 12px;
   border-bottom: 1px solid var(--border);
   position: sticky; top: 0;
   background: var(--bg); z-index: 5;
@@ -49,9 +57,11 @@ export const CSS = `
   padding: 8px 12px; border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--surface2, var(--surface)); color: var(--text);
-  font-size: 14px; font-family: var(--font); outline: none;
+  font-size: 16px; font-family: var(--font);
   transition: border-color 0.15s ease;
 }
+/* mouse focus uses the accent border; keyboard focus keeps the shared ring */
+.nt-search:focus:not(:focus-visible) { outline: none; }
 .nt-search:focus { border-color: var(--accent); }
 .nt-search::placeholder { color: var(--muted); }
 .nt-new-btn {
@@ -72,8 +82,17 @@ export const CSS = `
 
 /* ── Loading / Empty ────────────────────────────────────────────────────── */
 .nt-loading {
-  padding: 18vh 0; text-align: center; color: var(--muted); font-size: 14px;
+  padding: 18vh 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  color: var(--muted); font-size: 14px;
 }
+.nt-spinner {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-top-color: var(--accent);
+  animation: nt-spin 0.7s linear infinite;
+}
+@keyframes nt-spin { to { transform: rotate(360deg); } }
 /* mobius-ui:Empty v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -86,7 +105,9 @@ export const CSS = `
 
 /* ── Grid ───────────────────────────────────────────────────────────────── */
 .nt-grid-wrap {
-  padding: 16px 8px 90px; max-width: 1120px; margin: 0 auto;
+  /* bottom pad clears the gesture bar on Android/notched iPhones */
+  padding: 16px 8px max(90px, calc(16px + env(safe-area-inset-bottom)));
+  max-width: 1120px; margin: 0 auto;
 }
 .nt-section { margin-bottom: 18px; }
 /* mobius-ui:SectionHead v1 — keep in sync; library candidate. */
@@ -151,7 +172,7 @@ export const CSS = `
 }
 /* mobius-ui:Button v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-icon-btn {
-  width: 36px; height: 36px;
+  width: 44px; height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
   border: none; border-radius: 8px;
   background: transparent; color: var(--muted);
@@ -166,7 +187,7 @@ export const CSS = `
   .nt-icon-btn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 }
 .nt-icon-btn:active { transform: scale(0.93); }
-.nt-icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* keyboard focus ring comes from the shared mobius-ui:Focus block above */
 /* /mobius-ui:Button */
 .nt-color-anchor { position: relative; }
 .nt-spacer { flex: 1; }
@@ -174,14 +195,14 @@ export const CSS = `
 /* ── ColorPicker ────────────────────────────────────────────────────────── */
 .nt-color-picker {
   position: fixed; z-index: 1000;
-  display: grid; grid-template-columns: repeat(4, 28px); gap: 7px;
+  display: grid; grid-template-columns: repeat(4, 44px); gap: 8px;
   max-width: calc(100vw - 24px); padding: 8px;
   background: var(--surface2, var(--surface));
   border: 1px solid var(--border); border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  box-shadow: 0 8px 24px var(--scrim, rgba(0,0,0,0.4));
 }
 .nt-swatch {
-  width: 28px; height: 28px; border-radius: 7px;
+  width: 44px; height: 44px; border-radius: 9px;
   cursor: pointer; padding: 0;
   /* border and background set via inline style (dynamic per swatch) */
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
@@ -195,13 +216,13 @@ export const CSS = `
 .nt-modal-scrim {
   position: fixed; inset: 0; z-index: 50;
   display: flex; align-items: center; justify-content: center; padding: 20px;
-  background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+  background: var(--scrim, rgba(0,0,0,0.55)); backdrop-filter: blur(2px);
 }
 .nt-modal {
   width: 100%; max-width: 360px;
   background: var(--surface);
   border: 1px solid var(--border); border-radius: 16px; padding: 20px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  box-shadow: 0 12px 40px var(--scrim, rgba(0,0,0,0.5));
 }
 .nt-modal-title {
   font-size: 16px; font-weight: 650; color: var(--text);
@@ -222,7 +243,8 @@ export const CSS = `
   border: 1px solid var(--border); background: transparent; color: var(--text);
 }
 .nt-modal-confirm {
-  border: none; color: #0d0d0d; font-weight: 600;
+  border: none; color: #ffffff; font-weight: 600;
+  /* on-accent/on-danger text matches the + New button (shell standardizes white) */
   /* background set via inline style: var(--danger) or var(--accent) */
 }
 /* /mobius-ui:Sheet */
@@ -251,7 +273,7 @@ export const CSS = `
 /* /mobius-ui:Header */
 /* mobius-ui:Button v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-hdr-btn {
-  width: 36px; height: 36px;
+  width: 44px; height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
   border: none; border-radius: 9px;
   background: transparent; color: var(--text);
@@ -265,7 +287,7 @@ export const CSS = `
   .nt-hdr-btn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 }
 .nt-hdr-btn:active { transform: scale(0.95); }
-.nt-hdr-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* keyboard focus ring comes from the shared mobius-ui:Focus block above */
 /* /mobius-ui:Button */
 .nt-color-dot {
   /* width/height/border-radius/background set via inline style (dynamic per note) */
@@ -273,10 +295,12 @@ export const CSS = `
 }
 .nt-title-input {
   flex: 1; min-width: 0;
-  padding: 7px 6px; border: none; outline: none;
+  padding: 7px 6px; border: none;
   background: transparent; color: var(--text);
   font-size: 17px; font-weight: 650; font-family: var(--font);
 }
+/* mouse focus is borderless by design; keyboard focus keeps the shared ring */
+.nt-title-input:focus:not(:focus-visible) { outline: none; }
 .nt-title-input::placeholder { color: var(--muted); }
 /* mobius-ui:SyncPill v1 (editor variant) — keep in sync; library candidate. */
 .nt-status {
@@ -288,7 +312,7 @@ export const CSS = `
 .nt-status.is-default { color: var(--muted); }
 /* /mobius-ui:SyncPill */
 .nt-label-btn {
-  height: 36px;
+  height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
   gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px;
   background: var(--surface2, var(--surface)); color: var(--text);
@@ -321,4 +345,15 @@ export const CSS = `
   color: var(--danger); font-size: 13px; flex: 0 0 auto;
 }
 .nt-editor-body { flex: 1; overflow: hidden; }
+
+/* mobius-ui:ReducedMotion v1 — honor the OS reduce-motion setting */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+/* /mobius-ui:ReducedMotion */
 `
