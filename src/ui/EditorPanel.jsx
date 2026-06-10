@@ -1,7 +1,6 @@
 // Full-screen note editor: header (back, title, pin, color, attach, status,
 // delete) + the live-inline CodeMirror body. Title + body autosave (debounced).
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { T } from './theme.js'
 import { colorHex } from './colors.js'
 import ColorPicker from './ColorPicker.jsx'
 import Editor from '../editor/Editor.jsx'
@@ -20,8 +19,16 @@ function resolveNow(note) {
   } catch (e) {}
 }
 
+// Map status string to modifier class for the status indicator. Using modifier
+// classes instead of a per-render cssVar snapshot avoids stale values on live
+// theme switches.
+function statusClass(status) {
+  if (status === 'Synced') return 'is-synced'
+  if (status === 'Resolving…') return 'is-resolving'
+  return 'is-default'
+}
+
 export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment, conflict, status }) {
-  const t = T()
   const [title, setTitle] = useState(note.meta.title || '')
   const [body, setBody] = useState(note.body || '')
   const [showColors, setShowColors] = useState(false)
@@ -101,70 +108,96 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
     }
   }
 
-  const statusColor = status === 'Synced' ? t.green : status === 'Resolving…' ? t.accent : t.muted
+  const colorDotHex = colorHex(note.meta.color)
 
   return (
-    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', background: t.bg, zIndex: 10 }}>
-      <header style={{ padding: '8px 10px 9px', borderBottom: `1px solid ${t.border}`, display: 'flex', flexDirection: 'column', gap: 7 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-          <button onClick={async () => { await flushSave(); onBack() }} aria-label="Back" style={hdrBtn(t)}><Icon name="back" size={18} /></button>
-          {colorHex(note.meta.color) && <span style={{ width: 9, height: 9, borderRadius: 3, background: colorHex(note.meta.color), flexShrink: 0 }} />}
+    <div className="nt-editor-root">
+      <header className="nt-editor-hdr">
+        <div className="nt-editor-row1">
+          <button
+            onClick={async () => { await flushSave(); onBack() }}
+            aria-label="Back"
+            className="nt-hdr-btn"
+          ><Icon name="back" size={18} /></button>
+          {colorDotHex && (
+            <span
+              className="nt-color-dot"
+              style={{ width: 9, height: 9, borderRadius: 3, background: colorDotHex }}
+            />
+          )}
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Title"
             aria-label="Note title"
-            style={{ flex: 1, minWidth: 0, padding: '7px 6px', border: 'none', outline: 'none', background: 'transparent', color: t.text, fontSize: 17, fontWeight: 650 }}
+            className="nt-title-input"
           />
-          {status && <span style={{ fontSize: 12, color: statusColor, whiteSpace: 'nowrap', marginRight: 2, flexShrink: 0 }}>{status}</span>}
+          {status && (
+            <span className={`nt-status ${statusClass(status)}`}>{status}</span>
+          )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflowX: 'auto', paddingBottom: 1 }}>
-          <button onClick={() => onPin(note.meta.id)} aria-label={note.meta.pinned ? 'Unpin' : 'Pin'} title={note.meta.pinned ? 'Unpin' : 'Pin'} style={hdrBtn(t, note.meta.pinned)}><Icon name="pin" size={16} /></button>
+        <div className="nt-editor-row2">
+          <button
+            onClick={() => onPin(note.meta.id)}
+            aria-label={note.meta.pinned ? 'Unpin' : 'Pin'}
+            title={note.meta.pinned ? 'Unpin' : 'Pin'}
+            className={`nt-hdr-btn${note.meta.pinned ? ' is-active' : ''}`}
+          ><Icon name="pin" size={16} /></button>
           <div ref={colorBtnRef} style={{ position: 'relative', flexShrink: 0 }}>
-            <button onClick={() => setShowColors((v) => !v)} aria-label="Color" title="Color" style={hdrBtn(t)}><Icon name="palette" size={17} /></button>
-            {showColors && <ColorPicker anchorRef={colorBtnRef} placement="below" align="start" current={note.meta.color} onPick={(c) => { onColor(note.meta.id, c); setShowColors(false) }} />}
+            <button
+              onClick={() => setShowColors((v) => !v)}
+              aria-label="Color"
+              title="Color"
+              className="nt-hdr-btn"
+            ><Icon name="palette" size={17} /></button>
+            {showColors && (
+              <ColorPicker
+                anchorRef={colorBtnRef}
+                placement="below"
+                align="start"
+                current={note.meta.color}
+                onPick={(c) => { onColor(note.meta.id, c); setShowColors(false) }}
+              />
+            )}
           </div>
-          <button onClick={() => imageRef.current && imageRef.current.click()} aria-label="Insert image" title="Insert image" style={labelBtn(t)}><Icon name="image" size={16} />Image</button>
-          <button onClick={() => fileRef.current && fileRef.current.click()} aria-label="Attach file" title="Attach file" style={labelBtn(t)}><Icon name="file" size={16} />File</button>
-          <div style={{ flex: 1, minWidth: 4 }} />
-          <button onClick={() => onDelete(note.meta.id)} aria-label="Delete" title="Delete" style={hdrBtn(t, false, true)}><Icon name="trash" size={16} /></button>
+          <button
+            onClick={() => imageRef.current && imageRef.current.click()}
+            aria-label="Insert image"
+            title="Insert image"
+            className="nt-label-btn"
+          ><Icon name="image" size={16} />Image</button>
+          <button
+            onClick={() => fileRef.current && fileRef.current.click()}
+            aria-label="Attach file"
+            title="Attach file"
+            className="nt-label-btn"
+          ><Icon name="file" size={16} />File</button>
+          <div className="nt-hdr-spacer" />
+          <button
+            onClick={() => onDelete(note.meta.id)}
+            aria-label="Delete"
+            title="Delete"
+            className="nt-hdr-btn is-danger"
+          ><Icon name="trash" size={16} /></button>
         </div>
         <input ref={imageRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
         <input ref={fileRef} type="file" onChange={handleFile} style={{ display: 'none' }} />
       </header>
 
       {conflict && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px', background: `${t.accent}1f`, color: t.text, fontSize: 13 }}>
-          <span style={{ flex: 1 }}>Edited in two places — merging…</span>
-          <button onClick={() => resolveNow(note)} style={{ border: `1px solid ${t.accent}`, background: 'transparent', color: t.accent, borderRadius: 8, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>Resolve now</button>
+        <div className="nt-conflict-bar">
+          <span className="nt-conflict-msg">Edited in two places — merging…</span>
+          <button onClick={() => resolveNow(note)} className="nt-conflict-btn">Resolve now</button>
         </div>
       )}
 
       {attachErr && (
-        <div style={{ padding: '8px 16px', background: `${t.danger}22`, color: t.danger, fontSize: 13 }}>{attachErr}</div>
+        <div className="nt-attach-err">{attachErr}</div>
       )}
 
-      <div style={{ flex: 1, overflow: 'hidden' }}>
+      <div className="nt-editor-body">
         <Editor value={body} onChange={setBody} resolveAttachment={resolveAttachment} viewRef={viewRef} />
       </div>
     </div>
   )
-}
-
-function hdrBtn(t, active, danger) {
-  return {
-    width: 34, height: 34, display: 'inline-flex', alignItems: 'center',
-    justifyContent: 'center', border: 'none', borderRadius: 9,
-    background: active ? `${t.accent}22` : 'transparent',
-    color: danger ? t.danger : t.text, cursor: 'pointer', fontSize: 16, flexShrink: 0,
-  }
-}
-
-function labelBtn(t) {
-  return {
-    height: 34, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    gap: 6, border: `1px solid ${t.border}`, borderRadius: 8, padding: '0 10px',
-    background: t.surface2, color: t.text, cursor: 'pointer', fontSize: 13,
-    fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0,
-  }
 }

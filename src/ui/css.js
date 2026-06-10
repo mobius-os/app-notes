@@ -1,0 +1,324 @@
+// Module-level CSS for the Notes app. Injected once as <style>{CSS}</style>
+// at the nt-root level. Uses shell theme tokens (var(--bg), var(--text), …)
+// so the app follows light/dark switches without a page reload.
+//
+// Class prefix: nt-  (Notes)
+// Inline style={} props remain ONLY for genuinely dynamic per-note values:
+//   - card tint gradient/border (depends on per-note color name → hex at render)
+//   - color bar background
+//   - color dot in editor header
+//   - swatch backgrounds in ColorPicker
+
+export const CSS = `
+/* mobius-ui:Root v1 — keep in sync; library candidate. Diverge below the marker only. */
+.nt-root {
+  position: relative;
+  display: flex; flex-direction: column;
+  height: 100%; width: 100%; max-width: 100%;
+  overflow: hidden;
+  background: var(--bg); color: var(--text); font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+.nt-scroll {
+  flex: 1; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior: contain;
+  word-break: break-word; overflow-wrap: anywhere;
+}
+/* /mobius-ui:Root */
+
+/* ── TopBar ─────────────────────────────────────────────────────────────── */
+/* mobius-ui:Header v1 — keep in sync; library candidate. Diverge below the marker only. */
+.nt-topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0;
+  background: var(--bg); z-index: 5;
+  flex: 0 0 auto;
+}
+.nt-title {
+  font-size: 18px; font-weight: 650; color: var(--text);
+  letter-spacing: -0.01em; margin: 0; user-select: none;
+}
+.nt-search-wrap {
+  flex: 1; display: flex; justify-content: center;
+}
+.nt-search {
+  width: 100%; max-width: 520px;
+  padding: 8px 12px; border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface2, var(--surface)); color: var(--text);
+  font-size: 14px; font-family: var(--font); outline: none;
+  transition: border-color 0.15s ease;
+}
+.nt-search:focus { border-color: var(--accent); }
+.nt-search::placeholder { color: var(--muted); }
+.nt-new-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 10px;
+  border: none; background: var(--accent); color: #ffffff;
+  font-size: 14px; font-weight: 650; cursor: pointer; flex-shrink: 0;
+  font-family: var(--font);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; user-select: none;
+  transition: filter 0.14s ease, transform 0.1s ease;
+}
+.nt-new-btn:hover { filter: brightness(1.07); }
+@media (hover: hover) { .nt-new-btn:hover { filter: brightness(1.07); } }
+.nt-new-btn:active { transform: scale(0.96); }
+.nt-new-plus { font-size: 18px; line-height: 1; }
+/* /mobius-ui:Header */
+
+/* ── Loading / Empty ────────────────────────────────────────────────────── */
+.nt-loading {
+  padding: 18vh 0; text-align: center; color: var(--muted); font-size: 14px;
+}
+/* mobius-ui:Empty v1 — keep in sync; library candidate. Diverge below the marker only. */
+.nt-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 18vh 24px; text-align: center; color: var(--muted);
+}
+.nt-empty-icon { opacity: 0.5; }
+.nt-empty-msg { font-size: 15px; }
+.nt-empty-hint { font-size: 13px; opacity: 0.8; }
+/* /mobius-ui:Empty */
+
+/* ── Grid ───────────────────────────────────────────────────────────────── */
+.nt-grid-wrap {
+  padding: 16px 8px 90px; max-width: 1120px; margin: 0 auto;
+}
+.nt-section { margin-bottom: 18px; }
+/* mobius-ui:SectionHead v1 — keep in sync; library candidate. */
+.nt-section-head {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+  margin: 4px 8px 10px; user-select: none;
+}
+/* /mobius-ui:SectionHead */
+.nt-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr));
+  gap: 12px; align-items: start;
+}
+
+/* ── Card ───────────────────────────────────────────────────────────────── */
+/* mobius-ui:Card v1 — keep in sync; library candidate. Diverge below the marker only. */
+.nt-card-wrap { break-inside: avoid; margin-bottom: 14px; }
+.nt-card {
+  position: relative;
+  border-radius: 8px; overflow: hidden;
+  /* background + border are dynamic (per-note tint) — set via inline style */
+}
+.nt-card-body {
+  cursor: pointer; padding: 14px 16px 10px;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.nt-card-body:active { opacity: 0.85; }
+.nt-card-title {
+  font-size: 15px; font-weight: 650; color: var(--text);
+  margin-bottom: 6px; overflow-wrap: anywhere;
+}
+.nt-card-empty {
+  font-size: 13.5px; color: var(--muted); opacity: 0.6; font-style: italic;
+}
+.nt-card-preview {
+  font-size: 13.5px; color: var(--muted); line-height: 1.5;
+  max-height: 220px; overflow: hidden;
+}
+.nt-card-thumbs {
+  display: grid; gap: 6px; margin-bottom: 10px;
+}
+.nt-card-thumb {
+  width: 100%; object-fit: cover; display: block; border-radius: 6px;
+}
+/* /mobius-ui:Card */
+
+/* note-preview: prose styles for rendered markdown in card previews */
+.note-preview p { margin: 0 0 6px; }
+.note-preview p:last-child { margin-bottom: 0; }
+.note-preview h1, .note-preview h2, .note-preview h3 { font-size: 13.5px; font-weight: 700; margin: 0 0 4px; }
+.note-preview code { font-family: var(--mono); font-size: 12px; background: rgba(128,128,128,0.15); border-radius: 3px; padding: 0 3px; }
+.note-preview pre { margin: 0 0 6px; font-size: 12px; overflow: hidden; }
+.note-preview ul, .note-preview ol { margin: 0 0 6px; padding-left: 18px; }
+.note-preview li { margin-bottom: 2px; }
+
+/* ── Card toolbar ─────────────────────────────────────────────────────── */
+.nt-card-footer {
+  display: flex; align-items: center; gap: 2px;
+  padding: 6px 8px;
+  /* border-top + background are dynamic (per-note tint) — set via inline style */
+}
+/* mobius-ui:Button v1 — keep in sync; library candidate. Diverge below the marker only. */
+.nt-icon-btn {
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 8px;
+  background: transparent; color: var(--muted);
+  cursor: pointer; font-size: 14px;
+  opacity: 0.85; font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease, transform 0.1s ease;
+}
+.nt-icon-btn.is-active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); opacity: 1; }
+.nt-icon-btn.is-danger { color: var(--danger); }
+@media (hover: hover) {
+  .nt-icon-btn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+}
+.nt-icon-btn:active { transform: scale(0.93); }
+.nt-icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* /mobius-ui:Button */
+.nt-color-anchor { position: relative; }
+.nt-spacer { flex: 1; }
+
+/* ── ColorPicker ────────────────────────────────────────────────────────── */
+.nt-color-picker {
+  position: fixed; z-index: 1000;
+  display: grid; grid-template-columns: repeat(4, 28px); gap: 7px;
+  max-width: calc(100vw - 24px); padding: 8px;
+  background: var(--surface2, var(--surface));
+  border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.nt-swatch {
+  width: 28px; height: 28px; border-radius: 7px;
+  cursor: pointer; padding: 0;
+  /* border and background set via inline style (dynamic per swatch) */
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: transform 0.1s ease;
+}
+.nt-swatch:active { transform: scale(0.9); }
+@media (hover: hover) { .nt-swatch:hover { transform: scale(1.1); } }
+
+/* ── ConfirmModal ───────────────────────────────────────────────────────── */
+/* mobius-ui:Sheet v1 — keep in sync; library candidate. Diverge below the marker only. */
+.nt-modal-scrim {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+}
+.nt-modal {
+  width: 100%; max-width: 360px;
+  background: var(--surface);
+  border: 1px solid var(--border); border-radius: 16px; padding: 20px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+}
+.nt-modal-title {
+  font-size: 16px; font-weight: 650; color: var(--text);
+  margin: 0 0 8px; user-select: none;
+}
+.nt-modal-msg {
+  font-size: 14px; color: var(--muted); line-height: 1.5; margin: 0 0 18px;
+}
+.nt-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.nt-modal-btn {
+  padding: 9px 16px; border-radius: 10px;
+  font-size: 14px; cursor: pointer; font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: transform 0.1s ease;
+}
+.nt-modal-btn:active { transform: scale(0.97); }
+.nt-modal-cancel {
+  border: 1px solid var(--border); background: transparent; color: var(--text);
+}
+.nt-modal-confirm {
+  border: none; color: #0d0d0d; font-weight: 600;
+  /* background set via inline style: var(--danger) or var(--accent) */
+}
+/* /mobius-ui:Sheet */
+
+/* ── EditorPanel ────────────────────────────────────────────────────────── */
+.nt-editor-root {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg); z-index: 10;
+}
+/* mobius-ui:Header v1 — keep in sync; library candidate. Diverge below the marker only. */
+.nt-editor-hdr {
+  padding: 8px 10px 9px;
+  border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 7px; flex: 0 0 auto;
+}
+.nt-editor-row1 {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+}
+.nt-editor-row2 {
+  display: flex; align-items: center; gap: 6px;
+  overflow-x: auto; padding-bottom: 1px;
+  overscroll-behavior: contain;
+}
+.nt-editor-row2::-webkit-scrollbar { display: none; }
+/* /mobius-ui:Header */
+/* mobius-ui:Button v1 — keep in sync; library candidate. Diverge below the marker only. */
+.nt-hdr-btn {
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 9px;
+  background: transparent; color: var(--text);
+  cursor: pointer; font-size: 16px; flex-shrink: 0; font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease, transform 0.1s ease;
+}
+.nt-hdr-btn.is-active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.nt-hdr-btn.is-danger { color: var(--danger); }
+@media (hover: hover) {
+  .nt-hdr-btn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+}
+.nt-hdr-btn:active { transform: scale(0.95); }
+.nt-hdr-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* /mobius-ui:Button */
+.nt-color-dot {
+  /* width/height/border-radius/background set via inline style (dynamic per note) */
+  flex-shrink: 0;
+}
+.nt-title-input {
+  flex: 1; min-width: 0;
+  padding: 7px 6px; border: none; outline: none;
+  background: transparent; color: var(--text);
+  font-size: 17px; font-weight: 650; font-family: var(--font);
+}
+.nt-title-input::placeholder { color: var(--muted); }
+/* mobius-ui:SyncPill v1 (editor variant) — keep in sync; library candidate. */
+.nt-status {
+  font-size: 12px; white-space: nowrap; margin-right: 2px; flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.nt-status.is-synced { color: var(--green); }
+.nt-status.is-resolving { color: var(--accent); }
+.nt-status.is-default { color: var(--muted); }
+/* /mobius-ui:SyncPill */
+.nt-label-btn {
+  height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px;
+  background: var(--surface2, var(--surface)); color: var(--text);
+  cursor: pointer; font-size: 13px; font-weight: 600;
+  white-space: nowrap; flex-shrink: 0; font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: border-color 0.12s ease, transform 0.1s ease;
+}
+@media (hover: hover) {
+  .nt-label-btn:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+}
+.nt-label-btn:active { transform: scale(0.97); }
+.nt-hdr-spacer { flex: 1; min-width: 4px; }
+.nt-conflict-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text); font-size: 13px; flex: 0 0 auto;
+}
+.nt-conflict-msg { flex: 1; }
+.nt-conflict-btn {
+  border: 1px solid var(--accent); background: transparent; color: var(--accent);
+  border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.nt-attach-err {
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger); font-size: 13px; flex: 0 0 auto;
+}
+.nt-editor-body { flex: 1; overflow: hidden; }
+`

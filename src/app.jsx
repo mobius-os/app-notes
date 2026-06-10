@@ -9,7 +9,7 @@
 // so the dreaming agent can read them. See DESIGN.md for the model.
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { T } from './ui/theme.js'
+import { CSS } from './ui/css.js'
 import { newNote, contentHash, isBlankNote } from './lib/note.js'
 import * as store from './lib/store.js'
 import { ensureBase, recordWorking, recordDeletion, promote, unsyncedLocals } from './lib/local.js'
@@ -20,49 +20,34 @@ import ConfirmModal from './ui/ConfirmModal.jsx'
 import { Icon } from './ui/icons.jsx'
 
 function TopBar({ query, onQuery, onNew }) {
-  const t = T()
   return (
-    <header style={{
-      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
-      borderBottom: `1px solid ${t.border}`, position: 'sticky', top: 0, background: t.bg, zIndex: 5,
-    }}>
-      <h1 style={{ fontSize: 18, fontWeight: 650, color: t.text, letterSpacing: '-0.01em' }}>Notes</h1>
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+    <header className="nt-topbar">
+      <h1 className="nt-title">Notes</h1>
+      <div className="nt-search-wrap">
         <input
           value={query} onChange={(e) => onQuery(e.target.value)}
           placeholder="Search notes…" aria-label="Search notes"
-          style={{
-            width: '100%', maxWidth: 520, padding: '8px 12px', borderRadius: 10,
-            border: `1px solid ${t.border}`, background: t.surface2, color: t.text, fontSize: 14, outline: 'none',
-          }}
+          className="nt-search"
         />
       </div>
-      <button onClick={onNew} aria-label="New note" style={{
-        display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10,
-        border: 'none', background: t.accent, color: '#ffffff', fontSize: 14, fontWeight: 650, cursor: 'pointer', flexShrink: 0,
-      }}>
-        <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> New
+      <button onClick={onNew} aria-label="New note" className="nt-new-btn">
+        <span className="nt-new-plus">+</span> New
       </button>
     </header>
   )
 }
 
 function EmptyState({ filtered }) {
-  const t = T()
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      gap: 8, padding: '18vh 24px', textAlign: 'center', color: t.muted,
-    }}>
-      <div style={{ color: t.muted, opacity: 0.5 }}><Icon name="edit" size={40} /></div>
-      <div style={{ fontSize: 15 }}>{filtered ? 'No matching notes' : 'No notes yet'}</div>
-      {!filtered && <div style={{ fontSize: 13, opacity: 0.8 }}>Tap <strong>+ New</strong> to write your first note.</div>}
+    <div className="nt-empty">
+      <div className="nt-empty-icon"><Icon name="edit" size={40} /></div>
+      <div className="nt-empty-msg">{filtered ? 'No matching notes' : 'No notes yet'}</div>
+      {!filtered && <div className="nt-empty-hint">Tap <strong>+ New</strong> to write your first note.</div>}
     </div>
   )
 }
 
 export default function App({ appId, token }) {
-  const t = T()
   const [notes, setNotes] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
@@ -320,11 +305,12 @@ export default function App({ appId, token }) {
   const status = !online ? 'Offline' : (editing && conflicts.has(editing.meta.id)) ? 'Resolving…' : pending > 0 ? 'Saving…' : 'Synced'
 
   return (
-    <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', background: t.bg, color: t.text, fontFamily: t.font }}>
+    <div className="nt-root">
+      <style>{CSS}</style>
       <TopBar query={query} onQuery={setQuery} onNew={createNote} />
-      <main style={{ flex: 1, overflow: 'auto' }}>
+      <main className="nt-scroll">
         {loading
-          ? <div style={{ padding: '18vh 0', textAlign: 'center', color: t.muted, fontSize: 14 }}>Loading…</div>
+          ? <div className="nt-loading">Loading…</div>
           : visible.length === 0
             ? <EmptyState filtered={!!query.trim()} />
             : <Grid notes={visible} onOpen={(id) => { openEditor(id).catch(() => setView({ mode: 'editor', id })) }} onPin={togglePin} onColor={setColor} onDelete={setConfirmId} resolveAttachment={store.attachmentURL} />}

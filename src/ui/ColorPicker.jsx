@@ -9,13 +9,11 @@
 // toolbar keeps its horizontal scroll.
 import { useLayoutEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { T } from './theme.js'
 import { NOTE_COLORS } from './colors.js'
 
 const MARGIN = 12 // keep the popover this far from the viewport edges
 
 export default function ColorPicker({ anchorRef, current, onPick, placement = 'above', align = 'start' }) {
-  const t = T()
   const [pos, setPos] = useState(null)
 
   // Estimate the rendered size so we can flip/clamp against the viewport. The
@@ -51,13 +49,8 @@ export default function ColorPicker({ anchorRef, current, onPick, placement = 'a
       role="menu"
       aria-label="Note color"
       onClick={(e) => e.stopPropagation()}
-      style={{
-        position: 'fixed', zIndex: 1000, top: pos.top, left: pos.left,
-        display: 'grid', gridTemplateColumns: 'repeat(4, 28px)', gap: 7,
-        maxWidth: `calc(100vw - ${2 * MARGIN}px)`, padding: 8, background: t.surface2,
-        border: `1px solid ${t.border}`, borderRadius: 8,
-        boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-      }}
+      className="nt-color-picker"
+      style={{ top: pos.top, left: pos.left }}
     >
       {NOTE_COLORS.map((c) => (
         <button
@@ -65,10 +58,11 @@ export default function ColorPicker({ anchorRef, current, onPick, placement = 'a
           title={c.label}
           aria-label={c.label}
           onClick={() => onPick(c.name)}
+          className="nt-swatch"
           style={{
-            width: 28, height: 28, borderRadius: 7, cursor: 'pointer', padding: 0,
-            border: current === c.name ? `2px solid ${t.text}` : `1px solid ${t.border}`,
-            background: c.hex || `linear-gradient(135deg, ${t.surface} 49%, ${t.muted} 51%)`,
+            // Dynamic: swatch background is the note color hex (or the "default" diagonal)
+            border: current === c.name ? '2px solid var(--text)' : '1px solid var(--border)',
+            background: c.hex || 'linear-gradient(135deg, var(--surface) 49%, var(--muted) 51%)',
           }}
         />
       ))}

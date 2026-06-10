@@ -4,25 +4,320 @@
 // src/app.jsx
 import { useState as useState4, useEffect as useEffect4, useMemo, useCallback as useCallback2, useRef as useRef4 } from "react";
 
-// src/ui/theme.js
-function cssVar(name, fallback) {
-  if (typeof document === "undefined") return fallback;
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return v || fallback;
+// src/ui/css.js
+var CSS = `
+/* mobius-ui:Root v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
+.nt-root {
+  position: relative;
+  display: flex; flex-direction: column;
+  height: 100%; width: 100%; max-width: 100%;
+  overflow: hidden;
+  background: var(--bg); color: var(--text); font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
 }
-var T = () => ({
-  bg: cssVar("--bg", "#0d0d0d"),
-  surface: cssVar("--surface", "#171717"),
-  surface2: cssVar("--surface2", "#212121"),
-  border: cssVar("--border", "#2a2a2a"),
-  text: cssVar("--text", "#ececec"),
-  muted: cssVar("--muted", "#a8a8a8"),
-  accent: cssVar("--accent", "#a78bfa"),
-  green: cssVar("--green", "#6ee7b7"),
-  danger: cssVar("--danger", "#f87171"),
-  font: cssVar("--font", "'Inter', system-ui, sans-serif"),
-  mono: cssVar("--mono", "'JetBrains Mono', ui-monospace, monospace")
-});
+.nt-scroll {
+  flex: 1; min-height: 0;
+  overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior: contain;
+  word-break: break-word; overflow-wrap: anywhere;
+}
+/* /mobius-ui:Root */
+
+/* \u2500\u2500 TopBar \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+/* mobius-ui:Header v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
+.nt-topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0;
+  background: var(--bg); z-index: 5;
+  flex: 0 0 auto;
+}
+.nt-title {
+  font-size: 18px; font-weight: 650; color: var(--text);
+  letter-spacing: -0.01em; margin: 0; user-select: none;
+}
+.nt-search-wrap {
+  flex: 1; display: flex; justify-content: center;
+}
+.nt-search {
+  width: 100%; max-width: 520px;
+  padding: 8px 12px; border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface2, var(--surface)); color: var(--text);
+  font-size: 14px; font-family: var(--font); outline: none;
+  transition: border-color 0.15s ease;
+}
+.nt-search:focus { border-color: var(--accent); }
+.nt-search::placeholder { color: var(--muted); }
+.nt-new-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 10px;
+  border: none; background: var(--accent); color: #ffffff;
+  font-size: 14px; font-weight: 650; cursor: pointer; flex-shrink: 0;
+  font-family: var(--font);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; user-select: none;
+  transition: filter 0.14s ease, transform 0.1s ease;
+}
+.nt-new-btn:hover { filter: brightness(1.07); }
+@media (hover: hover) { .nt-new-btn:hover { filter: brightness(1.07); } }
+.nt-new-btn:active { transform: scale(0.96); }
+.nt-new-plus { font-size: 18px; line-height: 1; }
+/* /mobius-ui:Header */
+
+/* \u2500\u2500 Loading / Empty \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+.nt-loading {
+  padding: 18vh 0; text-align: center; color: var(--muted); font-size: 14px;
+}
+/* mobius-ui:Empty v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
+.nt-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 18vh 24px; text-align: center; color: var(--muted);
+}
+.nt-empty-icon { opacity: 0.5; }
+.nt-empty-msg { font-size: 15px; }
+.nt-empty-hint { font-size: 13px; opacity: 0.8; }
+/* /mobius-ui:Empty */
+
+/* \u2500\u2500 Grid \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+.nt-grid-wrap {
+  padding: 16px 8px 90px; max-width: 1120px; margin: 0 auto;
+}
+.nt-section { margin-bottom: 18px; }
+/* mobius-ui:SectionHead v1 \u2014 keep in sync; library candidate. */
+.nt-section-head {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--muted);
+  margin: 4px 8px 10px; user-select: none;
+}
+/* /mobius-ui:SectionHead */
+.nt-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr));
+  gap: 12px; align-items: start;
+}
+
+/* \u2500\u2500 Card \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+/* mobius-ui:Card v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
+.nt-card-wrap { break-inside: avoid; margin-bottom: 14px; }
+.nt-card {
+  position: relative;
+  border-radius: 8px; overflow: hidden;
+  /* background + border are dynamic (per-note tint) \u2014 set via inline style */
+}
+.nt-card-body {
+  cursor: pointer; padding: 14px 16px 10px;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.nt-card-body:active { opacity: 0.85; }
+.nt-card-title {
+  font-size: 15px; font-weight: 650; color: var(--text);
+  margin-bottom: 6px; overflow-wrap: anywhere;
+}
+.nt-card-empty {
+  font-size: 13.5px; color: var(--muted); opacity: 0.6; font-style: italic;
+}
+.nt-card-preview {
+  font-size: 13.5px; color: var(--muted); line-height: 1.5;
+  max-height: 220px; overflow: hidden;
+}
+.nt-card-thumbs {
+  display: grid; gap: 6px; margin-bottom: 10px;
+}
+.nt-card-thumb {
+  width: 100%; object-fit: cover; display: block; border-radius: 6px;
+}
+/* /mobius-ui:Card */
+
+/* note-preview: prose styles for rendered markdown in card previews */
+.note-preview p { margin: 0 0 6px; }
+.note-preview p:last-child { margin-bottom: 0; }
+.note-preview h1, .note-preview h2, .note-preview h3 { font-size: 13.5px; font-weight: 700; margin: 0 0 4px; }
+.note-preview code { font-family: var(--mono); font-size: 12px; background: rgba(128,128,128,0.15); border-radius: 3px; padding: 0 3px; }
+.note-preview pre { margin: 0 0 6px; font-size: 12px; overflow: hidden; }
+.note-preview ul, .note-preview ol { margin: 0 0 6px; padding-left: 18px; }
+.note-preview li { margin-bottom: 2px; }
+
+/* \u2500\u2500 Card toolbar \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+.nt-card-footer {
+  display: flex; align-items: center; gap: 2px;
+  padding: 6px 8px;
+  /* border-top + background are dynamic (per-note tint) \u2014 set via inline style */
+}
+/* mobius-ui:Button v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
+.nt-icon-btn {
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 8px;
+  background: transparent; color: var(--muted);
+  cursor: pointer; font-size: 14px;
+  opacity: 0.85; font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease, transform 0.1s ease;
+}
+.nt-icon-btn.is-active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); opacity: 1; }
+.nt-icon-btn.is-danger { color: var(--danger); }
+@media (hover: hover) {
+  .nt-icon-btn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+}
+.nt-icon-btn:active { transform: scale(0.93); }
+.nt-icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* /mobius-ui:Button */
+.nt-color-anchor { position: relative; }
+.nt-spacer { flex: 1; }
+
+/* \u2500\u2500 ColorPicker \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+.nt-color-picker {
+  position: fixed; z-index: 1000;
+  display: grid; grid-template-columns: repeat(4, 28px); gap: 7px;
+  max-width: calc(100vw - 24px); padding: 8px;
+  background: var(--surface2, var(--surface));
+  border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.nt-swatch {
+  width: 28px; height: 28px; border-radius: 7px;
+  cursor: pointer; padding: 0;
+  /* border and background set via inline style (dynamic per swatch) */
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: transform 0.1s ease;
+}
+.nt-swatch:active { transform: scale(0.9); }
+@media (hover: hover) { .nt-swatch:hover { transform: scale(1.1); } }
+
+/* \u2500\u2500 ConfirmModal \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+/* mobius-ui:Sheet v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
+.nt-modal-scrim {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: rgba(0,0,0,0.55); backdrop-filter: blur(2px);
+}
+.nt-modal {
+  width: 100%; max-width: 360px;
+  background: var(--surface);
+  border: 1px solid var(--border); border-radius: 16px; padding: 20px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+}
+.nt-modal-title {
+  font-size: 16px; font-weight: 650; color: var(--text);
+  margin: 0 0 8px; user-select: none;
+}
+.nt-modal-msg {
+  font-size: 14px; color: var(--muted); line-height: 1.5; margin: 0 0 18px;
+}
+.nt-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.nt-modal-btn {
+  padding: 9px 16px; border-radius: 10px;
+  font-size: 14px; cursor: pointer; font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: transform 0.1s ease;
+}
+.nt-modal-btn:active { transform: scale(0.97); }
+.nt-modal-cancel {
+  border: 1px solid var(--border); background: transparent; color: var(--text);
+}
+.nt-modal-confirm {
+  border: none; color: #0d0d0d; font-weight: 600;
+  /* background set via inline style: var(--danger) or var(--accent) */
+}
+/* /mobius-ui:Sheet */
+
+/* \u2500\u2500 EditorPanel \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+.nt-editor-root {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  background: var(--bg); z-index: 10;
+}
+/* mobius-ui:Header v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
+.nt-editor-hdr {
+  padding: 8px 10px 9px;
+  border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 7px; flex: 0 0 auto;
+}
+.nt-editor-row1 {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+}
+.nt-editor-row2 {
+  display: flex; align-items: center; gap: 6px;
+  overflow-x: auto; padding-bottom: 1px;
+  overscroll-behavior: contain;
+}
+.nt-editor-row2::-webkit-scrollbar { display: none; }
+/* /mobius-ui:Header */
+/* mobius-ui:Button v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
+.nt-hdr-btn {
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 9px;
+  background: transparent; color: var(--text);
+  cursor: pointer; font-size: 16px; flex-shrink: 0; font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease, transform 0.1s ease;
+}
+.nt-hdr-btn.is-active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.nt-hdr-btn.is-danger { color: var(--danger); }
+@media (hover: hover) {
+  .nt-hdr-btn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+}
+.nt-hdr-btn:active { transform: scale(0.95); }
+.nt-hdr-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* /mobius-ui:Button */
+.nt-color-dot {
+  /* width/height/border-radius/background set via inline style (dynamic per note) */
+  flex-shrink: 0;
+}
+.nt-title-input {
+  flex: 1; min-width: 0;
+  padding: 7px 6px; border: none; outline: none;
+  background: transparent; color: var(--text);
+  font-size: 17px; font-weight: 650; font-family: var(--font);
+}
+.nt-title-input::placeholder { color: var(--muted); }
+/* mobius-ui:SyncPill v1 (editor variant) \u2014 keep in sync; library candidate. */
+.nt-status {
+  font-size: 12px; white-space: nowrap; margin-right: 2px; flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.nt-status.is-synced { color: var(--green); }
+.nt-status.is-resolving { color: var(--accent); }
+.nt-status.is-default { color: var(--muted); }
+/* /mobius-ui:SyncPill */
+.nt-label-btn {
+  height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px;
+  background: var(--surface2, var(--surface)); color: var(--text);
+  cursor: pointer; font-size: 13px; font-weight: 600;
+  white-space: nowrap; flex-shrink: 0; font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: border-color 0.12s ease, transform 0.1s ease;
+}
+@media (hover: hover) {
+  .nt-label-btn:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+}
+.nt-label-btn:active { transform: scale(0.97); }
+.nt-hdr-spacer { flex: 1; min-width: 4px; }
+.nt-conflict-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text); font-size: 13px; flex: 0 0 auto;
+}
+.nt-conflict-msg { flex: 1; }
+.nt-conflict-btn {
+  border: 1px solid var(--accent); background: transparent; color: var(--accent);
+  border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.nt-attach-err {
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger); font-size: 13px; flex: 0 0 auto;
+}
+.nt-editor-body { flex: 1; overflow: hidden; }
+`;
 
 // src/lib/hash.js
 var encoder = new TextEncoder();
@@ -955,7 +1250,6 @@ import { createPortal } from "react-dom";
 import { jsx } from "react/jsx-runtime";
 var MARGIN = 12;
 function ColorPicker({ anchorRef, current, onPick, placement = "above", align = "start" }) {
-  const t = T();
   const [pos, setPos] = useState(null);
   const width = 4 * 28 + 3 * 7 + 2 * 8;
   const rows = Math.ceil(NOTE_COLORS.length / 4);
@@ -987,35 +1281,19 @@ function ColorPicker({ anchorRef, current, onPick, placement = "above", align = 
         role: "menu",
         "aria-label": "Note color",
         onClick: (e) => e.stopPropagation(),
-        style: {
-          position: "fixed",
-          zIndex: 1e3,
-          top: pos.top,
-          left: pos.left,
-          display: "grid",
-          gridTemplateColumns: "repeat(4, 28px)",
-          gap: 7,
-          maxWidth: `calc(100vw - ${2 * MARGIN}px)`,
-          padding: 8,
-          background: t.surface2,
-          border: `1px solid ${t.border}`,
-          borderRadius: 8,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.4)"
-        },
+        className: "nt-color-picker",
+        style: { top: pos.top, left: pos.left },
         children: NOTE_COLORS.map((c) => /* @__PURE__ */ jsx(
           "button",
           {
             title: c.label,
             "aria-label": c.label,
             onClick: () => onPick(c.name),
+            className: "nt-swatch",
             style: {
-              width: 28,
-              height: 28,
-              borderRadius: 7,
-              cursor: "pointer",
-              padding: 0,
-              border: current === c.name ? `2px solid ${t.text}` : `1px solid ${t.border}`,
-              background: c.hex || `linear-gradient(135deg, ${t.surface} 49%, ${t.muted} 51%)`
+              // Dynamic: swatch background is the note color hex (or the "default" diagonal)
+              border: current === c.name ? "2px solid var(--text)" : "1px solid var(--border)",
+              background: c.hex || "linear-gradient(135deg, var(--surface) 49%, var(--muted) 51%)"
             }
           },
           c.name || "default"
@@ -1097,7 +1375,6 @@ function Icon({ name, size = 17 }) {
 // src/ui/Card.jsx
 import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
 function IconBtn({ children, title, onClick, active, danger }) {
-  const t = T();
   return /* @__PURE__ */ jsx3(
     "button",
     {
@@ -1107,26 +1384,12 @@ function IconBtn({ children, title, onClick, active, danger }) {
         e.stopPropagation();
         onClick();
       },
-      style: {
-        width: 30,
-        height: 30,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        border: "none",
-        borderRadius: 8,
-        background: active ? `${t.accent}22` : "transparent",
-        color: danger ? t.danger : t.muted,
-        cursor: "pointer",
-        fontSize: 14,
-        opacity: active ? 1 : 0.85
-      },
+      className: `nt-icon-btn${active ? " is-active" : ""}${danger ? " is-danger" : ""}`,
       children
     }
   );
 }
 function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
-  const t = T();
   const { meta, body } = note;
   const [html, setHtml] = useState2("");
   const [showColors, setShowColors] = useState2(false);
@@ -1166,59 +1429,56 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   }, [body, meta, resolveAttachment]);
   const bar = colorHex(meta.color);
   const tint = colorTint(meta.color);
+  const tintBorder = bar ? colorTint(meta.color, 0.5) : null;
+  const footerBorder = bar ? colorTint(meta.color, 0.32) : null;
+  const footerBg = bar ? colorTint(meta.color, 0.08) : null;
+  const thumbBorder = bar ? colorTint(meta.color, 0.28) : null;
   const empty = !meta.title && !(body || "").trim();
-  return /* @__PURE__ */ jsx3("div", { style: { breakInside: "avoid", marginBottom: 14 }, children: /* @__PURE__ */ jsxs2("div", { style: {
-    position: "relative",
-    background: tint ? `linear-gradient(180deg, ${tint}, ${t.surface} 44%)` : t.surface,
-    border: `1px solid ${bar ? colorTint(meta.color, 0.5) : t.border}`,
-    borderRadius: 8,
-    overflow: "hidden"
-  }, children: [
+  const cardStyle = {
+    background: tint ? `linear-gradient(180deg, ${tint}, var(--surface) 44%)` : "var(--surface)",
+    border: `1px solid ${tintBorder || "var(--border)"}`
+  };
+  const footerStyle = {
+    borderTop: `1px solid ${footerBorder || "var(--border)"}`,
+    background: footerBg || "transparent"
+  };
+  return /* @__PURE__ */ jsx3("div", { className: "nt-card-wrap", children: /* @__PURE__ */ jsxs2("div", { className: "nt-card", style: cardStyle, children: [
     bar && /* @__PURE__ */ jsx3("div", { style: { height: 4, background: bar } }),
-    /* @__PURE__ */ jsxs2(
-      "div",
-      {
-        onClick: () => onOpen(meta.id),
-        style: { cursor: "pointer", padding: "14px 16px 10px" },
-        children: [
-          thumbUrls.length > 0 && /* @__PURE__ */ jsx3("div", { style: {
-            display: "grid",
-            gridTemplateColumns: thumbUrls.length === 1 ? "1fr" : "repeat(2, minmax(0, 1fr))",
-            gap: 6,
-            marginBottom: 10
-          }, children: thumbUrls.map((url, index) => /* @__PURE__ */ jsx3(
+    /* @__PURE__ */ jsxs2("div", { className: "nt-card-body", onClick: () => onOpen(meta.id), children: [
+      thumbUrls.length > 0 && /* @__PURE__ */ jsx3(
+        "div",
+        {
+          className: "nt-card-thumbs",
+          style: { gridTemplateColumns: thumbUrls.length === 1 ? "1fr" : "repeat(2, minmax(0, 1fr))" },
+          children: thumbUrls.map((url, index) => /* @__PURE__ */ jsx3(
             "img",
             {
               src: url,
               alt: "",
+              className: "nt-card-thumb",
               style: {
-                width: "100%",
                 aspectRatio: thumbUrls.length === 1 ? "16 / 10" : "1 / 1",
-                objectFit: "cover",
-                display: "block",
-                borderRadius: 6,
-                border: `1px solid ${bar ? colorTint(meta.color, 0.28) : t.border}`,
-                background: t.surface2,
+                border: `1px solid ${thumbBorder || "var(--border)"}`,
+                background: "var(--surface2, var(--surface))",
                 gridColumn: thumbUrls.length === 3 && index === 0 ? "span 2" : void 0
               }
             },
             url
-          )) }),
-          meta.title && /* @__PURE__ */ jsx3("div", { style: { fontSize: 15, fontWeight: 650, color: t.text, marginBottom: 6, overflowWrap: "anywhere" }, children: meta.title }),
-          empty ? /* @__PURE__ */ jsx3("div", { style: { fontSize: 13.5, color: t.muted, opacity: 0.6, fontStyle: "italic" }, children: "Empty note" }) : /* @__PURE__ */ jsx3(
-            "div",
-            {
-              className: "note-preview",
-              style: { fontSize: 13.5, color: t.muted, lineHeight: 1.5, maxHeight: 220, overflow: "hidden" },
-              dangerouslySetInnerHTML: { __html: html }
-            }
-          )
-        ]
-      }
-    ),
-    /* @__PURE__ */ jsxs2("div", { style: { display: "flex", alignItems: "center", gap: 2, padding: "6px 8px", borderTop: `1px solid ${bar ? colorTint(meta.color, 0.32) : t.border}`, background: bar ? colorTint(meta.color, 0.08) : "transparent" }, children: [
+          ))
+        }
+      ),
+      meta.title && /* @__PURE__ */ jsx3("div", { className: "nt-card-title", children: meta.title }),
+      empty ? /* @__PURE__ */ jsx3("div", { className: "nt-card-empty", children: "Empty note" }) : /* @__PURE__ */ jsx3(
+        "div",
+        {
+          className: "note-preview nt-card-preview",
+          dangerouslySetInnerHTML: { __html: html }
+        }
+      )
+    ] }),
+    /* @__PURE__ */ jsxs2("div", { className: "nt-card-footer", style: footerStyle, children: [
       /* @__PURE__ */ jsx3(IconBtn, { title: meta.pinned ? "Unpin" : "Pin", active: meta.pinned, onClick: () => onPin(meta.id), children: /* @__PURE__ */ jsx3(Icon, { name: "pin", size: 15 }) }),
-      /* @__PURE__ */ jsxs2("div", { ref: colorBtnRef, style: { position: "relative" }, children: [
+      /* @__PURE__ */ jsxs2("div", { ref: colorBtnRef, className: "nt-color-anchor", children: [
         /* @__PURE__ */ jsx3(IconBtn, { title: "Color", onClick: () => setShowColors((v) => !v), children: /* @__PURE__ */ jsx3(Icon, { name: "palette", size: 16 }) }),
         showColors && /* @__PURE__ */ jsx3(
           ColorPicker,
@@ -1232,7 +1492,7 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
           }
         )
       ] }),
-      /* @__PURE__ */ jsx3("div", { style: { flex: 1 } }),
+      /* @__PURE__ */ jsx3("div", { className: "nt-spacer" }),
       /* @__PURE__ */ jsx3(IconBtn, { title: "Delete", danger: true, onClick: () => onDelete(meta.id), children: /* @__PURE__ */ jsx3(Icon, { name: "trash", size: 15 }) })
     ] })
   ] }) });
@@ -1241,23 +1501,10 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
 // src/ui/Grid.jsx
 import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
 function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
-  const t = T();
   const pinned = notes.filter((n) => n.meta.pinned);
   const others = notes.filter((n) => !n.meta.pinned);
-  const header = (txt) => /* @__PURE__ */ jsx4("h2", { style: {
-    fontSize: 11,
-    fontWeight: 700,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    color: t.muted,
-    margin: "4px 8px 10px"
-  }, children: txt });
-  const cards = (list) => /* @__PURE__ */ jsx4("div", { style: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 180px), 1fr))",
-    gap: 12,
-    alignItems: "start"
-  }, children: list.map((n) => /* @__PURE__ */ jsx4(
+  const header = (txt) => /* @__PURE__ */ jsx4("h2", { className: "nt-section-head", children: txt });
+  const cards = (list) => /* @__PURE__ */ jsx4("div", { className: "nt-cards", children: list.map((n) => /* @__PURE__ */ jsx4(
     Card,
     {
       note: n,
@@ -1269,8 +1516,8 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
     },
     n.meta.id
   )) });
-  return /* @__PURE__ */ jsxs3("div", { style: { padding: "16px 8px 90px", maxWidth: 1120, margin: "0 auto" }, children: [
-    pinned.length > 0 && /* @__PURE__ */ jsxs3("section", { style: { marginBottom: 18 }, children: [
+  return /* @__PURE__ */ jsxs3("div", { className: "nt-grid-wrap", children: [
+    pinned.length > 0 && /* @__PURE__ */ jsxs3("section", { className: "nt-section", children: [
       header("Pinned"),
       cards(pinned)
     ] }),
@@ -1652,8 +1899,12 @@ function resolveNow(note) {
   } catch (e) {
   }
 }
+function statusClass(status) {
+  if (status === "Synced") return "is-synced";
+  if (status === "Resolving\u2026") return "is-resolving";
+  return "is-default";
+}
 function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment: putAttachment2, conflict, status }) {
-  const t = T();
   const [title, setTitle] = useState3(note.meta.title || "");
   const [body, setBody] = useState3(note.body || "");
   const [showColors, setShowColors] = useState3(false);
@@ -1732,15 +1983,29 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
       setTimeout(() => setAttachErr(""), 3500);
     }
   }
-  const statusColor = status === "Synced" ? t.green : status === "Resolving\u2026" ? t.accent : t.muted;
-  return /* @__PURE__ */ jsxs4("div", { style: { position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: t.bg, zIndex: 10 }, children: [
-    /* @__PURE__ */ jsxs4("header", { style: { padding: "8px 10px 9px", borderBottom: `1px solid ${t.border}`, display: "flex", flexDirection: "column", gap: 7 }, children: [
-      /* @__PURE__ */ jsxs4("div", { style: { display: "flex", alignItems: "center", gap: 6, minWidth: 0 }, children: [
-        /* @__PURE__ */ jsx6("button", { onClick: async () => {
-          await flushSave();
-          onBack();
-        }, "aria-label": "Back", style: hdrBtn(t), children: /* @__PURE__ */ jsx6(Icon, { name: "back", size: 18 }) }),
-        colorHex(note.meta.color) && /* @__PURE__ */ jsx6("span", { style: { width: 9, height: 9, borderRadius: 3, background: colorHex(note.meta.color), flexShrink: 0 } }),
+  const colorDotHex = colorHex(note.meta.color);
+  return /* @__PURE__ */ jsxs4("div", { className: "nt-editor-root", children: [
+    /* @__PURE__ */ jsxs4("header", { className: "nt-editor-hdr", children: [
+      /* @__PURE__ */ jsxs4("div", { className: "nt-editor-row1", children: [
+        /* @__PURE__ */ jsx6(
+          "button",
+          {
+            onClick: async () => {
+              await flushSave();
+              onBack();
+            },
+            "aria-label": "Back",
+            className: "nt-hdr-btn",
+            children: /* @__PURE__ */ jsx6(Icon, { name: "back", size: 18 })
+          }
+        ),
+        colorDotHex && /* @__PURE__ */ jsx6(
+          "span",
+          {
+            className: "nt-color-dot",
+            style: { width: 9, height: 9, borderRadius: 3, background: colorDotHex }
+          }
+        ),
         /* @__PURE__ */ jsx6(
           "input",
           {
@@ -1748,147 +2013,124 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
             onChange: (e) => setTitle(e.target.value),
             placeholder: "Title",
             "aria-label": "Note title",
-            style: { flex: 1, minWidth: 0, padding: "7px 6px", border: "none", outline: "none", background: "transparent", color: t.text, fontSize: 17, fontWeight: 650 }
+            className: "nt-title-input"
           }
         ),
-        status && /* @__PURE__ */ jsx6("span", { style: { fontSize: 12, color: statusColor, whiteSpace: "nowrap", marginRight: 2, flexShrink: 0 }, children: status })
+        status && /* @__PURE__ */ jsx6("span", { className: `nt-status ${statusClass(status)}`, children: status })
       ] }),
-      /* @__PURE__ */ jsxs4("div", { style: { display: "flex", alignItems: "center", gap: 6, overflowX: "auto", paddingBottom: 1 }, children: [
-        /* @__PURE__ */ jsx6("button", { onClick: () => onPin(note.meta.id), "aria-label": note.meta.pinned ? "Unpin" : "Pin", title: note.meta.pinned ? "Unpin" : "Pin", style: hdrBtn(t, note.meta.pinned), children: /* @__PURE__ */ jsx6(Icon, { name: "pin", size: 16 }) }),
+      /* @__PURE__ */ jsxs4("div", { className: "nt-editor-row2", children: [
+        /* @__PURE__ */ jsx6(
+          "button",
+          {
+            onClick: () => onPin(note.meta.id),
+            "aria-label": note.meta.pinned ? "Unpin" : "Pin",
+            title: note.meta.pinned ? "Unpin" : "Pin",
+            className: `nt-hdr-btn${note.meta.pinned ? " is-active" : ""}`,
+            children: /* @__PURE__ */ jsx6(Icon, { name: "pin", size: 16 })
+          }
+        ),
         /* @__PURE__ */ jsxs4("div", { ref: colorBtnRef, style: { position: "relative", flexShrink: 0 }, children: [
-          /* @__PURE__ */ jsx6("button", { onClick: () => setShowColors((v) => !v), "aria-label": "Color", title: "Color", style: hdrBtn(t), children: /* @__PURE__ */ jsx6(Icon, { name: "palette", size: 17 }) }),
-          showColors && /* @__PURE__ */ jsx6(ColorPicker, { anchorRef: colorBtnRef, placement: "below", align: "start", current: note.meta.color, onPick: (c) => {
-            onColor(note.meta.id, c);
-            setShowColors(false);
-          } })
+          /* @__PURE__ */ jsx6(
+            "button",
+            {
+              onClick: () => setShowColors((v) => !v),
+              "aria-label": "Color",
+              title: "Color",
+              className: "nt-hdr-btn",
+              children: /* @__PURE__ */ jsx6(Icon, { name: "palette", size: 17 })
+            }
+          ),
+          showColors && /* @__PURE__ */ jsx6(
+            ColorPicker,
+            {
+              anchorRef: colorBtnRef,
+              placement: "below",
+              align: "start",
+              current: note.meta.color,
+              onPick: (c) => {
+                onColor(note.meta.id, c);
+                setShowColors(false);
+              }
+            }
+          )
         ] }),
-        /* @__PURE__ */ jsxs4("button", { onClick: () => imageRef.current && imageRef.current.click(), "aria-label": "Insert image", title: "Insert image", style: labelBtn(t), children: [
-          /* @__PURE__ */ jsx6(Icon, { name: "image", size: 16 }),
-          "Image"
-        ] }),
-        /* @__PURE__ */ jsxs4("button", { onClick: () => fileRef.current && fileRef.current.click(), "aria-label": "Attach file", title: "Attach file", style: labelBtn(t), children: [
-          /* @__PURE__ */ jsx6(Icon, { name: "file", size: 16 }),
-          "File"
-        ] }),
-        /* @__PURE__ */ jsx6("div", { style: { flex: 1, minWidth: 4 } }),
-        /* @__PURE__ */ jsx6("button", { onClick: () => onDelete(note.meta.id), "aria-label": "Delete", title: "Delete", style: hdrBtn(t, false, true), children: /* @__PURE__ */ jsx6(Icon, { name: "trash", size: 16 }) })
+        /* @__PURE__ */ jsxs4(
+          "button",
+          {
+            onClick: () => imageRef.current && imageRef.current.click(),
+            "aria-label": "Insert image",
+            title: "Insert image",
+            className: "nt-label-btn",
+            children: [
+              /* @__PURE__ */ jsx6(Icon, { name: "image", size: 16 }),
+              "Image"
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsxs4(
+          "button",
+          {
+            onClick: () => fileRef.current && fileRef.current.click(),
+            "aria-label": "Attach file",
+            title: "Attach file",
+            className: "nt-label-btn",
+            children: [
+              /* @__PURE__ */ jsx6(Icon, { name: "file", size: 16 }),
+              "File"
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsx6("div", { className: "nt-hdr-spacer" }),
+        /* @__PURE__ */ jsx6(
+          "button",
+          {
+            onClick: () => onDelete(note.meta.id),
+            "aria-label": "Delete",
+            title: "Delete",
+            className: "nt-hdr-btn is-danger",
+            children: /* @__PURE__ */ jsx6(Icon, { name: "trash", size: 16 })
+          }
+        )
       ] }),
       /* @__PURE__ */ jsx6("input", { ref: imageRef, type: "file", accept: "image/*", onChange: handleFile, style: { display: "none" } }),
       /* @__PURE__ */ jsx6("input", { ref: fileRef, type: "file", onChange: handleFile, style: { display: "none" } })
     ] }),
-    conflict && /* @__PURE__ */ jsxs4("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "9px 16px", background: `${t.accent}1f`, color: t.text, fontSize: 13 }, children: [
-      /* @__PURE__ */ jsx6("span", { style: { flex: 1 }, children: "Edited in two places \u2014 merging\u2026" }),
-      /* @__PURE__ */ jsx6("button", { onClick: () => resolveNow(note), style: { border: `1px solid ${t.accent}`, background: "transparent", color: t.accent, borderRadius: 8, padding: "4px 10px", fontSize: 12, cursor: "pointer" }, children: "Resolve now" })
+    conflict && /* @__PURE__ */ jsxs4("div", { className: "nt-conflict-bar", children: [
+      /* @__PURE__ */ jsx6("span", { className: "nt-conflict-msg", children: "Edited in two places \u2014 merging\u2026" }),
+      /* @__PURE__ */ jsx6("button", { onClick: () => resolveNow(note), className: "nt-conflict-btn", children: "Resolve now" })
     ] }),
-    attachErr && /* @__PURE__ */ jsx6("div", { style: { padding: "8px 16px", background: `${t.danger}22`, color: t.danger, fontSize: 13 }, children: attachErr }),
-    /* @__PURE__ */ jsx6("div", { style: { flex: 1, overflow: "hidden" }, children: /* @__PURE__ */ jsx6(Editor, { value: body, onChange: setBody, resolveAttachment, viewRef }) })
+    attachErr && /* @__PURE__ */ jsx6("div", { className: "nt-attach-err", children: attachErr }),
+    /* @__PURE__ */ jsx6("div", { className: "nt-editor-body", children: /* @__PURE__ */ jsx6(Editor, { value: body, onChange: setBody, resolveAttachment, viewRef }) })
   ] });
-}
-function hdrBtn(t, active, danger) {
-  return {
-    width: 34,
-    height: 34,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    border: "none",
-    borderRadius: 9,
-    background: active ? `${t.accent}22` : "transparent",
-    color: danger ? t.danger : t.text,
-    cursor: "pointer",
-    fontSize: 16,
-    flexShrink: 0
-  };
-}
-function labelBtn(t) {
-  return {
-    height: 34,
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    border: `1px solid ${t.border}`,
-    borderRadius: 8,
-    padding: "0 10px",
-    background: t.surface2,
-    color: t.text,
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 600,
-    whiteSpace: "nowrap",
-    flexShrink: 0
-  };
 }
 
 // src/ui/ConfirmModal.jsx
 import { jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
 function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", danger, onConfirm, onCancel }) {
   if (!open2) return null;
-  const t = T();
   return /* @__PURE__ */ jsx7(
     "div",
     {
       role: "dialog",
       "aria-modal": "true",
       onClick: onCancel,
-      style: {
-        position: "fixed",
-        inset: 0,
-        zIndex: 50,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 20,
-        background: "rgba(0,0,0,0.55)",
-        backdropFilter: "blur(2px)"
-      },
+      className: "nt-modal-scrim",
       children: /* @__PURE__ */ jsxs5(
         "div",
         {
           onClick: (e) => e.stopPropagation(),
-          style: {
-            width: "100%",
-            maxWidth: 360,
-            background: t.surface,
-            border: `1px solid ${t.border}`,
-            borderRadius: 16,
-            padding: 20,
-            boxShadow: "0 12px 40px rgba(0,0,0,0.5)"
-          },
+          className: "nt-modal",
           children: [
-            title && /* @__PURE__ */ jsx7("h2", { style: { fontSize: 16, fontWeight: 650, color: t.text, marginBottom: 8 }, children: title }),
-            message && /* @__PURE__ */ jsx7("p", { style: { fontSize: 14, color: t.muted, lineHeight: 1.5, marginBottom: 18 }, children: message }),
-            /* @__PURE__ */ jsxs5("div", { style: { display: "flex", gap: 10, justifyContent: "flex-end" }, children: [
-              /* @__PURE__ */ jsx7(
-                "button",
-                {
-                  onClick: onCancel,
-                  style: {
-                    padding: "9px 16px",
-                    borderRadius: 10,
-                    border: `1px solid ${t.border}`,
-                    background: "transparent",
-                    color: t.text,
-                    fontSize: 14,
-                    cursor: "pointer"
-                  },
-                  children: "Cancel"
-                }
-              ),
+            title && /* @__PURE__ */ jsx7("h2", { className: "nt-modal-title", children: title }),
+            message && /* @__PURE__ */ jsx7("p", { className: "nt-modal-msg", children: message }),
+            /* @__PURE__ */ jsxs5("div", { className: "nt-modal-actions", children: [
+              /* @__PURE__ */ jsx7("button", { onClick: onCancel, className: "nt-modal-btn nt-modal-cancel", children: "Cancel" }),
               /* @__PURE__ */ jsx7(
                 "button",
                 {
                   onClick: onConfirm,
-                  style: {
-                    padding: "9px 16px",
-                    borderRadius: 10,
-                    border: "none",
-                    background: danger ? t.danger : t.accent,
-                    color: "#0d0d0d",
-                    fontSize: 14,
-                    fontWeight: 600,
-                    cursor: "pointer"
-                  },
+                  className: "nt-modal-btn nt-modal-confirm",
+                  style: { background: danger ? "var(--danger)" : "var(--accent)" },
                   children: confirmLabel
                 }
               )
@@ -1903,73 +2145,29 @@ function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", d
 // src/app.jsx
 import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
 function TopBar({ query, onQuery, onNew }) {
-  const t = T();
-  return /* @__PURE__ */ jsxs6("header", { style: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    padding: "12px 16px",
-    borderBottom: `1px solid ${t.border}`,
-    position: "sticky",
-    top: 0,
-    background: t.bg,
-    zIndex: 5
-  }, children: [
-    /* @__PURE__ */ jsx8("h1", { style: { fontSize: 18, fontWeight: 650, color: t.text, letterSpacing: "-0.01em" }, children: "Notes" }),
-    /* @__PURE__ */ jsx8("div", { style: { flex: 1, display: "flex", justifyContent: "center" }, children: /* @__PURE__ */ jsx8(
+  return /* @__PURE__ */ jsxs6("header", { className: "nt-topbar", children: [
+    /* @__PURE__ */ jsx8("h1", { className: "nt-title", children: "Notes" }),
+    /* @__PURE__ */ jsx8("div", { className: "nt-search-wrap", children: /* @__PURE__ */ jsx8(
       "input",
       {
         value: query,
         onChange: (e) => onQuery(e.target.value),
         placeholder: "Search notes\u2026",
         "aria-label": "Search notes",
-        style: {
-          width: "100%",
-          maxWidth: 520,
-          padding: "8px 12px",
-          borderRadius: 10,
-          border: `1px solid ${t.border}`,
-          background: t.surface2,
-          color: t.text,
-          fontSize: 14,
-          outline: "none"
-        }
+        className: "nt-search"
       }
     ) }),
-    /* @__PURE__ */ jsxs6("button", { onClick: onNew, "aria-label": "New note", style: {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 6,
-      padding: "8px 14px",
-      borderRadius: 10,
-      border: "none",
-      background: t.accent,
-      color: "#ffffff",
-      fontSize: 14,
-      fontWeight: 650,
-      cursor: "pointer",
-      flexShrink: 0
-    }, children: [
-      /* @__PURE__ */ jsx8("span", { style: { fontSize: 18, lineHeight: 1 }, children: "+" }),
+    /* @__PURE__ */ jsxs6("button", { onClick: onNew, "aria-label": "New note", className: "nt-new-btn", children: [
+      /* @__PURE__ */ jsx8("span", { className: "nt-new-plus", children: "+" }),
       " New"
     ] })
   ] });
 }
 function EmptyState({ filtered }) {
-  const t = T();
-  return /* @__PURE__ */ jsxs6("div", { style: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    padding: "18vh 24px",
-    textAlign: "center",
-    color: t.muted
-  }, children: [
-    /* @__PURE__ */ jsx8("div", { style: { color: t.muted, opacity: 0.5 }, children: /* @__PURE__ */ jsx8(Icon, { name: "edit", size: 40 }) }),
-    /* @__PURE__ */ jsx8("div", { style: { fontSize: 15 }, children: filtered ? "No matching notes" : "No notes yet" }),
-    !filtered && /* @__PURE__ */ jsxs6("div", { style: { fontSize: 13, opacity: 0.8 }, children: [
+  return /* @__PURE__ */ jsxs6("div", { className: "nt-empty", children: [
+    /* @__PURE__ */ jsx8("div", { className: "nt-empty-icon", children: /* @__PURE__ */ jsx8(Icon, { name: "edit", size: 40 }) }),
+    /* @__PURE__ */ jsx8("div", { className: "nt-empty-msg", children: filtered ? "No matching notes" : "No notes yet" }),
+    !filtered && /* @__PURE__ */ jsxs6("div", { className: "nt-empty-hint", children: [
       "Tap ",
       /* @__PURE__ */ jsx8("strong", { children: "+ New" }),
       " to write your first note."
@@ -1977,7 +2175,6 @@ function EmptyState({ filtered }) {
   ] });
 }
 function App({ appId, token }) {
-  const t = T();
   const [notes, setNotes] = useState4([]);
   const [loading, setLoading] = useState4(true);
   const [query, setQuery] = useState4("");
@@ -2238,9 +2435,10 @@ function App({ appId, token }) {
   }, [notes, query]);
   const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id) || (draft && draft.meta.id === view.id ? draft : null) : null;
   const status = !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : pending > 0 ? "Saving\u2026" : "Synced";
-  return /* @__PURE__ */ jsxs6("div", { style: { position: "relative", height: "100%", display: "flex", flexDirection: "column", background: t.bg, color: t.text, fontFamily: t.font }, children: [
+  return /* @__PURE__ */ jsxs6("div", { className: "nt-root", children: [
+    /* @__PURE__ */ jsx8("style", { children: CSS }),
     /* @__PURE__ */ jsx8(TopBar, { query, onQuery: setQuery, onNew: createNote }),
-    /* @__PURE__ */ jsx8("main", { style: { flex: 1, overflow: "auto" }, children: loading ? /* @__PURE__ */ jsx8("div", { style: { padding: "18vh 0", textAlign: "center", color: t.muted, fontSize: 14 }, children: "Loading\u2026" }) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(Grid, { notes: visible, onOpen: (id) => {
+    /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsx8("div", { className: "nt-loading", children: "Loading\u2026" }) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(Grid, { notes: visible, onOpen: (id) => {
       openEditor(id).catch(() => setView({ mode: "editor", id }));
     }, onPin: togglePin, onColor: setColor, onDelete: setConfirmId, resolveAttachment: attachmentURL }) }),
     editing && /* @__PURE__ */ jsx8(
