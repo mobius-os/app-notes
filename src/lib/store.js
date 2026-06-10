@@ -10,7 +10,8 @@
 
 import { parseFrontmatter, serializeNote } from './frontmatter.js'
 import { buildIndex } from './index-cache.js'
-import { attachmentPath, extFromType } from './attachments.js'
+import { attachmentPath, extFromType, referencedAttachments, noteAttachmentRefs } from './attachments.js'
+import { unsyncedLocals } from './local.js'
 
 const S = () => window.mobius.storage
 const notePath = (id) => `notes/${id}.md`
@@ -90,6 +91,47 @@ export async function putAttachment(file) {
   const path = attachmentPath(sha, ext)
   await S().setBlob(path, file, { contentType: file.type || 'application/octet-stream' })
   return { sha, ext, path, name: file.name || `${sha}.${ext}` }
+}
+
+// Garbage-collect orphaned attachment blobs: build the referenced set from the
+// AUTHORITATIVE on-disk notes (not in-memory React state — a note may still
+// exist canonically while its delete is mid-reconcile) UNIONED with the durable
+// pending working copies (the unsynced local edits not yet reconciled to
+// canonical), then remove any blob in attachments/ that nothing still
+// references. The pending union is load-bearing: attaching an image to an
+// EXISTING note records the new ref only on the working copy first — the
+// canonical .md isn't rewritten until reconcile lands — so a sweep that read
+// only listNotes() would see the blob as unreferenced and delete it out from
+// under the in-flight edit, losing the image. Runs after a delete or an editor
+// save, so deleting a note — or editing an image/file ref out of a body —
+// eventually frees its now-unreachable blobs. Content-addressed blobs are
+// shared, so a blob survives while ANY note (canonical or pending) keeps it.
+// Best-effort: a failed list/remove is swallowed (the blob persists until the
+// next sweep).
+export async function gcAttachments() {
+  let entries
+  try { entries = await S().list('attachments') } catch { return }
+  const live = entries && entries.length ? entries.filter((e) => e.type === 'file' && e.path.startsWith('attachments/')) : []
+  if (!live.length) return
+  const notes = await listNotes().catch(() => null)
+  if (notes == null) return // couldn't read the authoritative set — skip; never free blindly
+  const referenced = referencedAttachments(notes)
+  // Union the durable pending working copies: a not-yet-reconciled edit (a new
+  // attachment on an existing note) is referenced only here, not in canonical.
+  // Best-effort — if the local state can't be read we keep the canonical set
+  // rather than risk freeing a blob a pending edit still needs.
+  try {
+    const pending = await unsyncedLocals()
+    for (const [, rec] of pending) {
+      const w = rec && rec.working
+      if (!w) continue // tombstone (deletion); contributes no live refs
+      for (const p of noteAttachmentRefs(w.meta || {}, w.body || '')) referenced.add(p)
+    }
+  } catch {}
+  for (const e of live) {
+    if (referenced.has(e.path)) continue
+    try { await S().remove(e.path) } catch {}
+  }
 }
 
 // Resolve an attachment path to an object URL for <img>/download. The caller

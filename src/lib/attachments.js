@@ -45,3 +45,30 @@ export function imageRefMarkdown(alt, sha, ext) {
 export function fileChipMarkdown(name, sha, ext) {
   return `[${name}](${attachmentPath(sha, ext)})`
 }
+
+// Every attachment path one note references: `meta.attachments` plus any
+// `](attachments/…)` link/embed target in its body. Used by the GC sweep to
+// decide which content-addressed blobs are still reachable.
+const BODY_ATTACHMENT_REF = /\]\((attachments\/[^)\s]+)\)/g
+export function noteAttachmentRefs(meta = {}, body = '') {
+  const refs = new Set()
+  if (Array.isArray(meta.attachments)) {
+    for (const p of meta.attachments) if (typeof p === 'string' && p.startsWith('attachments/')) refs.add(p)
+  }
+  let m
+  BODY_ATTACHMENT_REF.lastIndex = 0
+  while ((m = BODY_ATTACHMENT_REF.exec(String(body || '')))) refs.add(m[1])
+  return refs
+}
+
+// The set of attachment paths reachable from ANY live note. Blobs are
+// content-addressed and dedup'd, so a path may be shared across notes — the GC
+// sweep must keep a blob alive while even one note still references it.
+export function referencedAttachments(notes = []) {
+  const refs = new Set()
+  for (const n of notes) {
+    if (!n) continue
+    for (const p of noteAttachmentRefs(n.meta || {}, n.body || '')) refs.add(p)
+  }
+  return refs
+}

@@ -38,10 +38,18 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
   const imageRef = useRef(null)
   const fileRef = useRef(null)
   const colorBtnRef = useRef(null)
+  // `latest` always names the note the title/body BUFFER currently belongs to.
+  // It is only re-pointed at a new note AFTER that note's edits have been
+  // flushed (see the id-change effect), so a debounced flush never writes the
+  // outgoing buffer under the incoming note's meta.
   const latest = useRef({ note, title: note.meta.title || '', body: note.body || '' })
 
   useEffect(() => {
-    latest.current = { note, title, body }
+    // Keep the buffer in sync only while the note identity is unchanged; the
+    // id-change effect below owns the note swap (and the pre-swap flush).
+    if (latest.current.note.meta.id === note.meta.id) {
+      latest.current = { note, title, body }
+    }
   }, [note, title, body])
 
   const flushSave = useCallback(() => {
@@ -54,9 +62,18 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
     return Promise.resolve(onSave({ ...cur.note.meta, title: cur.title }, cur.body))
   }, [onSave])
 
+  // Switching directly from one note to another in the editor: flush the
+  // OUTGOING note's pending edits (held in `latest`, still pointing at the old
+  // note) BEFORE resetting the buffer to the incoming note. Without this, the
+  // debounced autosave for the old note never fires and its unsaved edits are
+  // silently dropped.
   useEffect(() => {
+    if (timer.current) clearTimeout(timer.current)
+    flushSave()
+    latest.current = { note, title: note.meta.title || '', body: note.body || '' }
     setTitle(note.meta.title || '')
     setBody(note.body || '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.meta.id])
 
   useEffect(() => {

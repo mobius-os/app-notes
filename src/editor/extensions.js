@@ -14,7 +14,7 @@ import {
 } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 import { EditorView, keymap } from '@codemirror/view'
-import { livePreview } from './livePreview.js'
+import { livePreview, mathPreview } from './livePreview.js'
 
 const heading = (size, weight) => ({ fontSize: size, fontWeight: weight, lineHeight: '1.3' })
 
@@ -77,6 +77,7 @@ export function buildExtensions({ onDocChange, resolveAttachment }) {
     indentOnInput(),
     EditorView.lineWrapping,
     livePreview({ resolveAttachment }),
+    mathPreview,
     keymap.of([...mdKeymap, indentWithTab, ...historyKeymap, ...defaultKeymap]),
     theme,
     EditorView.updateListener.of((u) => { if (u.docChanged) onDocChange(u.state.doc.toString()) }),

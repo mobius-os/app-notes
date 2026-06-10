@@ -11,6 +11,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { CSS } from './ui/css.js'
 import { newNote, contentHash, isBlankNote } from './lib/note.js'
+import { notesFromIndex } from './lib/index-cache.js'
 import * as store from './lib/store.js'
 import { ensureBase, recordWorking, recordDeletion, promote, unsyncedLocals } from './lib/local.js'
 import { reconcileAll } from './lib/reconciler.js'
@@ -48,6 +49,38 @@ function EmptyState({ filtered }) {
 }
 
 export default function App({ appId, token }) {
+  // KaTeX's renderToString output (used by the live-preview editor for $…$ and
+  // $$…$$ math) needs katex.min.css for its fraction/sizing/positioning rules;
+  // without it every formula renders as overlapping fallback glyphs. A plain CDN
+  // <link> is blocked by the prod CSP (style-src does not allow jsdelivr), so we
+  // fetch the stylesheet through the same-origin /api/proxy and inject it as an
+  // inline <style> (style-src allows 'unsafe-inline'). Pinned to the importmap's
+  // katex version. The @font-face URLs inside the sheet stay CDN-relative and are
+  // blocked by font-src, so the glyphs fall back to the system math font —
+  // readable and correctly laid out, which is the bug being fixed; bundling the
+  // woff2 fonts same-origin would be a platform change.
+  useEffect(() => {
+    if (document.querySelector('style[data-nt-katex]')) return undefined
+    let cancelled = false
+    const CSS_URL = 'https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css'
+    fetch(`/api/proxy?url=${encodeURIComponent(CSS_URL)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    }).then((r) => {
+      if (!r.ok) throw new Error(`KaTeX CSS proxy failed (${r.status})`)
+      return r.text()
+    }).then((css) => {
+      if (cancelled || document.querySelector('style[data-nt-katex]')) return
+      const style = document.createElement('style')
+      style.setAttribute('data-nt-katex', '1')
+      style.textContent = css
+      document.head.appendChild(style)
+    }).catch(() => {
+      // No math styling — KaTeX still renders, just without its layout rules.
+      // Better than a blocked-resource console error loop.
+    })
+    return () => { cancelled = true }
+  }, [token])
+
   const [notes, setNotes] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
@@ -57,6 +90,7 @@ export default function App({ appId, token }) {
   const [pending, setPending] = useState(0)
   const [conflicts, setConflicts] = useState(() => new Set())
   const reconTimer = useRef(null)
+  const gcTimer = useRef(null)
   const editorNavOwned = useRef(false)
   const online = store.isOnline()
 
@@ -82,17 +116,39 @@ export default function App({ appId, token }) {
     setConflicts((prev) => { const n = new Set(prev); n.add(id); return n })
   }, [])
 
+  // Debounced attachment GC. Deletes and body edits can orphan content-addressed
+  // blobs; sweep them after the dust settles (the working copy / canonical write
+  // has landed) against the current authoritative note set.
+  const scheduleGc = useCallback(() => {
+    if (gcTimer.current) clearTimeout(gcTimer.current)
+    gcTimer.current = setTimeout(() => {
+      store.gcAttachments().catch(() => {})
+    }, 1500)
+  }, [])
+
   const runReconcile = useCallback(() => { reconcileAll({ onApplied, onDeleted, onConflict }).catch(() => {}) }, [onApplied, onDeleted, onConflict])
   const scheduleReconcile = useCallback(() => {
     if (reconTimer.current) clearTimeout(reconTimer.current)
     reconTimer.current = setTimeout(runReconcile, 400)
   }, [runReconcile])
 
-  // Initial load: canonical notes overlaid with any unsynced local edits (so an
-  // offline edit survives a reload), then seed bases + flush the reconcile queue.
+  // Initial load: paint the derived index.json cache first for an instant grid,
+  // then read the canonical notes overlaid with any unsynced local edits (so an
+  // offline edit survives a reload), seed bases + flush the reconcile queue.
   useEffect(() => {
     let live = true
     ;(async () => {
+      // Fast cold-load: the index is a strictly-derived cache, so render its
+      // placeholders immediately while the authoritative files are enumerated.
+      store.readIndex()
+        .then((index) => {
+          const cached = notesFromIndex(index)
+          if (live && cached.length) {
+            setNotes((prev) => (prev.length ? prev : cached))
+            setLoading(false)
+          }
+        })
+        .catch(() => {})
       const canonical = await store.listNotes().catch(() => [])
       let merged = canonical
       try {
@@ -132,6 +188,12 @@ export default function App({ appId, token }) {
     const tick = () => store.pendingCount().then((n) => { if (live) setPending(n) }).catch(() => {})
     tick(); const h = setInterval(tick, 1500)
     return () => { live = false; clearInterval(h) }
+  }, [])
+
+  // Clear pending debounce timers on unmount.
+  useEffect(() => () => {
+    if (reconTimer.current) clearTimeout(reconTimer.current)
+    if (gcTimer.current) clearTimeout(gcTimer.current)
   }, [])
 
   // A brand-new note opens as an in-memory draft first. It is not inserted into
@@ -198,8 +260,9 @@ export default function App({ appId, token }) {
     await store.saveNote(m, body).catch(() => {})
     await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {})
     scheduleReconcile()
+    scheduleGc()
     return m
-  }, [scheduleReconcile, upsert])
+  }, [scheduleReconcile, upsert, scheduleGc])
 
   // Persist an edit: stamp the working copy + update the UI, then let the
   // reconcile driver (the sole canonical writer) land it / merge / flag conflict.
@@ -216,7 +279,8 @@ export default function App({ appId, token }) {
     upsert(m, body)
     await recordWorking(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {})
     scheduleReconcile()
-  }, [commitDraft, draft, upsert, scheduleReconcile])
+    scheduleGc()
+  }, [commitDraft, draft, upsert, scheduleReconcile, scheduleGc])
 
   const togglePin = useCallback((id) => {
     const n = notes.find((x) => x.meta.id === id); if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body)
@@ -231,7 +295,8 @@ export default function App({ appId, token }) {
     const hash = await contentHash(note.meta, note.body)
     await recordDeletion(note.meta.id, { meta: note.meta, body: note.body, hash }).catch(() => {})
     scheduleReconcile()
-  }, [scheduleReconcile])
+    scheduleGc()
+  }, [scheduleReconcile, scheduleGc])
 
   const doDelete = useCallback((id) => {
     if (draft && draft.meta.id === id) {

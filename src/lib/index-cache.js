@@ -69,3 +69,25 @@ export function buildIndex(notes) {
 export function rebuildFromFiles(arr) {
   return buildIndex(arr)
 }
+
+// Reconstitute lightweight `{meta, body}` placeholders from a previously written
+// index.json so the grid can paint instantly on cold load, before the canonical
+// notes/*.md files are enumerated and parsed. The index has no full body, so the
+// snippet stands in as the preview text until listNotes() replaces these with
+// the authoritative notes (a brief transient — thumbnails/attachments appear on
+// the full load). Returns [] for a missing/malformed index.
+export function notesFromIndex(index) {
+  const entries = index && Array.isArray(index.notes) ? index.notes : []
+  return entries
+    .filter((e) => e && e.id)
+    .map((e) => ({
+      meta: {
+        id: e.id,
+        title: e.title ?? '',
+        pinned: e.pinned ?? false,
+        color: e.color ?? null,
+        updated: e.updated,
+      },
+      body: e.snippet ?? '',
+    }))
+}

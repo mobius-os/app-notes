@@ -46,29 +46,34 @@ export class ImageWidget extends WidgetType {
 }
 
 export class FileChipWidget extends WidgetType {
-  constructor(name, src, resolve) { super(); this.name = name; this.src = src; this.resolve = resolve }
+  constructor(name, src, resolve) { super(); this.name = name; this.src = src; this.resolve = resolve; this.url = null }
   eq(o) { return o.src === this.src && o.name === this.name }
   toDOM() {
     const a = document.createElement('span')
     a.textContent = `📎 ${this.name}`
     a.title = this.name
     a.style.cssText = 'display:inline-flex; align-items:center; gap:4px; padding:2px 8px; margin:0 2px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:13px; cursor:pointer;'
-    a.addEventListener('mousedown', async (e) => {
+    // Open the blob in a new tab rather than synthesizing an <a download> click.
+    // The app iframe sandbox grants allow-popups but NOT allow-downloads, so the
+    // `download` attribute is blocked (silent no-op) and iOS Safari ignores it
+    // regardless — window.open works on both. The handler must run on `click`
+    // (a real user gesture so allow-popups applies) and the object URL has to
+    // outlive the open, so it is revoked on widget destroy(), not immediately.
+    a.addEventListener('click', async (e) => {
       e.preventDefault()
+      e.stopPropagation()
       if (this.resolve && this.src.startsWith('attachments/')) {
         const u = await this.resolve(this.src).catch(() => null)
         if (u) {
-          const link = document.createElement('a')
-          link.href = u
-          link.download = this.name
-          link.click()
-          setTimeout(() => URL.revokeObjectURL(u), 0)
+          this.url = u
+          window.open(u, '_blank', 'noopener')
         }
       }
     })
     return a
   }
-  ignoreEvent() { return false }
+  destroy() { if (this.url) URL.revokeObjectURL(this.url) }
+  ignoreEvent() { return true }
 }
 
 export class MathWidget extends WidgetType {

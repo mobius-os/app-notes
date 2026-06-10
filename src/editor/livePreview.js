@@ -11,41 +11,46 @@
 // decoration bug degrades to a plain (still excellent) CodeMirror markdown
 // editor rather than crashing the view.
 import { syntaxTree } from '@codemirror/language'
-import { ViewPlugin, Decoration } from '@codemirror/view'
+import { ViewPlugin, Decoration, EditorView } from '@codemirror/view'
+import { StateField } from '@codemirror/state'
 import { CheckboxWidget, ImageWidget, FileChipWidget, MathWidget } from './widgets.js'
+import { findMathSpans } from '../lib/math-scan.js'
 
 const HIDE_MARKS = new Set(['HeaderMark', 'EmphasisMark', 'StrikethroughMark'])
 
-const INLINE_MATH = /(?<!\$)\$([^$\n]+?)\$(?!\$)/g
-const BLOCK_MATH = /\$\$([^\n]+?)\$\$/g
-
-function scanMath(state, ranges, onActive, out) {
-  for (const { from, to } of ranges) {
-    let startLine = state.doc.lineAt(from).number
-    const endLine = state.doc.lineAt(to).number
-    for (let n = startLine; n <= endLine; n++) {
-      const line = state.doc.line(n)
-      const text = line.text
-      let m
-      BLOCK_MATH.lastIndex = 0
-      const blocked = []
-      while ((m = BLOCK_MATH.exec(text))) {
-        const f = line.from + m.index
-        const t = f + m[0].length
-        blocked.push([m.index, m.index + m[0].length])
-        if (!onActive(f, t)) out.push({ from: f, to: t, deco: Decoration.replace({ widget: new MathWidget(m[1].trim(), true) }) })
-      }
-      INLINE_MATH.lastIndex = 0
-      while ((m = INLINE_MATH.exec(text))) {
-        const insideBlock = blocked.some(([a, b]) => m.index >= a && m.index < b)
-        if (insideBlock) continue
-        const f = line.from + m.index
-        const t = f + m[0].length
-        if (!onActive(f, t)) out.push({ from: f, to: t, deco: Decoration.replace({ widget: new MathWidget(m[1].trim(), false) }) })
-      }
-    }
+// Math decorations live in a StateField, not the ViewPlugin below. A display
+// `$$…$$` block spans line breaks, and CodeMirror forbids plugin-provided
+// decorations from replacing a line break ("Decorations that replace line
+// breaks may not be specified via plugins") — so a multi-line block would throw
+// and the whole live-preview would degrade to plain text. StateField-provided
+// decorations are allowed to cross line breaks, which is what makes multi-line
+// `$$` render at all.
+function buildMathDecorations(state) {
+  const sel = state.selection.main
+  const aFrom = state.doc.lineAt(sel.from).from
+  const aTo = state.doc.lineAt(sel.to).to
+  const onActive = (from, to) => to >= aFrom && from <= aTo
+  const spans = findMathSpans(state.doc.toString())
+  const ranges = []
+  for (const sp of spans) {
+    // Reveal the raw `$…$` source when the selection touches the math range so
+    // it can be edited (mirrors the marker-hiding behavior in the ViewPlugin).
+    if (onActive(sp.from, sp.to)) continue
+    ranges.push(Decoration.replace({ widget: new MathWidget(sp.src, sp.block) }).range(sp.from, sp.to))
   }
+  return Decoration.set(ranges, true)
 }
+
+export const mathPreview = StateField.define({
+  create(state) {
+    try { return buildMathDecorations(state) } catch { return Decoration.none }
+  },
+  update(value, tr) {
+    if (!tr.docChanged && !tr.selection) return value
+    try { return buildMathDecorations(tr.state) } catch { return Decoration.none }
+  },
+  provide: (f) => EditorView.decorations.from(f),
+})
 
 export function livePreview({ resolveAttachment } = {}) {
   return ViewPlugin.fromClass(
@@ -61,12 +66,19 @@ export function livePreview({ resolveAttachment } = {}) {
           const aFrom = state.doc.lineAt(sel.from).from
           const aTo = state.doc.lineAt(sel.to).to
           const onActive = (from, to) => to >= aFrom && from <= aTo
+          // Math is decorated by the mathPreview StateField. Skip any tree-mark
+          // decoration that falls inside a math span (e.g. `*` inside `$a*b$`)
+          // so the two providers never emit overlapping replace decorations,
+          // which CodeMirror rejects.
+          const mathSpans = findMathSpans(state.doc.toString())
+          const inMath = (from, to) => mathSpans.some((s) => from < s.to && to > s.from)
           const out = []
           const tree = syntaxTree(state)
           for (const { from, to } of view.visibleRanges) {
             tree.iterate({
               from, to,
               enter: (node) => {
+                if (inMath(node.from, node.to)) return
                 const name = node.name
                 if (name === 'TaskMarker') {
                   // Show the raw `[ ]` on the cursor's line so typing isn't
@@ -96,7 +108,8 @@ export function livePreview({ resolveAttachment } = {}) {
               },
             })
           }
-          scanMath(state, view.visibleRanges, onActive, out)
+          // Math decorations come from the mathPreview StateField (block math
+          // may cross line breaks, which plugins are forbidden to do).
           out.sort((a, b) => a.from - b.from || a.to - b.to)
           // Drop overlaps (a later decoration starting before the previous ends)
           // — CM requires non-overlapping replace decorations.

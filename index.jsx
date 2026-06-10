@@ -2,7 +2,7 @@
 // Edit src/app.jsx + src/{lib,ui,editor}/*, then run `npm run build`.
 
 // src/app.jsx
-import { useState as useState4, useEffect as useEffect4, useMemo, useCallback as useCallback2, useRef as useRef4 } from "react";
+import { useState as useState4, useEffect as useEffect4, useMemo as useMemo2, useCallback as useCallback2, useRef as useRef4 } from "react";
 
 // src/ui/css.js
 var CSS = `
@@ -378,6 +378,58 @@ function isBlankNote(meta = {}, body = "") {
   return !hasTitle && !hasBody && !hasAttachments;
 }
 
+// src/lib/index-cache.js
+var SNIPPET_LEN = 140;
+function stripMarkdown(body) {
+  let s = String(body ?? "");
+  s = s.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+  s = s.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+  s = s.replace(/`+/g, "");
+  s = s.replace(/(\*\*|__|~~|\*|_)/g, "");
+  s = s.replace(/^\s{0,3}(#{1,6}\s+|>\s?|[-*+]\s+|\d+\.\s+)/gm, "");
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
+}
+function snippetOf(body) {
+  const text = stripMarkdown(body);
+  return text.length > SNIPPET_LEN ? text.slice(0, SNIPPET_LEN) : text;
+}
+function toEntry({ meta, body }) {
+  return {
+    id: meta.id,
+    title: meta.title ?? "",
+    snippet: snippetOf(body),
+    pinned: meta.pinned ?? false,
+    color: meta.color ?? null,
+    updated: meta.updated
+  };
+}
+function byPinnedThenUpdatedDesc(a, b) {
+  if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+  const ua = a.updated ?? "";
+  const ub = b.updated ?? "";
+  if (ua === ub) return 0;
+  return ua < ub ? 1 : -1;
+}
+function buildIndex(notes) {
+  const entries = (notes ?? []).map(toEntry);
+  entries.sort(byPinnedThenUpdatedDesc);
+  return { notes: entries };
+}
+function notesFromIndex(index) {
+  const entries = index && Array.isArray(index.notes) ? index.notes : [];
+  return entries.filter((e) => e && e.id).map((e) => ({
+    meta: {
+      id: e.id,
+      title: e.title ?? "",
+      pinned: e.pinned ?? false,
+      color: e.color ?? null,
+      updated: e.updated
+    },
+    body: e.snippet ?? ""
+  }));
+}
+
 // src/lib/frontmatter.js
 var FENCE = "---";
 function parseScalar(raw) {
@@ -473,45 +525,6 @@ ${FENCE}
 ${String(body)}`;
 }
 
-// src/lib/index-cache.js
-var SNIPPET_LEN = 140;
-function stripMarkdown(body) {
-  let s = String(body ?? "");
-  s = s.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
-  s = s.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
-  s = s.replace(/`+/g, "");
-  s = s.replace(/(\*\*|__|~~|\*|_)/g, "");
-  s = s.replace(/^\s{0,3}(#{1,6}\s+|>\s?|[-*+]\s+|\d+\.\s+)/gm, "");
-  s = s.replace(/\s+/g, " ").trim();
-  return s;
-}
-function snippetOf(body) {
-  const text = stripMarkdown(body);
-  return text.length > SNIPPET_LEN ? text.slice(0, SNIPPET_LEN) : text;
-}
-function toEntry({ meta, body }) {
-  return {
-    id: meta.id,
-    title: meta.title ?? "",
-    snippet: snippetOf(body),
-    pinned: meta.pinned ?? false,
-    color: meta.color ?? null,
-    updated: meta.updated
-  };
-}
-function byPinnedThenUpdatedDesc(a, b) {
-  if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-  const ua = a.updated ?? "";
-  const ub = b.updated ?? "";
-  if (ua === ub) return 0;
-  return ua < ub ? 1 : -1;
-}
-function buildIndex(notes) {
-  const entries = (notes ?? []).map(toEntry);
-  entries.sort(byPinnedThenUpdatedDesc);
-  return { notes: entries };
-}
-
 // src/lib/attachments.js
 function attachmentPath(sha, ext) {
   return `attachments/${sha}.${ext}`;
@@ -529,72 +542,25 @@ function extFromType(type) {
   const base = String(type).split(";")[0].trim().toLowerCase();
   return TYPE_TO_EXT[base] ?? null;
 }
-
-// src/lib/store.js
-var S = () => window.mobius.storage;
-var notePath = (id) => `notes/${id}.md`;
-async function sha256Bytes(buffer) {
-  const digest = await crypto.subtle.digest("SHA-256", buffer);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-function extFromName(name) {
-  const m = /\.([A-Za-z0-9]+)$/.exec(name || "");
-  return m ? m[1].toLowerCase() : null;
-}
-async function listNotes() {
-  let entries;
-  try {
-    entries = await S().list("notes");
-  } catch {
-    entries = [];
+var BODY_ATTACHMENT_REF = /\]\((attachments\/[^)\s]+)\)/g;
+function noteAttachmentRefs(meta = {}, body = "") {
+  const refs = /* @__PURE__ */ new Set();
+  if (Array.isArray(meta.attachments)) {
+    for (const p of meta.attachments) if (typeof p === "string" && p.startsWith("attachments/")) refs.add(p);
   }
-  const out = [];
-  for (const e of entries || []) {
-    if (e.type !== "file" || !e.name.endsWith(".md")) continue;
-    const text = await S().getText(e.path);
-    if (text == null) continue;
-    const { meta, body } = parseFrontmatter(text);
-    if (meta && meta.id) out.push({ meta, body });
+  let m;
+  BODY_ATTACHMENT_REF.lastIndex = 0;
+  while (m = BODY_ATTACHMENT_REF.exec(String(body || ""))) refs.add(m[1]);
+  return refs;
+}
+function referencedAttachments(notes = []) {
+  const refs = /* @__PURE__ */ new Set();
+  for (const n of notes) {
+    if (!n) continue;
+    for (const p of noteAttachmentRefs(n.meta || {}, n.body || "")) refs.add(p);
   }
-  return out;
+  return refs;
 }
-async function loadNote(id) {
-  const text = await S().getText(notePath(id));
-  return text == null ? null : parseFrontmatter(text);
-}
-async function saveNote(meta, body) {
-  return S().setText(notePath(meta.id), serializeNote(meta, body), {
-    contentType: "text/markdown;charset=utf-8"
-  });
-}
-async function deleteNote(id) {
-  return S().remove(notePath(id));
-}
-async function writeIndex(notes) {
-  return S().set("index.json", buildIndex(notes));
-}
-async function writeConflict(path, descriptor) {
-  return S().set(path, descriptor);
-}
-async function putAttachment(file) {
-  const buf = await file.arrayBuffer();
-  const sha = await sha256Bytes(buf);
-  const ext = extFromType(file.type) || extFromName(file.name) || "bin";
-  const path = attachmentPath(sha, ext);
-  await S().setBlob(path, file, { contentType: file.type || "application/octet-stream" });
-  return { sha, ext, path, name: file.name || `${sha}.${ext}` };
-}
-async function attachmentURL(path) {
-  let blob;
-  try {
-    blob = await S().getBlob(path);
-  } catch {
-    return null;
-  }
-  return blob ? URL.createObjectURL(blob) : null;
-}
-var pendingCount = () => S().pendingCount();
-var isOnline = () => window.mobius ? window.mobius.online : true;
 
 // src/lib/idb.js
 var DB_NAME = "notes-local";
@@ -693,6 +659,108 @@ async function unsyncedLocals() {
   }
   return out;
 }
+
+// src/lib/store.js
+var S = () => window.mobius.storage;
+var notePath = (id) => `notes/${id}.md`;
+async function sha256Bytes(buffer) {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function extFromName(name) {
+  const m = /\.([A-Za-z0-9]+)$/.exec(name || "");
+  return m ? m[1].toLowerCase() : null;
+}
+async function listNotes() {
+  let entries;
+  try {
+    entries = await S().list("notes");
+  } catch {
+    entries = [];
+  }
+  const out = [];
+  for (const e of entries || []) {
+    if (e.type !== "file" || !e.name.endsWith(".md")) continue;
+    const text = await S().getText(e.path);
+    if (text == null) continue;
+    const { meta, body } = parseFrontmatter(text);
+    if (meta && meta.id) out.push({ meta, body });
+  }
+  return out;
+}
+async function loadNote(id) {
+  const text = await S().getText(notePath(id));
+  return text == null ? null : parseFrontmatter(text);
+}
+async function saveNote(meta, body) {
+  return S().setText(notePath(meta.id), serializeNote(meta, body), {
+    contentType: "text/markdown;charset=utf-8"
+  });
+}
+async function deleteNote(id) {
+  return S().remove(notePath(id));
+}
+async function writeIndex(notes) {
+  return S().set("index.json", buildIndex(notes));
+}
+async function readIndex() {
+  try {
+    return await S().get("index.json");
+  } catch {
+    return null;
+  }
+}
+async function writeConflict(path, descriptor) {
+  return S().set(path, descriptor);
+}
+async function putAttachment(file) {
+  const buf = await file.arrayBuffer();
+  const sha = await sha256Bytes(buf);
+  const ext = extFromType(file.type) || extFromName(file.name) || "bin";
+  const path = attachmentPath(sha, ext);
+  await S().setBlob(path, file, { contentType: file.type || "application/octet-stream" });
+  return { sha, ext, path, name: file.name || `${sha}.${ext}` };
+}
+async function gcAttachments() {
+  let entries;
+  try {
+    entries = await S().list("attachments");
+  } catch {
+    return;
+  }
+  const live = entries && entries.length ? entries.filter((e) => e.type === "file" && e.path.startsWith("attachments/")) : [];
+  if (!live.length) return;
+  const notes = await listNotes().catch(() => null);
+  if (notes == null) return;
+  const referenced = referencedAttachments(notes);
+  try {
+    const pending = await unsyncedLocals();
+    for (const [, rec] of pending) {
+      const w = rec && rec.working;
+      if (!w) continue;
+      for (const p of noteAttachmentRefs(w.meta || {}, w.body || "")) referenced.add(p);
+    }
+  } catch {
+  }
+  for (const e of live) {
+    if (referenced.has(e.path)) continue;
+    try {
+      await S().remove(e.path);
+    } catch {
+    }
+  }
+}
+async function attachmentURL(path) {
+  let blob;
+  try {
+    blob = await S().getBlob(path);
+  } catch {
+    return null;
+  }
+  return blob ? URL.createObjectURL(blob) : null;
+}
+var pendingCount = () => S().pendingCount();
+var isOnline = () => window.mobius ? window.mobius.online : true;
 
 // node_modules/node-diff3/dist/diff3.mjs
 function LCS(buffer1, buffer2) {
@@ -1177,7 +1245,7 @@ async function reconcileAll({ onApplied, onConflict, onDeleted } = {}) {
 }
 
 // src/ui/Card.jsx
-import { useState as useState2, useEffect, useRef } from "react";
+import { useState as useState2, useEffect, useRef, useMemo } from "react";
 
 // src/ui/colors.js
 var NOTE_COLORS = [
@@ -1405,10 +1473,12 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
       live = false;
     };
   }, [body]);
+  const imageRefs = useMemo(() => localImageRefs(meta, body, 4), [meta, body]);
+  const imageRefsKey = imageRefs.join("\n");
   useEffect(() => {
     let live = true;
     let urls = [];
-    const refs = localImageRefs(meta, body, 4);
+    const refs = imageRefsKey ? imageRefsKey.split("\n") : [];
     setThumbUrls([]);
     if (!refs.length || !resolveAttachment) return () => {
     };
@@ -1426,7 +1496,7 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
       live = false;
       urls.forEach((u) => URL.revokeObjectURL(u));
     };
-  }, [body, meta, resolveAttachment]);
+  }, [imageRefsKey, resolveAttachment]);
   const bar = colorHex(meta.color);
   const tint = colorTint(meta.color);
   const tintBorder = bar ? colorTint(meta.color, 0.5) : null;
@@ -1534,7 +1604,7 @@ import { useState as useState3, useEffect as useEffect3, useRef as useRef3, useC
 // src/editor/Editor.jsx
 import { useRef as useRef2, useEffect as useEffect2 } from "react";
 import { EditorState } from "@codemirror/state";
-import { EditorView as EditorView2 } from "@codemirror/view";
+import { EditorView as EditorView3 } from "@codemirror/view";
 
 // src/editor/extensions.js
 import {
@@ -1553,11 +1623,12 @@ import {
   indentOnInput
 } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView as EditorView2, keymap } from "@codemirror/view";
 
 // src/editor/livePreview.js
 import { syntaxTree } from "@codemirror/language";
-import { ViewPlugin, Decoration } from "@codemirror/view";
+import { ViewPlugin, Decoration, EditorView } from "@codemirror/view";
+import { StateField } from "@codemirror/state";
 
 // src/editor/widgets.js
 import { WidgetType } from "@codemirror/view";
@@ -1634,6 +1705,7 @@ var FileChipWidget = class extends WidgetType {
     this.name = name;
     this.src = src;
     this.resolve = resolve;
+    this.url = null;
   }
   eq(o) {
     return o.src === this.src && o.name === this.name;
@@ -1643,23 +1715,24 @@ var FileChipWidget = class extends WidgetType {
     a.textContent = `\u{1F4CE} ${this.name}`;
     a.title = this.name;
     a.style.cssText = "display:inline-flex; align-items:center; gap:4px; padding:2px 8px; margin:0 2px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:13px; cursor:pointer;";
-    a.addEventListener("mousedown", async (e) => {
+    a.addEventListener("click", async (e) => {
       e.preventDefault();
+      e.stopPropagation();
       if (this.resolve && this.src.startsWith("attachments/")) {
         const u = await this.resolve(this.src).catch(() => null);
         if (u) {
-          const link = document.createElement("a");
-          link.href = u;
-          link.download = this.name;
-          link.click();
-          setTimeout(() => URL.revokeObjectURL(u), 0);
+          this.url = u;
+          window.open(u, "_blank", "noopener");
         }
       }
     });
     return a;
   }
+  destroy() {
+    if (this.url) URL.revokeObjectURL(this.url);
+  }
   ignoreEvent() {
-    return false;
+    return true;
   }
 };
 var MathWidget = class extends WidgetType {
@@ -1686,37 +1759,74 @@ var MathWidget = class extends WidgetType {
   }
 };
 
+// src/lib/math-scan.js
+var BLOCK_MATH = /\$\$([\s\S]+?)\$\$/g;
+var INLINE_MATH = /\$([^$\n]+?)\$/g;
+function isInlineMathDelims(content) {
+  if (content.length === 0) return false;
+  const first = content[0];
+  const last = content[content.length - 1];
+  if (first === " " || first === "	" || /[0-9]/.test(first)) return false;
+  if (last === " " || last === "	") return false;
+  return true;
+}
+function findMathSpans(text) {
+  const src = String(text || "");
+  const spans = [];
+  const blocked = [];
+  BLOCK_MATH.lastIndex = 0;
+  let m;
+  while (m = BLOCK_MATH.exec(src)) {
+    const from = m.index;
+    const to = from + m[0].length;
+    blocked.push([from, to]);
+    spans.push({ from, to, src: m[1].trim(), block: true });
+  }
+  const insideBlock = (i) => blocked.some(([a, b]) => i >= a && i < b);
+  INLINE_MATH.lastIndex = 0;
+  while (m = INLINE_MATH.exec(src)) {
+    if (insideBlock(m.index)) continue;
+    if (!isInlineMathDelims(m[1])) continue;
+    const from = m.index;
+    const to = from + m[0].length;
+    spans.push({ from, to, src: m[1].trim(), block: false });
+  }
+  return spans;
+}
+
 // src/editor/livePreview.js
 var HIDE_MARKS = /* @__PURE__ */ new Set(["HeaderMark", "EmphasisMark", "StrikethroughMark"]);
-var INLINE_MATH = /(?<!\$)\$([^$\n]+?)\$(?!\$)/g;
-var BLOCK_MATH = /\$\$([^\n]+?)\$\$/g;
-function scanMath(state, ranges, onActive, out) {
-  for (const { from, to } of ranges) {
-    let startLine = state.doc.lineAt(from).number;
-    const endLine = state.doc.lineAt(to).number;
-    for (let n = startLine; n <= endLine; n++) {
-      const line = state.doc.line(n);
-      const text = line.text;
-      let m;
-      BLOCK_MATH.lastIndex = 0;
-      const blocked = [];
-      while (m = BLOCK_MATH.exec(text)) {
-        const f = line.from + m.index;
-        const t = f + m[0].length;
-        blocked.push([m.index, m.index + m[0].length]);
-        if (!onActive(f, t)) out.push({ from: f, to: t, deco: Decoration.replace({ widget: new MathWidget(m[1].trim(), true) }) });
-      }
-      INLINE_MATH.lastIndex = 0;
-      while (m = INLINE_MATH.exec(text)) {
-        const insideBlock = blocked.some(([a, b]) => m.index >= a && m.index < b);
-        if (insideBlock) continue;
-        const f = line.from + m.index;
-        const t = f + m[0].length;
-        if (!onActive(f, t)) out.push({ from: f, to: t, deco: Decoration.replace({ widget: new MathWidget(m[1].trim(), false) }) });
-      }
-    }
+function buildMathDecorations(state) {
+  const sel = state.selection.main;
+  const aFrom = state.doc.lineAt(sel.from).from;
+  const aTo = state.doc.lineAt(sel.to).to;
+  const onActive = (from, to) => to >= aFrom && from <= aTo;
+  const spans = findMathSpans(state.doc.toString());
+  const ranges = [];
+  for (const sp of spans) {
+    if (onActive(sp.from, sp.to)) continue;
+    ranges.push(Decoration.replace({ widget: new MathWidget(sp.src, sp.block) }).range(sp.from, sp.to));
   }
+  return Decoration.set(ranges, true);
 }
+var mathPreview = StateField.define({
+  create(state) {
+    try {
+      return buildMathDecorations(state);
+    } catch {
+      return Decoration.none;
+    }
+  },
+  update(value, tr) {
+    if (!tr.docChanged && !tr.selection) return value;
+    try {
+      return buildMathDecorations(tr.state);
+    } catch {
+      return Decoration.none;
+    }
+  },
+  provide: (f) => EditorView.decorations.from(f)
+});
 function livePreview({ resolveAttachment } = {}) {
   return ViewPlugin.fromClass(
     class {
@@ -1733,6 +1843,8 @@ function livePreview({ resolveAttachment } = {}) {
           const aFrom = state.doc.lineAt(sel.from).from;
           const aTo = state.doc.lineAt(sel.to).to;
           const onActive = (from, to) => to >= aFrom && from <= aTo;
+          const mathSpans = findMathSpans(state.doc.toString());
+          const inMath = (from, to) => mathSpans.some((s) => from < s.to && to > s.from);
           const out = [];
           const tree = syntaxTree(state);
           for (const { from, to } of view.visibleRanges) {
@@ -1740,6 +1852,7 @@ function livePreview({ resolveAttachment } = {}) {
               from,
               to,
               enter: (node) => {
+                if (inMath(node.from, node.to)) return;
                 const name = node.name;
                 if (name === "TaskMarker") {
                   if (!onActive(node.from, node.to)) {
@@ -1766,7 +1879,6 @@ function livePreview({ resolveAttachment } = {}) {
               }
             });
           }
-          scanMath(state, view.visibleRanges, onActive, out);
           out.sort((a, b) => a.from - b.from || a.to - b.to);
           const ranges = [];
           let lastTo = -1;
@@ -1803,7 +1915,7 @@ var highlightStyle = HighlightStyle.define([
   { tag: tags.processingInstruction, color: "var(--muted)", opacity: 0.6 },
   { tag: tags.contentSeparator, color: "var(--border)" }
 ]);
-var theme = EditorView.theme({
+var theme = EditorView2.theme({
   "&": { height: "100%", backgroundColor: "transparent", color: "var(--text)" },
   ".cm-scroller": { overflow: "auto", fontFamily: "var(--font)", lineHeight: "1.65", fontSize: "15px" },
   ".cm-content": { padding: "16px 18px 40vh", caretColor: "var(--accent)", maxWidth: "760px", margin: "0 auto", width: "100%" },
@@ -1838,11 +1950,12 @@ function buildExtensions({ onDocChange, resolveAttachment }) {
     markdown({ base: markdownLanguage }),
     syntaxHighlighting(highlightStyle),
     indentOnInput(),
-    EditorView.lineWrapping,
+    EditorView2.lineWrapping,
     livePreview({ resolveAttachment }),
+    mathPreview,
     keymap.of([...mdKeymap, indentWithTab, ...historyKeymap, ...defaultKeymap]),
     theme,
-    EditorView.updateListener.of((u) => {
+    EditorView2.updateListener.of((u) => {
       if (u.docChanged) onDocChange(u.state.doc.toString());
     })
   ];
@@ -1867,7 +1980,7 @@ function Editor({ value, onChange, resolveAttachment, viewRef }) {
         resolveAttachment: (p) => resolveRef.current ? resolveRef.current(p) : Promise.resolve(null)
       })
     });
-    const v = new EditorView2({ state, parent: host.current });
+    const v = new EditorView3({ state, parent: host.current });
     view.current = v;
     if (viewRef) viewRef.current = v;
     return () => {
@@ -1916,7 +2029,9 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
   const colorBtnRef = useRef3(null);
   const latest = useRef3({ note, title: note.meta.title || "", body: note.body || "" });
   useEffect3(() => {
-    latest.current = { note, title, body };
+    if (latest.current.note.meta.id === note.meta.id) {
+      latest.current = { note, title, body };
+    }
   }, [note, title, body]);
   const flushSave = useCallback(() => {
     const cur = latest.current;
@@ -1928,6 +2043,9 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
     return Promise.resolve(onSave({ ...cur.note.meta, title: cur.title }, cur.body));
   }, [onSave]);
   useEffect3(() => {
+    if (timer.current) clearTimeout(timer.current);
+    flushSave();
+    latest.current = { note, title: note.meta.title || "", body: note.body || "" };
     setTitle(note.meta.title || "");
     setBody(note.body || "");
   }, [note.meta.id]);
@@ -2175,6 +2293,27 @@ function EmptyState({ filtered }) {
   ] });
 }
 function App({ appId, token }) {
+  useEffect4(() => {
+    if (document.querySelector("style[data-nt-katex]")) return void 0;
+    let cancelled = false;
+    const CSS_URL = "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css";
+    fetch(`/api/proxy?url=${encodeURIComponent(CSS_URL)}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    }).then((r) => {
+      if (!r.ok) throw new Error(`KaTeX CSS proxy failed (${r.status})`);
+      return r.text();
+    }).then((css) => {
+      if (cancelled || document.querySelector("style[data-nt-katex]")) return;
+      const style = document.createElement("style");
+      style.setAttribute("data-nt-katex", "1");
+      style.textContent = css;
+      document.head.appendChild(style);
+    }).catch(() => {
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
   const [notes, setNotes] = useState4([]);
   const [loading, setLoading] = useState4(true);
   const [query, setQuery] = useState4("");
@@ -2184,6 +2323,7 @@ function App({ appId, token }) {
   const [pending, setPending] = useState4(0);
   const [conflicts, setConflicts] = useState4(() => /* @__PURE__ */ new Set());
   const reconTimer = useRef4(null);
+  const gcTimer = useRef4(null);
   const editorNavOwned = useRef4(false);
   const online = isOnline();
   const upsert = useCallback2((meta, body) => {
@@ -2219,6 +2359,13 @@ function App({ appId, token }) {
       return n;
     });
   }, []);
+  const scheduleGc = useCallback2(() => {
+    if (gcTimer.current) clearTimeout(gcTimer.current);
+    gcTimer.current = setTimeout(() => {
+      gcAttachments().catch(() => {
+      });
+    }, 1500);
+  }, []);
   const runReconcile = useCallback2(() => {
     reconcileAll({ onApplied, onDeleted, onConflict }).catch(() => {
     });
@@ -2230,6 +2377,14 @@ function App({ appId, token }) {
   useEffect4(() => {
     let live = true;
     (async () => {
+      readIndex().then((index) => {
+        const cached = notesFromIndex(index);
+        if (live && cached.length) {
+          setNotes((prev) => prev.length ? prev : cached);
+          setLoading(false);
+        }
+      }).catch(() => {
+      });
       const canonical = await listNotes().catch(() => []);
       let merged = canonical;
       try {
@@ -2278,6 +2433,10 @@ function App({ appId, token }) {
       live = false;
       clearInterval(h);
     };
+  }, []);
+  useEffect4(() => () => {
+    if (reconTimer.current) clearTimeout(reconTimer.current);
+    if (gcTimer.current) clearTimeout(gcTimer.current);
   }, []);
   const pushEditorNav = useCallback2(() => {
     if (typeof window === "undefined" || !window.parent) return Promise.resolve(false);
@@ -2337,8 +2496,9 @@ function App({ appId, token }) {
     await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {
     });
     scheduleReconcile();
+    scheduleGc();
     return m;
-  }, [scheduleReconcile, upsert]);
+  }, [scheduleReconcile, upsert, scheduleGc]);
   const persist = useCallback2(async (meta, body) => {
     if (draft && draft.meta.id === meta.id) {
       const next = { meta: { ...draft.meta, ...meta }, body };
@@ -2353,7 +2513,8 @@ function App({ appId, token }) {
     await recordWorking(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {
     });
     scheduleReconcile();
-  }, [commitDraft, draft, upsert, scheduleReconcile]);
+    scheduleGc();
+  }, [commitDraft, draft, upsert, scheduleReconcile, scheduleGc]);
   const togglePin = useCallback2((id) => {
     const n = notes.find((x) => x.meta.id === id);
     if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body);
@@ -2369,7 +2530,8 @@ function App({ appId, token }) {
     await recordDeletion(note.meta.id, { meta: note.meta, body: note.body, hash }).catch(() => {
     });
     scheduleReconcile();
-  }, [scheduleReconcile]);
+    scheduleGc();
+  }, [scheduleReconcile, scheduleGc]);
   const doDelete = useCallback2((id) => {
     if (draft && draft.meta.id === id) {
       if (view.mode === "editor" && view.id === id) popEditorNav();
@@ -2425,7 +2587,7 @@ function App({ appId, token }) {
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [back]);
-  const visible = useMemo(() => {
+  const visible = useMemo2(() => {
     const q = query.trim().toLowerCase();
     const list = q ? notes.filter((n) => (n.meta.title || "").toLowerCase().includes(q) || (n.body || "").toLowerCase().includes(q) || (n.meta.tags || []).join(" ").toLowerCase().includes(q)) : notes;
     return [...list].sort((a, b) => {

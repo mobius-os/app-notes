@@ -1,6 +1,6 @@
 // A single note card: color tab, title, rendered markdown preview, and a footer
 // toolbar (pin, color, delete). Tapping the body opens the editor.
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { colorHex, colorTint } from './colors.js'
 import { localImageRefs, renderPreviewHTML } from '../lib/preview.js'
 import ColorPicker from './ColorPicker.jsx'
@@ -32,10 +32,18 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
     return () => { live = false }
   }, [body])
 
+  // Only the image refs (not the whole meta object) drive thumbnail resolution.
+  // Keying the effect on a stable serialization of the refs stops it re-running
+  // — and re-reading blobs / re-creating object URLs (a visible flash) — on
+  // unrelated metadata changes like pin/color toggles, which mint a new `meta`
+  // object reference every time.
+  const imageRefs = useMemo(() => localImageRefs(meta, body, 4), [meta, body])
+  const imageRefsKey = imageRefs.join('\n')
+
   useEffect(() => {
     let live = true
     let urls = []
-    const refs = localImageRefs(meta, body, 4)
+    const refs = imageRefsKey ? imageRefsKey.split('\n') : []
     setThumbUrls([])
     if (!refs.length || !resolveAttachment) return () => {}
     Promise.all(refs.map((ref) => resolveAttachment(ref).catch(() => null)))
@@ -53,7 +61,7 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
       live = false
       urls.forEach((u) => URL.revokeObjectURL(u))
     }
-  }, [body, meta, resolveAttachment])
+  }, [imageRefsKey, resolveAttachment])
 
   const bar = colorHex(meta.color)
   const tint = colorTint(meta.color)
