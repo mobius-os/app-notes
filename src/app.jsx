@@ -20,20 +20,17 @@ import EditorPanel from './ui/EditorPanel.jsx'
 import ConfirmModal from './ui/ConfirmModal.jsx'
 import { Icon } from './ui/icons.jsx'
 
-function TopBar({ query, onQuery, onNew }) {
+function TopBar({ query, onQuery }) {
   return (
     <header className="nt-topbar">
       <h1 className="nt-title">Notes</h1>
       <div className="nt-search-wrap">
         <input
           value={query} onChange={(e) => onQuery(e.target.value)}
-          placeholder="Search notes…" aria-label="Search notes"
+          placeholder="Search notes" aria-label="Search notes"
           className="nt-search"
         />
       </div>
-      <button onClick={onNew} aria-label="New note" className="nt-new-btn">
-        <span className="nt-new-plus">+</span> New
-      </button>
     </header>
   )
 }
@@ -162,6 +159,7 @@ export default function App({ appId, token }) {
       if (!live) return
       setNotes(merged)
       setLoading(false)
+      window.mobius?.signal('app_ready', { item_count: merged.length })
       // Seed a base for notes we haven't tracked yet (background; non-blocking).
       for (const n of canonical) {
         contentHash(n.meta, n.body).then((hash) => ensureBase(n.meta.id, { meta: n.meta, body: n.body, hash })).catch(() => {})
@@ -238,6 +236,7 @@ export default function App({ appId, token }) {
   }, [])
 
   const openEditor = useCallback(async (id) => {
+    window.mobius?.signal('note_opened')
     if (view.mode === 'editor') {
       setView({ mode: 'editor', id })
       return
@@ -257,10 +256,15 @@ export default function App({ appId, token }) {
     m.content_hash = await contentHash(m, body)
     upsert(m, body)
     setDraft(null)
-    await store.saveNote(m, body).catch(() => {})
+    await store.saveNote(m, body).catch((err) => {
+      window.mobius?.signal('error', { message: err?.message ?? 'save failed', source: 'commitDraft' })
+      throw err
+    })
     await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {})
     scheduleReconcile()
     scheduleGc()
+    const wordCount = (body || '').trim().split(/\s+/).filter(Boolean).length
+    window.mobius?.signal('note_saved', { word_count: wordCount || undefined })
     return m
   }, [scheduleReconcile, upsert, scheduleGc])
 
@@ -277,7 +281,11 @@ export default function App({ appId, token }) {
     const m = { ...meta, updated: new Date().toISOString() }
     m.content_hash = await contentHash(m, body)
     upsert(m, body)
-    await recordWorking(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {})
+    await recordWorking(m.id, { meta: m, body, hash: m.content_hash }).catch((err) => {
+      window.mobius?.signal('error', { message: err?.message ?? 'save failed', source: 'persist' })
+    })
+    const wordCount = (body || '').trim().split(/\s+/).filter(Boolean).length
+    window.mobius?.signal('note_saved', { word_count: wordCount || undefined })
     scheduleReconcile()
     scheduleGc()
   }, [commitDraft, draft, upsert, scheduleReconcile, scheduleGc])
@@ -299,6 +307,7 @@ export default function App({ appId, token }) {
   }, [scheduleReconcile, scheduleGc])
 
   const doDelete = useCallback((id) => {
+    window.mobius?.signal('item_deleted')
     if (draft && draft.meta.id === id) {
       if (view.mode === 'editor' && view.id === id) popEditorNav()
       setDraft(null)
@@ -372,7 +381,7 @@ export default function App({ appId, token }) {
   return (
     <div className="nt-root">
       <style>{CSS}</style>
-      <TopBar query={query} onQuery={setQuery} onNew={createNote} />
+      <TopBar query={query} onQuery={setQuery} />
       <main className="nt-scroll">
         {loading
           ? <div className="nt-loading" role="status" aria-live="polite">
@@ -383,6 +392,16 @@ export default function App({ appId, token }) {
             ? <EmptyState filtered={!!query.trim()} />
             : <Grid notes={visible} onOpen={(id) => { openEditor(id).catch(() => setView({ mode: 'editor', id })) }} onPin={togglePin} onColor={setColor} onDelete={setConfirmId} resolveAttachment={store.attachmentURL} />}
       </main>
+
+      {/* FAB — floating action button for new notes */}
+      {view.mode !== 'editor' && (
+        <button
+          className="nt-fab"
+          onClick={createNote}
+          aria-label="New note"
+          title="New note"
+        >+</button>
+      )}
 
       {editing && (
         <EditorPanel

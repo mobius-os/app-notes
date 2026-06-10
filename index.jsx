@@ -2,7 +2,7 @@
 // Edit src/app.jsx + src/{lib,ui,editor}/*, then run `npm run build`.
 
 // src/app.jsx
-import { useState as useState4, useEffect as useEffect4, useMemo as useMemo2, useCallback as useCallback2, useRef as useRef4 } from "react";
+import { useState as useState4, useEffect as useEffect4, useMemo as useMemo2, useCallback as useCallback3, useRef as useRef4 } from "react";
 
 // src/ui/css.js
 var CSS = `
@@ -45,35 +45,45 @@ var CSS = `
   font-size: 18px; font-weight: 650; color: var(--text);
   letter-spacing: -0.01em; margin: 0; user-select: none;
 }
+/* Search pill \u2014 full-width rounded pill */
 .nt-search-wrap {
   flex: 1; display: flex; justify-content: center;
 }
 .nt-search {
-  width: 100%; max-width: 520px;
-  padding: 8px 12px; border-radius: 10px;
+  width: 100%;
+  padding: 9px 16px; border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface2, var(--surface)); color: var(--text);
-  font-size: 16px; font-family: var(--font);
-  transition: border-color 0.15s ease;
+  font-size: 15px; font-family: var(--font);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 /* mouse focus uses the accent border; keyboard focus keeps the shared ring */
 .nt-search:focus:not(:focus-visible) { outline: none; }
-.nt-search:focus { border-color: var(--accent); }
+.nt-search:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
 .nt-search::placeholder { color: var(--muted); }
-.nt-new-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 14px; border-radius: 10px;
+/* FAB \u2014 floating action button, bottom-right, above gesture bar */
+.nt-fab {
+  position: fixed;
+  right: max(20px, env(safe-area-inset-right, 0px));
+  bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  width: 56px; height: 56px;
+  border-radius: 50%;
   border: none; background: var(--accent); color: #ffffff;
-  font-size: 14px; font-weight: 650; cursor: pointer; flex-shrink: 0;
-  font-family: var(--font);
+  font-size: 28px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; font-family: var(--font);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 55%, transparent),
+              0 1px 4px rgba(0,0,0,0.25);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation; user-select: none;
-  transition: filter 0.14s ease, transform 0.1s ease;
+  transition: filter 0.14s ease, transform 0.12s ease, box-shadow 0.14s ease;
 }
-.nt-new-btn:hover { filter: brightness(1.07); }
-@media (hover: hover) { .nt-new-btn:hover { filter: brightness(1.07); } }
-.nt-new-btn:active { transform: scale(0.96); }
-.nt-new-plus { font-size: 18px; line-height: 1; }
+@media (hover: hover) { .nt-fab:hover { filter: brightness(1.08); transform: scale(1.04); } }
+.nt-fab:active { transform: scale(0.93); }
 /* /mobius-ui:Header */
 
 /* \u2500\u2500 Loading / Empty \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
@@ -101,8 +111,8 @@ var CSS = `
 
 /* \u2500\u2500 Grid \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 .nt-grid-wrap {
-  /* bottom pad clears the gesture bar on Android/notched iPhones */
-  padding: 16px 8px max(90px, calc(16px + env(safe-area-inset-bottom)));
+  /* bottom pad clears the gesture bar and FAB on Android/notched iPhones */
+  padding: 16px 8px max(96px, calc(72px + env(safe-area-inset-bottom)));
   max-width: 1120px; margin: 0 auto;
 }
 .nt-section { margin-bottom: 18px; }
@@ -113,43 +123,98 @@ var CSS = `
   margin: 4px 8px 10px; user-select: none;
 }
 /* /mobius-ui:SectionHead */
+/* Masonry-style grid: content-height cards, no fixed row sizes */
 .nt-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr));
-  gap: 12px; align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-auto-rows: min-content;
+  gap: 10px;
 }
 
 /* \u2500\u2500 Card \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 /* mobius-ui:Card v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
-.nt-card-wrap { break-inside: avoid; margin-bottom: 14px; }
+.nt-card-wrap { /* grid item \u2014 no extra margin needed with gap */ }
 .nt-card {
   position: relative;
-  border-radius: 8px; overflow: hidden;
+  border-radius: 10px; overflow: hidden;
   /* background + border are dynamic (per-note tint) \u2014 set via inline style */
+  transition: box-shadow 0.14s ease, transform 0.1s ease;
 }
+@media (hover: hover) {
+  .nt-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.12); transform: translateY(-1px); }
+}
+.nt-card:active { transform: scale(0.985); }
 .nt-card-body {
-  cursor: pointer; padding: 14px 16px 10px;
+  cursor: pointer; padding: 12px 14px 8px;
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
 .nt-card-body:active { opacity: 0.85; }
+/* Title darkened to contrast against the full card tint background */
 .nt-card-title {
-  font-size: 15px; font-weight: 650; color: var(--text);
-  margin-bottom: 6px; overflow-wrap: anywhere;
+  font-size: 14px; font-weight: 700; color: var(--text);
+  margin-bottom: 5px; overflow-wrap: anywhere;
 }
 .nt-card-empty {
-  font-size: 13.5px; color: var(--muted); opacity: 0.6; font-style: italic;
+  font-size: 13px; color: var(--muted); opacity: 0.6; font-style: italic;
 }
+/* Preview slightly muted over the tinted background */
 .nt-card-preview {
-  font-size: 13.5px; color: var(--muted); line-height: 1.5;
-  max-height: 220px; overflow: hidden;
+  font-size: 13px; color: var(--text); opacity: 0.72; line-height: 1.5;
+  max-height: 180px; overflow: hidden;
 }
 .nt-card-thumbs {
-  display: grid; gap: 6px; margin-bottom: 10px;
+  display: grid; gap: 6px; margin-bottom: 8px;
 }
 .nt-card-thumb {
   width: 100%; object-fit: cover; display: block; border-radius: 6px;
 }
 /* /mobius-ui:Card */
+
+/* \u2500\u2500 Card pin button (top-right) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+.nt-card-pin {
+  position: absolute; top: 6px; right: 6px;
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 8px;
+  background: transparent; cursor: pointer;
+  font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease, opacity 0.12s ease, transform 0.1s ease;
+  /* unpinned: invisible at rest, revealed on card hover/focus */
+  opacity: 0;
+  color: var(--muted);
+  z-index: 2;
+}
+/* Pinned state: always faintly visible to show the pin */
+.nt-card-pin.is-pinned {
+  opacity: 0.35;
+  color: var(--accent);
+}
+@media (hover: hover) {
+  .nt-card:hover .nt-card-pin { opacity: 0.6; }
+  .nt-card:hover .nt-card-pin.is-pinned { opacity: 1; }
+  .nt-card-pin:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); opacity: 1 !important; }
+}
+.nt-card-pin:focus-visible { opacity: 1 !important; }
+.nt-card-pin:active { transform: scale(0.9); }
+
+/* \u2500\u2500 Card toolbar \u2014 shown on hover/focus; toggled via .nt-card--tools \u2500\u2500\u2500\u2500\u2500\u2500 */
+.nt-card-footer {
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px 6px;
+  /* border-top + background are dynamic (per-note tint) \u2014 set via inline style */
+  /* hidden by default; revealed on hover/focus or long-press (.nt-card--tools) */
+  opacity: 0;
+  transition: opacity 0.14s ease;
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .nt-card:hover .nt-card-footer { opacity: 1; pointer-events: auto; }
+}
+/* focus-within: keyboard navigation reveals the toolbar */
+.nt-card:focus-within .nt-card-footer { opacity: 1; pointer-events: auto; }
+/* long-press (touch) toggle class */
+.nt-card--tools .nt-card-footer { opacity: 1; pointer-events: auto; }
 
 /* note-preview: prose styles for rendered markdown in card previews */
 .note-preview p { margin: 0 0 6px; }
@@ -160,12 +225,7 @@ var CSS = `
 .note-preview ul, .note-preview ol { margin: 0 0 6px; padding-left: 18px; }
 .note-preview li { margin-bottom: 2px; }
 
-/* \u2500\u2500 Card toolbar \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-.nt-card-footer {
-  display: flex; align-items: center; gap: 2px;
-  padding: 6px 8px;
-  /* border-top + background are dynamic (per-note tint) \u2014 set via inline style */
-}
+/* \u2500\u2500 Card toolbar buttons \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 /* mobius-ui:Button v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
 .nt-icon-btn {
   width: 44px; height: 44px;
@@ -1280,7 +1340,7 @@ async function reconcileAll({ onApplied, onConflict, onDeleted } = {}) {
 }
 
 // src/ui/Card.jsx
-import { useState as useState2, useEffect, useRef, useMemo } from "react";
+import { useState as useState2, useEffect, useRef, useMemo, useCallback } from "react";
 
 // src/ui/colors.js
 var NOTE_COLORS = [
@@ -1497,7 +1557,10 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const [html, setHtml] = useState2("");
   const [showColors, setShowColors] = useState2(false);
   const [thumbUrls, setThumbUrls] = useState2([]);
+  const [toolsOpen, setToolsOpen] = useState2(false);
   const colorBtnRef = useRef(null);
+  const longPressTimer = useRef(null);
+  const cardRef = useRef(null);
   useEffect(() => {
     let live = true;
     renderPreviewHTML((body || "").slice(0, 700)).then((h) => {
@@ -1532,75 +1595,120 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
       urls.forEach((u) => URL.revokeObjectURL(u));
     };
   }, [imageRefsKey, resolveAttachment]);
+  useEffect(() => {
+    if (!toolsOpen) return void 0;
+    const onPointerDown = (e) => {
+      if (cardRef.current && !cardRef.current.contains(e.target)) {
+        setToolsOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [toolsOpen]);
   const bar = colorHex(meta.color);
   const tint = colorTint(meta.color);
-  const tintBorder = bar ? colorTint(meta.color, 0.5) : null;
-  const footerBorder = bar ? colorTint(meta.color, 0.32) : null;
-  const footerBg = bar ? colorTint(meta.color, 0.08) : null;
+  const tintBg = bar ? colorTint(meta.color, 0.22) : null;
+  const footerBorder = bar ? colorTint(meta.color, 0.35) : null;
+  const footerBg = bar ? colorTint(meta.color, 0.12) : null;
   const thumbBorder = bar ? colorTint(meta.color, 0.28) : null;
   const empty = !meta.title && !(body || "").trim();
   const cardStyle = {
-    background: tint ? `linear-gradient(180deg, ${tint}, var(--surface) 44%)` : "var(--surface)",
-    border: `1px solid ${tintBorder || "var(--border)"}`
+    background: tintBg || "var(--surface)",
+    border: `1px solid ${bar ? colorTint(meta.color, 0.45) : "var(--border)"}`
   };
   const footerStyle = {
     borderTop: `1px solid ${footerBorder || "var(--border)"}`,
     background: footerBg || "transparent"
   };
-  return /* @__PURE__ */ jsx3("div", { className: "nt-card-wrap", children: /* @__PURE__ */ jsxs2("div", { className: "nt-card", style: cardStyle, children: [
-    bar && /* @__PURE__ */ jsx3("div", { style: { height: 4, background: bar } }),
-    /* @__PURE__ */ jsxs2("div", { className: "nt-card-body", onClick: () => onOpen(meta.id), children: [
-      thumbUrls.length > 0 && /* @__PURE__ */ jsx3(
-        "div",
-        {
-          className: "nt-card-thumbs",
-          style: { gridTemplateColumns: thumbUrls.length === 1 ? "1fr" : "repeat(2, minmax(0, 1fr))" },
-          children: thumbUrls.map((url, index) => /* @__PURE__ */ jsx3(
-            "img",
-            {
-              src: url,
-              alt: "",
-              className: "nt-card-thumb",
-              style: {
-                aspectRatio: thumbUrls.length === 1 ? "16 / 10" : "1 / 1",
-                border: `1px solid ${thumbBorder || "var(--border)"}`,
-                background: "var(--surface2, var(--surface))",
-                gridColumn: thumbUrls.length === 3 && index === 0 ? "span 2" : void 0
-              }
-            },
-            url
-          ))
-        }
-      ),
-      meta.title && /* @__PURE__ */ jsx3("div", { className: "nt-card-title", children: meta.title }),
-      empty ? /* @__PURE__ */ jsx3("div", { className: "nt-card-empty", children: "Empty note" }) : /* @__PURE__ */ jsx3(
-        "div",
-        {
-          className: "note-preview nt-card-preview",
-          dangerouslySetInnerHTML: { __html: html }
-        }
-      )
-    ] }),
-    /* @__PURE__ */ jsxs2("div", { className: "nt-card-footer", style: footerStyle, children: [
-      /* @__PURE__ */ jsx3(IconBtn, { title: meta.pinned ? "Unpin" : "Pin", active: meta.pinned, onClick: () => onPin(meta.id), children: /* @__PURE__ */ jsx3(Icon, { name: "pin", size: 15 }) }),
-      /* @__PURE__ */ jsxs2("div", { ref: colorBtnRef, className: "nt-color-anchor", children: [
-        /* @__PURE__ */ jsx3(IconBtn, { title: "Color", onClick: () => setShowColors((v) => !v), children: /* @__PURE__ */ jsx3(Icon, { name: "palette", size: 16 }) }),
-        showColors && /* @__PURE__ */ jsx3(
-          ColorPicker,
+  const onTouchStart = useCallback((e) => {
+    longPressTimer.current = setTimeout(() => {
+      setToolsOpen(true);
+      e.preventDefault();
+    }, 300);
+  }, []);
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+  return /* @__PURE__ */ jsx3("div", { className: "nt-card-wrap", children: /* @__PURE__ */ jsxs2(
+    "div",
+    {
+      ref: cardRef,
+      className: `nt-card${toolsOpen ? " nt-card--tools" : ""}`,
+      style: cardStyle,
+      onTouchStart,
+      onTouchEnd: cancelLongPress,
+      onTouchMove: cancelLongPress,
+      onTouchCancel: cancelLongPress,
+      children: [
+        /* @__PURE__ */ jsx3(
+          "button",
           {
-            anchorRef: colorBtnRef,
-            current: meta.color,
-            onPick: (c) => {
-              onColor(meta.id, c);
-              setShowColors(false);
-            }
+            title: meta.pinned ? "Unpin" : "Pin",
+            "aria-label": meta.pinned ? "Unpin" : "Pin",
+            onClick: (e) => {
+              e.stopPropagation();
+              onPin(meta.id);
+            },
+            className: `nt-card-pin${meta.pinned ? " is-pinned" : ""}`,
+            children: /* @__PURE__ */ jsx3(Icon, { name: "pin", size: 14 })
           }
-        )
-      ] }),
-      /* @__PURE__ */ jsx3("div", { className: "nt-spacer" }),
-      /* @__PURE__ */ jsx3(IconBtn, { title: "Delete", danger: true, onClick: () => onDelete(meta.id), children: /* @__PURE__ */ jsx3(Icon, { name: "trash", size: 15 }) })
-    ] })
-  ] }) });
+        ),
+        /* @__PURE__ */ jsxs2("div", { className: "nt-card-body", onClick: () => onOpen(meta.id), children: [
+          thumbUrls.length > 0 && /* @__PURE__ */ jsx3(
+            "div",
+            {
+              className: "nt-card-thumbs",
+              style: { gridTemplateColumns: thumbUrls.length === 1 ? "1fr" : "repeat(2, minmax(0, 1fr))" },
+              children: thumbUrls.map((url, index) => /* @__PURE__ */ jsx3(
+                "img",
+                {
+                  src: url,
+                  alt: "",
+                  className: "nt-card-thumb",
+                  style: {
+                    aspectRatio: thumbUrls.length === 1 ? "16 / 10" : "1 / 1",
+                    border: `1px solid ${thumbBorder || "var(--border)"}`,
+                    background: "var(--surface2, var(--surface))",
+                    gridColumn: thumbUrls.length === 3 && index === 0 ? "span 2" : void 0
+                  }
+                },
+                url
+              ))
+            }
+          ),
+          meta.title && /* @__PURE__ */ jsx3("div", { className: "nt-card-title", children: meta.title }),
+          empty ? /* @__PURE__ */ jsx3("div", { className: "nt-card-empty", children: "Empty note" }) : /* @__PURE__ */ jsx3(
+            "div",
+            {
+              className: "note-preview nt-card-preview",
+              dangerouslySetInnerHTML: { __html: html }
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxs2("div", { className: "nt-card-footer", style: footerStyle, children: [
+          /* @__PURE__ */ jsxs2("div", { ref: colorBtnRef, className: "nt-color-anchor", children: [
+            /* @__PURE__ */ jsx3(IconBtn, { title: "Color", onClick: () => setShowColors((v) => !v), children: /* @__PURE__ */ jsx3(Icon, { name: "palette", size: 16 }) }),
+            showColors && /* @__PURE__ */ jsx3(
+              ColorPicker,
+              {
+                anchorRef: colorBtnRef,
+                current: meta.color,
+                onPick: (c) => {
+                  onColor(meta.id, c);
+                  setShowColors(false);
+                }
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsx3("div", { className: "nt-spacer" }),
+          /* @__PURE__ */ jsx3(IconBtn, { title: "Delete", danger: true, onClick: () => onDelete(meta.id), children: /* @__PURE__ */ jsx3(Icon, { name: "trash", size: 15 }) })
+        ] })
+      ]
+    }
+  ) });
 }
 
 // src/ui/Grid.jsx
@@ -1634,7 +1742,7 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
 }
 
 // src/ui/EditorPanel.jsx
-import { useState as useState3, useEffect as useEffect3, useRef as useRef3, useCallback } from "react";
+import { useState as useState3, useEffect as useEffect3, useRef as useRef3, useCallback as useCallback2 } from "react";
 
 // src/editor/Editor.jsx
 import { useRef as useRef2, useEffect as useEffect2 } from "react";
@@ -2068,7 +2176,7 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
       latest.current = { note, title, body };
     }
   }, [note, title, body]);
-  const flushSave = useCallback(() => {
+  const flushSave = useCallback2(() => {
     const cur = latest.current;
     if (!cur?.note) return Promise.resolve();
     if (cur.title === (cur.note.meta.title || "") && cur.body === (cur.note.body || "")) {
@@ -2297,7 +2405,7 @@ function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", d
 
 // src/app.jsx
 import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
-function TopBar({ query, onQuery, onNew }) {
+function TopBar({ query, onQuery }) {
   return /* @__PURE__ */ jsxs6("header", { className: "nt-topbar", children: [
     /* @__PURE__ */ jsx8("h1", { className: "nt-title", children: "Notes" }),
     /* @__PURE__ */ jsx8("div", { className: "nt-search-wrap", children: /* @__PURE__ */ jsx8(
@@ -2305,15 +2413,11 @@ function TopBar({ query, onQuery, onNew }) {
       {
         value: query,
         onChange: (e) => onQuery(e.target.value),
-        placeholder: "Search notes\u2026",
+        placeholder: "Search notes",
         "aria-label": "Search notes",
         className: "nt-search"
       }
-    ) }),
-    /* @__PURE__ */ jsxs6("button", { onClick: onNew, "aria-label": "New note", className: "nt-new-btn", children: [
-      /* @__PURE__ */ jsx8("span", { className: "nt-new-plus", children: "+" }),
-      " New"
-    ] })
+    ) })
   ] });
 }
 function EmptyState({ filtered }) {
@@ -2361,7 +2465,7 @@ function App({ appId, token }) {
   const gcTimer = useRef4(null);
   const editorNavOwned = useRef4(false);
   const online = isOnline();
-  const upsert = useCallback2((meta, body) => {
+  const upsert = useCallback3((meta, body) => {
     setNotes((prev) => {
       const next = prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { meta, body } : n) : [{ meta, body }, ...prev];
       writeIndex(next).catch(() => {
@@ -2369,7 +2473,7 @@ function App({ appId, token }) {
       return next;
     });
   }, []);
-  const onApplied = useCallback2((id, note) => {
+  const onApplied = useCallback3((id, note) => {
     setConflicts((prev) => {
       if (!prev.has(id)) return prev;
       const n = new Set(prev);
@@ -2378,7 +2482,7 @@ function App({ appId, token }) {
     });
     setNotes((prev) => prev.map((n) => n.meta.id === id ? { meta: note.meta, body: note.body } : n));
   }, []);
-  const onDeleted = useCallback2((id) => {
+  const onDeleted = useCallback3((id) => {
     setConflicts((prev) => {
       if (!prev.has(id)) return prev;
       const n = new Set(prev);
@@ -2387,25 +2491,25 @@ function App({ appId, token }) {
     });
     setNotes((prev) => prev.filter((n) => n.meta.id !== id));
   }, []);
-  const onConflict = useCallback2((id) => {
+  const onConflict = useCallback3((id) => {
     setConflicts((prev) => {
       const n = new Set(prev);
       n.add(id);
       return n;
     });
   }, []);
-  const scheduleGc = useCallback2(() => {
+  const scheduleGc = useCallback3(() => {
     if (gcTimer.current) clearTimeout(gcTimer.current);
     gcTimer.current = setTimeout(() => {
       gcAttachments().catch(() => {
       });
     }, 1500);
   }, []);
-  const runReconcile = useCallback2(() => {
+  const runReconcile = useCallback3(() => {
     reconcileAll({ onApplied, onDeleted, onConflict }).catch(() => {
     });
   }, [onApplied, onDeleted, onConflict]);
-  const scheduleReconcile = useCallback2(() => {
+  const scheduleReconcile = useCallback3(() => {
     if (reconTimer.current) clearTimeout(reconTimer.current);
     reconTimer.current = setTimeout(runReconcile, 400);
   }, [runReconcile]);
@@ -2434,6 +2538,7 @@ function App({ appId, token }) {
       if (!live) return;
       setNotes(merged);
       setLoading(false);
+      window.mobius?.signal("app_ready", { item_count: merged.length });
       for (const n of canonical) {
         contentHash(n.meta, n.body).then((hash) => ensureBase(n.meta.id, { meta: n.meta, body: n.body, hash })).catch(() => {
         });
@@ -2473,7 +2578,7 @@ function App({ appId, token }) {
     if (reconTimer.current) clearTimeout(reconTimer.current);
     if (gcTimer.current) clearTimeout(gcTimer.current);
   }, []);
-  const pushEditorNav = useCallback2(() => {
+  const pushEditorNav = useCallback3(() => {
     if (typeof window === "undefined" || !window.parent) return Promise.resolve(false);
     const requestId = `notes-editor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return new Promise((resolve) => {
@@ -2500,7 +2605,7 @@ function App({ appId, token }) {
       }
     });
   }, []);
-  const popEditorNav = useCallback2(() => {
+  const popEditorNav = useCallback3(() => {
     if (!editorNavOwned.current || typeof window === "undefined" || !window.parent) return;
     editorNavOwned.current = false;
     try {
@@ -2508,7 +2613,8 @@ function App({ appId, token }) {
     } catch {
     }
   }, []);
-  const openEditor = useCallback2(async (id) => {
+  const openEditor = useCallback3(async (id) => {
+    window.mobius?.signal("note_opened");
     if (view.mode === "editor") {
       setView({ mode: "editor", id });
       return;
@@ -2516,25 +2622,29 @@ function App({ appId, token }) {
     editorNavOwned.current = await pushEditorNav();
     setView({ mode: "editor", id });
   }, [pushEditorNav, view.mode]);
-  const createNote = useCallback2(() => {
+  const createNote = useCallback3(() => {
     const meta = newNote({});
     setDraft({ meta, body: "" });
     openEditor(meta.id).catch(() => setView({ mode: "editor", id: meta.id }));
   }, [openEditor]);
-  const commitDraft = useCallback2(async (meta, body) => {
+  const commitDraft = useCallback3(async (meta, body) => {
     const m = { ...meta, updated: meta.updated || (/* @__PURE__ */ new Date()).toISOString() };
     m.content_hash = await contentHash(m, body);
     upsert(m, body);
     setDraft(null);
-    await saveNote(m, body).catch(() => {
+    await saveNote(m, body).catch((err) => {
+      window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "commitDraft" });
+      throw err;
     });
     await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {
     });
     scheduleReconcile();
     scheduleGc();
+    const wordCount = (body || "").trim().split(/\s+/).filter(Boolean).length;
+    window.mobius?.signal("note_saved", { word_count: wordCount || void 0 });
     return m;
   }, [scheduleReconcile, upsert, scheduleGc]);
-  const persist = useCallback2(async (meta, body) => {
+  const persist = useCallback3(async (meta, body) => {
     if (draft && draft.meta.id === meta.id) {
       const next = { meta: { ...draft.meta, ...meta }, body };
       setDraft(next);
@@ -2545,29 +2655,33 @@ function App({ appId, token }) {
     const m = { ...meta, updated: (/* @__PURE__ */ new Date()).toISOString() };
     m.content_hash = await contentHash(m, body);
     upsert(m, body);
-    await recordWorking(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {
+    await recordWorking(m.id, { meta: m, body, hash: m.content_hash }).catch((err) => {
+      window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "persist" });
     });
+    const wordCount = (body || "").trim().split(/\s+/).filter(Boolean).length;
+    window.mobius?.signal("note_saved", { word_count: wordCount || void 0 });
     scheduleReconcile();
     scheduleGc();
   }, [commitDraft, draft, upsert, scheduleReconcile, scheduleGc]);
-  const togglePin = useCallback2((id) => {
+  const togglePin = useCallback3((id) => {
     const n = notes.find((x) => x.meta.id === id);
     if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body);
     else if (draft && draft.meta.id === id) setDraft((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }));
   }, [draft, notes, persist]);
-  const setColor = useCallback2((id, color) => {
+  const setColor = useCallback3((id, color) => {
     const n = notes.find((x) => x.meta.id === id);
     if (n) persist({ ...n.meta, color }, n.body);
     else if (draft && draft.meta.id === id) setDraft((d) => ({ ...d, meta: { ...d.meta, color } }));
   }, [draft, notes, persist]);
-  const queueDelete = useCallback2(async (note) => {
+  const queueDelete = useCallback3(async (note) => {
     const hash = await contentHash(note.meta, note.body);
     await recordDeletion(note.meta.id, { meta: note.meta, body: note.body, hash }).catch(() => {
     });
     scheduleReconcile();
     scheduleGc();
   }, [scheduleReconcile, scheduleGc]);
-  const doDelete = useCallback2((id) => {
+  const doDelete = useCallback3((id) => {
+    window.mobius?.signal("item_deleted");
     if (draft && draft.meta.id === id) {
       if (view.mode === "editor" && view.id === id) popEditorNav();
       setDraft(null);
@@ -2593,7 +2707,7 @@ function App({ appId, token }) {
       return v;
     });
   }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode]);
-  const back = useCallback2((fromShell = false) => {
+  const back = useCallback3((fromShell = false) => {
     if (!fromShell) popEditorNav();
     else editorNavOwned.current = false;
     if (draft && draft.meta.id === view.id) {
@@ -2634,13 +2748,23 @@ function App({ appId, token }) {
   const status = !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : pending > 0 ? "Saving\u2026" : "Synced";
   return /* @__PURE__ */ jsxs6("div", { className: "nt-root", children: [
     /* @__PURE__ */ jsx8("style", { children: CSS }),
-    /* @__PURE__ */ jsx8(TopBar, { query, onQuery: setQuery, onNew: createNote }),
+    /* @__PURE__ */ jsx8(TopBar, { query, onQuery: setQuery }),
     /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsxs6("div", { className: "nt-loading", role: "status", "aria-live": "polite", children: [
       /* @__PURE__ */ jsx8("span", { className: "nt-spinner", "aria-hidden": "true" }),
       /* @__PURE__ */ jsx8("span", { children: "Loading\u2026" })
     ] }) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(Grid, { notes: visible, onOpen: (id) => {
       openEditor(id).catch(() => setView({ mode: "editor", id }));
     }, onPin: togglePin, onColor: setColor, onDelete: setConfirmId, resolveAttachment: attachmentURL }) }),
+    view.mode !== "editor" && /* @__PURE__ */ jsx8(
+      "button",
+      {
+        className: "nt-fab",
+        onClick: createNote,
+        "aria-label": "New note",
+        title: "New note",
+        children: "+"
+      }
+    ),
     editing && /* @__PURE__ */ jsx8(
       EditorPanel,
       {

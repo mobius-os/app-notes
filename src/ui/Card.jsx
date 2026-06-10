@@ -1,6 +1,7 @@
-// A single note card: color tab, title, rendered markdown preview, and a footer
-// toolbar (pin, color, delete). Tapping the body opens the editor.
-import { useState, useEffect, useRef, useMemo } from 'react'
+// A single note card: full-card color tint background, pin top-right,
+// on-demand toolbar (hover/focus/long-press), rendered markdown preview.
+// Tapping the body opens the editor.
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { colorHex, colorTint } from './colors.js'
 import { localImageRefs, renderPreviewHTML } from '../lib/preview.js'
 import ColorPicker from './ColorPicker.jsx'
@@ -22,7 +23,10 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
   const [html, setHtml] = useState('')
   const [showColors, setShowColors] = useState(false)
   const [thumbUrls, setThumbUrls] = useState([])
+  const [toolsOpen, setToolsOpen] = useState(false)
   const colorBtnRef = useRef(null)
+  const longPressTimer = useRef(null)
+  const cardRef = useRef(null)
 
   useEffect(() => {
     let live = true
@@ -63,29 +67,76 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
     }
   }, [imageRefsKey, resolveAttachment])
 
+  // Close tools panel when clicking outside the card
+  useEffect(() => {
+    if (!toolsOpen) return undefined
+    const onPointerDown = (e) => {
+      if (cardRef.current && !cardRef.current.contains(e.target)) {
+        setToolsOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [toolsOpen])
+
   const bar = colorHex(meta.color)
   const tint = colorTint(meta.color)
-  const tintBorder = bar ? colorTint(meta.color, 0.5) : null
-  const footerBorder = bar ? colorTint(meta.color, 0.32) : null
-  const footerBg = bar ? colorTint(meta.color, 0.08) : null
+
+  // Full card background: solid tint for colored notes, surface default otherwise.
+  // The tint alpha is boosted (0.22 light / respects dark via surface blend) so
+  // it reads clearly. Title uses a slightly darkened version via CSS opacity layering.
+  const tintBg = bar ? colorTint(meta.color, 0.22) : null
+  const footerBorder = bar ? colorTint(meta.color, 0.35) : null
+  const footerBg = bar ? colorTint(meta.color, 0.12) : null
   const thumbBorder = bar ? colorTint(meta.color, 0.28) : null
   const empty = !meta.title && !(body || '').trim()
 
-  // Dynamic: card background gradient and border depend on per-note color
+  // Full-card background tint replaces the gradient strip approach
   const cardStyle = {
-    background: tint ? `linear-gradient(180deg, ${tint}, var(--surface) 44%)` : 'var(--surface)',
-    border: `1px solid ${tintBorder || 'var(--border)'}`,
+    background: tintBg || 'var(--surface)',
+    border: `1px solid ${bar ? colorTint(meta.color, 0.45) : 'var(--border)'}`,
   }
-  // Dynamic: footer border and tinted background
   const footerStyle = {
     borderTop: `1px solid ${footerBorder || 'var(--border)'}`,
     background: footerBg || 'transparent',
   }
 
+  // Long-press detection (~300ms) for touch devices
+  const onTouchStart = useCallback((e) => {
+    longPressTimer.current = setTimeout(() => {
+      setToolsOpen(true)
+      // Prevent the tap-to-open from firing after a long press
+      e.preventDefault()
+    }, 300)
+  }, [])
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }, [])
+
   return (
     <div className="nt-card-wrap">
-      <div className="nt-card" style={cardStyle}>
-        {bar && <div style={{ height: 4, background: bar }} />}
+      <div
+        ref={cardRef}
+        className={`nt-card${toolsOpen ? ' nt-card--tools' : ''}`}
+        style={cardStyle}
+        onTouchStart={onTouchStart}
+        onTouchEnd={cancelLongPress}
+        onTouchMove={cancelLongPress}
+        onTouchCancel={cancelLongPress}
+      >
+        {/* Pin button — top-right corner */}
+        <button
+          title={meta.pinned ? 'Unpin' : 'Pin'}
+          aria-label={meta.pinned ? 'Unpin' : 'Pin'}
+          onClick={(e) => { e.stopPropagation(); onPin(meta.id) }}
+          className={`nt-card-pin${meta.pinned ? ' is-pinned' : ''}`}
+        >
+          <Icon name="pin" size={14} />
+        </button>
+
         <div className="nt-card-body" onClick={() => onOpen(meta.id)}>
           {thumbUrls.length > 0 && (
             <div
@@ -116,8 +167,9 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
                 dangerouslySetInnerHTML={{ __html: html }}
               />}
         </div>
+
+        {/* Footer toolbar: color + delete (pin moved to top-right) */}
         <div className="nt-card-footer" style={footerStyle}>
-          <IconBtn title={meta.pinned ? 'Unpin' : 'Pin'} active={meta.pinned} onClick={() => onPin(meta.id)}><Icon name="pin" size={15} /></IconBtn>
           <div ref={colorBtnRef} className="nt-color-anchor">
             <IconBtn title="Color" onClick={() => setShowColors((v) => !v)}><Icon name="palette" size={16} /></IconBtn>
             {showColors && (

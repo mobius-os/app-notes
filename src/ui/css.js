@@ -49,35 +49,45 @@ export const CSS = `
   font-size: 18px; font-weight: 650; color: var(--text);
   letter-spacing: -0.01em; margin: 0; user-select: none;
 }
+/* Search pill — full-width rounded pill */
 .nt-search-wrap {
   flex: 1; display: flex; justify-content: center;
 }
 .nt-search {
-  width: 100%; max-width: 520px;
-  padding: 8px 12px; border-radius: 10px;
+  width: 100%;
+  padding: 9px 16px; border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface2, var(--surface)); color: var(--text);
-  font-size: 16px; font-family: var(--font);
-  transition: border-color 0.15s ease;
+  font-size: 15px; font-family: var(--font);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 /* mouse focus uses the accent border; keyboard focus keeps the shared ring */
 .nt-search:focus:not(:focus-visible) { outline: none; }
-.nt-search:focus { border-color: var(--accent); }
+.nt-search:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
 .nt-search::placeholder { color: var(--muted); }
-.nt-new-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 14px; border-radius: 10px;
+/* FAB — floating action button, bottom-right, above gesture bar */
+.nt-fab {
+  position: fixed;
+  right: max(20px, env(safe-area-inset-right, 0px));
+  bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  width: 56px; height: 56px;
+  border-radius: 50%;
   border: none; background: var(--accent); color: #ffffff;
-  font-size: 14px; font-weight: 650; cursor: pointer; flex-shrink: 0;
-  font-family: var(--font);
+  font-size: 28px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; font-family: var(--font);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 55%, transparent),
+              0 1px 4px rgba(0,0,0,0.25);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation; user-select: none;
-  transition: filter 0.14s ease, transform 0.1s ease;
+  transition: filter 0.14s ease, transform 0.12s ease, box-shadow 0.14s ease;
 }
-.nt-new-btn:hover { filter: brightness(1.07); }
-@media (hover: hover) { .nt-new-btn:hover { filter: brightness(1.07); } }
-.nt-new-btn:active { transform: scale(0.96); }
-.nt-new-plus { font-size: 18px; line-height: 1; }
+@media (hover: hover) { .nt-fab:hover { filter: brightness(1.08); transform: scale(1.04); } }
+.nt-fab:active { transform: scale(0.93); }
 /* /mobius-ui:Header */
 
 /* ── Loading / Empty ────────────────────────────────────────────────────── */
@@ -105,8 +115,8 @@ export const CSS = `
 
 /* ── Grid ───────────────────────────────────────────────────────────────── */
 .nt-grid-wrap {
-  /* bottom pad clears the gesture bar on Android/notched iPhones */
-  padding: 16px 8px max(90px, calc(16px + env(safe-area-inset-bottom)));
+  /* bottom pad clears the gesture bar and FAB on Android/notched iPhones */
+  padding: 16px 8px max(96px, calc(72px + env(safe-area-inset-bottom)));
   max-width: 1120px; margin: 0 auto;
 }
 .nt-section { margin-bottom: 18px; }
@@ -117,43 +127,98 @@ export const CSS = `
   margin: 4px 8px 10px; user-select: none;
 }
 /* /mobius-ui:SectionHead */
+/* Masonry-style grid: content-height cards, no fixed row sizes */
 .nt-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr));
-  gap: 12px; align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-auto-rows: min-content;
+  gap: 10px;
 }
 
 /* ── Card ───────────────────────────────────────────────────────────────── */
 /* mobius-ui:Card v1 — keep in sync; library candidate. Diverge below the marker only. */
-.nt-card-wrap { break-inside: avoid; margin-bottom: 14px; }
+.nt-card-wrap { /* grid item — no extra margin needed with gap */ }
 .nt-card {
   position: relative;
-  border-radius: 8px; overflow: hidden;
+  border-radius: 10px; overflow: hidden;
   /* background + border are dynamic (per-note tint) — set via inline style */
+  transition: box-shadow 0.14s ease, transform 0.1s ease;
 }
+@media (hover: hover) {
+  .nt-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.12); transform: translateY(-1px); }
+}
+.nt-card:active { transform: scale(0.985); }
 .nt-card-body {
-  cursor: pointer; padding: 14px 16px 10px;
+  cursor: pointer; padding: 12px 14px 8px;
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
 .nt-card-body:active { opacity: 0.85; }
+/* Title darkened to contrast against the full card tint background */
 .nt-card-title {
-  font-size: 15px; font-weight: 650; color: var(--text);
-  margin-bottom: 6px; overflow-wrap: anywhere;
+  font-size: 14px; font-weight: 700; color: var(--text);
+  margin-bottom: 5px; overflow-wrap: anywhere;
 }
 .nt-card-empty {
-  font-size: 13.5px; color: var(--muted); opacity: 0.6; font-style: italic;
+  font-size: 13px; color: var(--muted); opacity: 0.6; font-style: italic;
 }
+/* Preview slightly muted over the tinted background */
 .nt-card-preview {
-  font-size: 13.5px; color: var(--muted); line-height: 1.5;
-  max-height: 220px; overflow: hidden;
+  font-size: 13px; color: var(--text); opacity: 0.72; line-height: 1.5;
+  max-height: 180px; overflow: hidden;
 }
 .nt-card-thumbs {
-  display: grid; gap: 6px; margin-bottom: 10px;
+  display: grid; gap: 6px; margin-bottom: 8px;
 }
 .nt-card-thumb {
   width: 100%; object-fit: cover; display: block; border-radius: 6px;
 }
 /* /mobius-ui:Card */
+
+/* ── Card pin button (top-right) ────────────────────────────────────────── */
+.nt-card-pin {
+  position: absolute; top: 6px; right: 6px;
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 8px;
+  background: transparent; cursor: pointer;
+  font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease, opacity 0.12s ease, transform 0.1s ease;
+  /* unpinned: invisible at rest, revealed on card hover/focus */
+  opacity: 0;
+  color: var(--muted);
+  z-index: 2;
+}
+/* Pinned state: always faintly visible to show the pin */
+.nt-card-pin.is-pinned {
+  opacity: 0.35;
+  color: var(--accent);
+}
+@media (hover: hover) {
+  .nt-card:hover .nt-card-pin { opacity: 0.6; }
+  .nt-card:hover .nt-card-pin.is-pinned { opacity: 1; }
+  .nt-card-pin:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); opacity: 1 !important; }
+}
+.nt-card-pin:focus-visible { opacity: 1 !important; }
+.nt-card-pin:active { transform: scale(0.9); }
+
+/* ── Card toolbar — shown on hover/focus; toggled via .nt-card--tools ────── */
+.nt-card-footer {
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px 6px;
+  /* border-top + background are dynamic (per-note tint) — set via inline style */
+  /* hidden by default; revealed on hover/focus or long-press (.nt-card--tools) */
+  opacity: 0;
+  transition: opacity 0.14s ease;
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .nt-card:hover .nt-card-footer { opacity: 1; pointer-events: auto; }
+}
+/* focus-within: keyboard navigation reveals the toolbar */
+.nt-card:focus-within .nt-card-footer { opacity: 1; pointer-events: auto; }
+/* long-press (touch) toggle class */
+.nt-card--tools .nt-card-footer { opacity: 1; pointer-events: auto; }
 
 /* note-preview: prose styles for rendered markdown in card previews */
 .note-preview p { margin: 0 0 6px; }
@@ -164,12 +229,7 @@ export const CSS = `
 .note-preview ul, .note-preview ol { margin: 0 0 6px; padding-left: 18px; }
 .note-preview li { margin-bottom: 2px; }
 
-/* ── Card toolbar ─────────────────────────────────────────────────────── */
-.nt-card-footer {
-  display: flex; align-items: center; gap: 2px;
-  padding: 6px 8px;
-  /* border-top + background are dynamic (per-note tint) — set via inline style */
-}
+/* ── Card toolbar buttons ─────────────────────────────────────────────── */
 /* mobius-ui:Button v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-icon-btn {
   width: 44px; height: 44px;
