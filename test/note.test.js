@@ -143,6 +143,53 @@ test('isBlankNote ignores purely visual draft choices', () => {
   assert.equal(isBlankNote({title: '', pinned: true, color: 'sky', tags: []}, '   '), true)
 })
 
+// ── P2 feature tests (1.1) ──────────────────────────────────────────────────
+
+// newNote with type
+test('newNote defaults type to note', () => {
+  const m = newNote({})
+  assert.equal(m.type, 'note')
+})
+
+test('newNote accepts type checklist', () => {
+  const m = newNote({type: 'checklist'})
+  assert.equal(m.type, 'checklist')
+})
+
+test('newNote defaults archived to false', () => {
+  const m = newNote({})
+  assert.equal(m.archived, false)
+})
+
+// contentHash includes type and archived
+test('contentHash changes when type changes', async () => {
+  const meta = {title: 'T', pinned: false, color: null, tags: []}
+  const note = await contentHash({...meta, type: 'note'}, 'body')
+  const checklist = await contentHash({...meta, type: 'checklist'}, 'body')
+  assert.notEqual(note, checklist)
+})
+
+test('contentHash changes when archived changes', async () => {
+  const meta = {title: 'T', pinned: false, color: null, tags: [], type: 'note'}
+  const active = await contentHash({...meta, archived: false}, 'body')
+  const archived = await contentHash({...meta, archived: true}, 'body')
+  assert.notEqual(active, archived)
+})
+
+test('contentHash treats absent type as note (default)', async () => {
+  const meta = {title: 'T', pinned: false, color: null, tags: []}
+  const explicit = await contentHash({...meta, type: 'note'}, 'body')
+  const absent = await contentHash(meta, 'body')
+  assert.equal(explicit, absent)
+})
+
+test('contentHash treats absent archived as false (default)', async () => {
+  const meta = {title: 'T', pinned: false, color: null, tags: [], type: 'note'}
+  const explicit = await contentHash({...meta, archived: false}, 'body')
+  const absent = await contentHash(meta, 'body')
+  assert.equal(explicit, absent)
+})
+
 // ---------------------------------------------------------------------------
 // note.js — bumpRev
 // ---------------------------------------------------------------------------

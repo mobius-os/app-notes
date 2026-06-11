@@ -104,7 +104,7 @@ function serializeValue(v) {
 // first in their logical order; any extra keys follow, sorted, so unknown
 // fields are still deterministic.
 const KEY_ORDER = [
-  'id', 'title', 'pinned', 'color', 'tags',
+  'id', 'title', 'pinned', 'color', 'tags', 'type', 'archived',
   'created', 'updated', 'mobius_rev', 'parent_rev', 'parent_revs',
   'content_hash', 'attachments',
 ]

@@ -152,3 +152,39 @@ test('mergeMeta: handles missing tags gracefully (empty union)', () => {
   const m = mergeMeta(base, mine, theirs)
   assert.deepEqual(m.tags, [])
 })
+
+// ── P2 feature tests (1.1) ──────────────────────────────────────────────────
+
+test('mergeMeta: type taken from later-updated side', () => {
+  const base = { id: 'n1', created: 'C', mobius_rev: 1 }
+  const mine = { id: 'n1', created: 'C', mobius_rev: 2, updated: '2026-06-03T12:00:00Z', type: 'checklist' }
+  const theirs = { id: 'n1', created: 'C', mobius_rev: 3, updated: '2026-06-03T08:00:00Z', type: 'note' }
+  const m = mergeMeta(base, mine, theirs)
+  // mine is later — checklist wins
+  assert.equal(m.type, 'checklist')
+})
+
+test('mergeMeta: archived taken from later-updated side', () => {
+  const base = { id: 'n1', created: 'C', mobius_rev: 1 }
+  const mine = { id: 'n1', created: 'C', mobius_rev: 2, updated: '2026-06-03T08:00:00Z', archived: false }
+  const theirs = { id: 'n1', created: 'C', mobius_rev: 3, updated: '2026-06-03T12:00:00Z', archived: true }
+  const m = mergeMeta(base, mine, theirs)
+  // theirs is later — archived wins
+  assert.equal(m.archived, true)
+})
+
+test('mergeMeta: type defaults to note when absent', () => {
+  const base = { id: 'n1', created: 'C', mobius_rev: 1 }
+  const mine = { id: 'n1', created: 'C', mobius_rev: 2, updated: 'x' }
+  const theirs = { id: 'n1', created: 'C', mobius_rev: 3, updated: 'y' }
+  const m = mergeMeta(base, mine, theirs)
+  assert.equal(m.type, 'note')
+})
+
+test('mergeMeta: archived defaults to false when absent', () => {
+  const base = { id: 'n1', created: 'C', mobius_rev: 1 }
+  const mine = { id: 'n1', created: 'C', mobius_rev: 2, updated: 'x' }
+  const theirs = { id: 'n1', created: 'C', mobius_rev: 3, updated: 'y' }
+  const m = mergeMeta(base, mine, theirs)
+  assert.equal(m.archived, false)
+})

@@ -79,5 +79,57 @@ export function Icon({ name, size = 17 }) {
       </svg>
     )
   }
+  if (name === 'tag') {
+    return (
+      <svg {...common}>
+        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82Z" />
+        <line x1="7" y1="7" x2="7.01" y2="7" strokeWidth="2.5" />
+      </svg>
+    )
+  }
+  if (name === 'archive') {
+    return (
+      <svg {...common}>
+        <polyline points="21 8 21 21 3 21 3 8" />
+        <rect x="1" y="3" width="22" height="5" />
+        <line x1="10" y1="12" x2="14" y2="12" />
+      </svg>
+    )
+  }
+  if (name === 'checklist') {
+    return (
+      <svg {...common}>
+        <polyline points="9 11 12 14 22 4" />
+        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+      </svg>
+    )
+  }
+  if (name === 'note') {
+    return (
+      <svg {...common}>
+        <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
+        <path d="M14 3v6h6" />
+        <line x1="8" y1="13" x2="16" y2="13" />
+        <line x1="8" y1="17" x2="12" y2="17" />
+      </svg>
+    )
+  }
+  if (name === 'unarchive') {
+    return (
+      <svg {...common}>
+        <polyline points="21 8 21 21 3 21 3 8" />
+        <rect x="1" y="3" width="22" height="5" />
+        <polyline points="10 14 12 12 14 14" />
+        <line x1="12" y1="12" x2="12" y2="17" />
+      </svg>
+    )
+  }
+  if (name === 'check') {
+    return (
+      <svg {...common}>
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+    )
+  }
   return null
 }

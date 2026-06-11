@@ -18,7 +18,7 @@ function IconBtn({ children, title, onClick, active, danger }) {
   )
 }
 
-export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
+export default function Card({ note, onOpen, onPin, onColor, onDelete, onArchive, resolveAttachment }) {
   const { meta, body } = note
   const [html, setHtml] = useState('')
   const [showColors, setShowColors] = useState(false)
@@ -80,7 +80,6 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
   }, [toolsOpen])
 
   const bar = colorHex(meta.color)
-  const tint = colorTint(meta.color)
 
   // Full card background: solid tint for colored notes, surface default otherwise.
   // The tint alpha is boosted (0.22 light / respects dark via surface blend) so
@@ -90,6 +89,9 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
   const footerBg = bar ? colorTint(meta.color, 0.12) : null
   const thumbBorder = bar ? colorTint(meta.color, 0.28) : null
   const empty = !meta.title && !(body || '').trim()
+  const tags = Array.isArray(meta.tags) ? meta.tags : []
+  const isChecklist = meta.type === 'checklist'
+  const isArchived = meta.archived === true
 
   // Full-card background tint replaces the gradient strip approach
   const cardStyle = {
@@ -127,6 +129,13 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
         onTouchMove={cancelLongPress}
         onTouchCancel={cancelLongPress}
       >
+        {/* Archive badge — top-left, only in archive view */}
+        {isArchived && (
+          <span className="nt-card-archived" aria-label="Archived">
+            <Icon name="archive" size={13} />
+          </span>
+        )}
+
         {/* Pin button — top-right corner */}
         <button
           title={meta.pinned ? 'Unpin' : 'Pin'}
@@ -159,7 +168,17 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
               ))}
             </div>
           )}
-          {meta.title && <div className="nt-card-title">{meta.title}</div>}
+          {meta.title && (
+            <div className="nt-card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {isChecklist && <Icon name="checklist" size={13} />}
+              {meta.title}
+            </div>
+          )}
+          {!meta.title && isChecklist && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, opacity: 0.55, fontSize: 12 }}>
+              <Icon name="checklist" size={12} />Checklist
+            </div>
+          )}
           {empty
             ? <div className="nt-card-empty">Empty note</div>
             : <div
@@ -168,7 +187,14 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
               />}
         </div>
 
-        {/* Footer toolbar: color + delete (pin moved to top-right) */}
+        {/* Tag chips — shown below body */}
+        {tags.length > 0 && (
+          <div className="nt-card-tags">
+            {tags.map((t) => <span key={t} className="nt-card-tag">{t}</span>)}
+          </div>
+        )}
+
+        {/* Footer toolbar: color + archive + delete (pin moved to top-right) */}
         <div className="nt-card-footer" style={footerStyle}>
           <div ref={colorBtnRef} className="nt-color-anchor">
             <IconBtn title="Color" onClick={() => setShowColors((v) => !v)}><Icon name="palette" size={16} /></IconBtn>
@@ -180,6 +206,14 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
               />
             )}
           </div>
+          {onArchive && (
+            <IconBtn
+              title={isArchived ? 'Unarchive' : 'Archive'}
+              onClick={() => onArchive(meta.id)}
+            >
+              <Icon name={isArchived ? 'unarchive' : 'archive'} size={15} />
+            </IconBtn>
+          )}
           <div className="nt-spacer" />
           <IconBtn title="Delete" danger onClick={() => onDelete(meta.id)}><Icon name="trash" size={15} /></IconBtn>
         </div>

@@ -16,6 +16,10 @@ import {sha256Hex} from './hash.js'
 // We normalize to a canonical shape with a fixed key order and defaulted values
 // so the hash is invariant under meta key reordering and missing-vs-default
 // fields. `JSON.stringify` of this fixed-shape object is the digest input.
+//
+// `type` and `archived` are content-identity fields (changing them signals a
+// real semantic edit that should trigger sync), while `pinned` is similarly an
+// intentional user action that changes what the note *is* to the user.
 function normalize(meta, body) {
   return {
     title: meta.title ?? '',
@@ -23,6 +27,8 @@ function normalize(meta, body) {
     pinned: meta.pinned ?? false,
     color: meta.color ?? null,
     tags: Array.isArray(meta.tags) ? meta.tags : [],
+    type: meta.type ?? 'note',
+    archived: meta.archived ?? false,
   }
 }
 
@@ -36,6 +42,8 @@ export async function contentHash(meta, body) {
     canonical.pinned,
     canonical.color,
     canonical.tags,
+    canonical.type,
+    canonical.archived,
   ])
   return sha256Hex(json)
 }
@@ -46,7 +54,9 @@ function nowIso() {
 
 // A brand-new note: a fresh uuid, rev 1 based on the implicit empty rev 0, and
 // the design's default frontmatter (DESIGN §5). created === updated at birth.
-export function newNote({title} = {}) {
+// `type` defaults to 'note'; pass 'checklist' to start in checklist mode.
+// `archived` defaults to false; absent notes are treated as not archived.
+export function newNote({title, type} = {}) {
   const ts = nowIso()
   return {
     id: globalThis.crypto.randomUUID(),
@@ -54,6 +64,8 @@ export function newNote({title} = {}) {
     pinned: false,
     color: null,
     tags: [],
+    type: type ?? 'note',
+    archived: false,
     created: ts,
     updated: ts,
     mobius_rev: 1,

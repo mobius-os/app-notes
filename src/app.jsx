@@ -18,7 +18,11 @@ import { reconcileAll } from './lib/reconciler.js'
 import Grid from './ui/Grid.jsx'
 import EditorPanel from './ui/EditorPanel.jsx'
 import ConfirmModal from './ui/ConfirmModal.jsx'
+import InlineCapture from './ui/InlineCapture.jsx'
 import { Icon } from './ui/icons.jsx'
+
+// ARCHIVE_TAG is the sentinel chip name that toggles the archived view.
+const ARCHIVE_TAG = '__archived__'
 
 function TopBar({ query, onQuery }) {
   return (
@@ -35,12 +39,50 @@ function TopBar({ query, onQuery }) {
   )
 }
 
+// Horizontal filter-chip row. Chips: All + each unique label + Archive.
+function FilterChips({ tags, activeTag, onTag }) {
+  if (tags.length === 0) {
+    // Only show Archive chip even when there are no labels
+    return (
+      <div className="nt-chips-wrap">
+        <button
+          className={`nt-chip${activeTag === ARCHIVE_TAG ? ' is-active' : ''}`}
+          onClick={() => onTag(activeTag === ARCHIVE_TAG ? null : ARCHIVE_TAG)}
+        >
+          <Icon name="archive" size={13} />Archive
+        </button>
+      </div>
+    )
+  }
+  return (
+    <div className="nt-chips-wrap">
+      <button
+        className={`nt-chip${activeTag === null ? ' is-active' : ''}`}
+        onClick={() => onTag(null)}
+      >All</button>
+      {tags.map((t) => (
+        <button
+          key={t}
+          className={`nt-chip${activeTag === t ? ' is-active' : ''}`}
+          onClick={() => onTag(activeTag === t ? null : t)}
+        >{t}</button>
+      ))}
+      <button
+        className={`nt-chip${activeTag === ARCHIVE_TAG ? ' is-active' : ''}`}
+        onClick={() => onTag(activeTag === ARCHIVE_TAG ? null : ARCHIVE_TAG)}
+      >
+        <Icon name="archive" size={13} />Archive
+      </button>
+    </div>
+  )
+}
+
 function EmptyState({ filtered }) {
   return (
     <div className="nt-empty">
       <div className="nt-empty-icon"><Icon name="edit" size={40} /></div>
       <div className="nt-empty-msg">{filtered ? 'No matching notes' : 'No notes yet'}</div>
-      {!filtered && <div className="nt-empty-hint">Tap <strong>+ New</strong> to write your first note.</div>}
+      {!filtered && <div className="nt-empty-hint">Tap the field above to write your first note.</div>}
     </div>
   )
 }
@@ -81,6 +123,7 @@ export default function App({ appId, token }) {
   const [notes, setNotes] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
+  const [activeTag, setActiveTag] = useState(null)
   const [view, setView] = useState({ mode: 'grid', id: null })
   const [draft, setDraft] = useState(null)
   const [confirmId, setConfirmId] = useState(null)
@@ -298,6 +341,30 @@ export default function App({ appId, token }) {
     const n = notes.find((x) => x.meta.id === id); if (n) persist({ ...n.meta, color }, n.body)
     else if (draft && draft.meta.id === id) setDraft((d) => ({ ...d, meta: { ...d.meta, color } }))
   }, [draft, notes, persist])
+  const toggleArchive = useCallback((id) => {
+    const n = notes.find((x) => x.meta.id === id)
+    if (n) persist({ ...n.meta, archived: !n.meta.archived }, n.body)
+  }, [notes, persist])
+
+  // Inline capture: create a note directly from the grid affordance without
+  // opening the full EditorPanel for the initial capture. If the note has
+  // meaningful content, commit it immediately (no editor transition needed).
+  // For empty captures the callback is never called (InlineCapture gates it).
+  const inlineCreate = useCallback(async ({ title, body, type }) => {
+    const meta = newNote({ title, type })
+    // Commit directly — no need for a draft round-trip since we have all content
+    const m = { ...meta, updated: meta.updated }
+    m.content_hash = await contentHash(m, body)
+    upsert(m, body)
+    await store.saveNote(m, body).catch((err) => {
+      window.mobius?.signal('error', { message: err?.message ?? 'save failed', source: 'inlineCreate' })
+    })
+    await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {})
+    scheduleReconcile()
+    scheduleGc()
+    const wordCount = (body || '').trim().split(/\s+/).filter(Boolean).length
+    window.mobius?.signal('note_saved', { word_count: wordCount || undefined })
+  }, [upsert, scheduleReconcile, scheduleGc])
 
   const queueDelete = useCallback(async (note) => {
     const hash = await contentHash(note.meta, note.body)
@@ -361,40 +428,87 @@ export default function App({ appId, token }) {
     return () => window.removeEventListener('message', onMessage)
   }, [back])
 
+  // All unique tags across non-archived notes (for the filter chip row).
+  const allTags = useMemo(() => {
+    const set = new Set()
+    for (const n of notes) {
+      if (!n.meta.archived) {
+        for (const t of (n.meta.tags || [])) set.add(t)
+      }
+    }
+    return [...set].sort()
+  }, [notes])
+
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const list = q
-      ? notes.filter((n) =>
-          (n.meta.title || '').toLowerCase().includes(q) ||
-          (n.body || '').toLowerCase().includes(q) ||
-          (n.meta.tags || []).join(' ').toLowerCase().includes(q))
-      : notes
+    const showArchived = activeTag === ARCHIVE_TAG
+
+    // Base pool: archived view shows only archived; normal view hides archived.
+    let list = showArchived
+      ? notes.filter((n) => n.meta.archived)
+      : notes.filter((n) => !n.meta.archived)
+
+    // Text search
+    if (q) {
+      list = list.filter((n) =>
+        (n.meta.title || '').toLowerCase().includes(q) ||
+        (n.body || '').toLowerCase().includes(q) ||
+        (n.meta.tags || []).join(' ').toLowerCase().includes(q))
+    }
+
+    // Tag filter (only applies outside archive view)
+    if (!showArchived && activeTag) {
+      list = list.filter((n) => (n.meta.tags || []).includes(activeTag))
+    }
+
     return [...list].sort((a, b) => {
+      // Archived view: no pin sections, just recency
+      if (showArchived) return (b.meta.updated || '').localeCompare(a.meta.updated || '')
       if (!!a.meta.pinned !== !!b.meta.pinned) return a.meta.pinned ? -1 : 1
       return (b.meta.updated || '').localeCompare(a.meta.updated || '')
     })
-  }, [notes, query])
+  }, [notes, query, activeTag])
 
   const editing = view.mode === 'editor' ? (notes.find((n) => n.meta.id === view.id) || (draft && draft.meta.id === view.id ? draft : null)) : null
   const status = !online ? 'Offline' : (editing && conflicts.has(editing.meta.id)) ? 'Resolving…' : pending > 0 ? 'Saving…' : 'Synced'
+
+  const showingArchive = activeTag === ARCHIVE_TAG
 
   return (
     <div className="nt-root">
       <style>{CSS}</style>
       <TopBar query={query} onQuery={setQuery} />
       <main className="nt-scroll">
+        {/* Inline capture — hidden in archive view */}
+        {!loading && !showingArchive && (
+          <InlineCapture onCreate={inlineCreate} />
+        )}
+
+        {/* Filter chips: All + labels + Archive */}
+        {!loading && (
+          <FilterChips tags={allTags} activeTag={activeTag} onTag={setActiveTag} />
+        )}
+
         {loading
           ? <div className="nt-loading" role="status" aria-live="polite">
               <span className="nt-spinner" aria-hidden="true" />
               <span>Loading…</span>
             </div>
           : visible.length === 0
-            ? <EmptyState filtered={!!query.trim()} />
-            : <Grid notes={visible} onOpen={(id) => { openEditor(id).catch(() => setView({ mode: 'editor', id })) }} onPin={togglePin} onColor={setColor} onDelete={setConfirmId} resolveAttachment={store.attachmentURL} />}
+            ? <EmptyState filtered={!!query.trim() || !!activeTag} />
+            : <Grid
+                notes={visible}
+                onOpen={(id) => { openEditor(id).catch(() => setView({ mode: 'editor', id })) }}
+                onPin={togglePin}
+                onColor={setColor}
+                onDelete={setConfirmId}
+                onArchive={toggleArchive}
+                resolveAttachment={store.attachmentURL}
+              />}
       </main>
 
-      {/* FAB — floating action button for new notes */}
-      {view.mode !== 'editor' && (
+      {/* FAB — hidden in archive view and while editor is open */}
+      {view.mode !== 'editor' && !showingArchive && (
         <button
           className="nt-fab"
           onClick={createNote}
@@ -411,6 +525,7 @@ export default function App({ appId, token }) {
           onPin={togglePin}
           onColor={setColor}
           onDelete={setConfirmId}
+          onArchive={toggleArchive}
           resolveAttachment={store.attachmentURL}
           putAttachment={store.putAttachment}
           conflict={conflicts.has(editing.meta.id)}

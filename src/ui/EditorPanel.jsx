@@ -1,5 +1,6 @@
 // Full-screen note editor: header (back, title, pin, color, attach, status,
-// delete) + the live-inline CodeMirror body. Title + body autosave (debounced).
+// delete) + live-inline CodeMirror body + tag editor row.
+// New in 1.1: type toggle (note↔checklist), archive button, tag chips.
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { colorHex } from './colors.js'
 import ColorPicker from './ColorPicker.jsx'
@@ -28,11 +29,13 @@ function statusClass(status) {
   return 'is-default'
 }
 
-export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment, conflict, status }) {
+export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, onArchive, resolveAttachment, putAttachment, conflict, status }) {
   const [title, setTitle] = useState(note.meta.title || '')
   const [body, setBody] = useState(note.body || '')
   const [showColors, setShowColors] = useState(false)
   const [attachErr, setAttachErr] = useState('')
+  const [tagInput, setTagInput] = useState('')
+  const tagInputRef = useRef(null)
   const timer = useRef(null)
   const viewRef = useRef(null)
   const imageRef = useRef(null)
@@ -43,6 +46,10 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
   // flushed (see the id-change effect), so a debounced flush never writes the
   // outgoing buffer under the incoming note's meta.
   const latest = useRef({ note, title: note.meta.title || '', body: note.body || '' })
+
+  const tags = Array.isArray(note.meta.tags) ? note.meta.tags : []
+  const isChecklist = note.meta.type === 'checklist'
+  const isArchived = note.meta.archived === true
 
   useEffect(() => {
     // Keep the buffer in sync only while the note identity is unchanged; the
@@ -94,6 +101,51 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
       window.removeEventListener('beforeunload', flushOnUnload)
     }
   }, [flushSave])
+
+  // Tag helpers: add / remove without touching the body buffer.
+  const addTag = useCallback((raw) => {
+    const tag = raw.trim().toLowerCase().replace(/\s+/g, '-')
+    if (!tag) return
+    const next = tags.includes(tag) ? tags : [...tags, tag]
+    if (next.length === tags.length) return
+    onSave({ ...note.meta, title, tags: next }, body)
+  }, [tags, note.meta, title, body, onSave])
+
+  const removeTag = useCallback((tag) => {
+    onSave({ ...note.meta, title, tags: tags.filter((t) => t !== tag) }, body)
+  }, [tags, note.meta, title, body, onSave])
+
+  const handleTagKeyDown = useCallback((e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault()
+      addTag(tagInput)
+      setTagInput('')
+    } else if (e.key === 'Backspace' && tagInput === '' && tags.length > 0) {
+      removeTag(tags[tags.length - 1])
+    }
+  }, [tagInput, tags, addTag, removeTag])
+
+  const handleTagBlur = useCallback(() => {
+    if (tagInput.trim()) {
+      addTag(tagInput)
+      setTagInput('')
+    }
+  }, [tagInput, addTag])
+
+  // Toggle note type between 'note' and 'checklist'. When switching TO checklist
+  // and the body has no list items yet, prepend a starter item.
+  const toggleType = useCallback(() => {
+    const nextType = isChecklist ? 'note' : 'checklist'
+    let nextBody = body
+    if (nextType === 'checklist' && body.trim() && !/^- \[[ x]\] /m.test(body)) {
+      // Wrap existing content as first checklist item
+      nextBody = body.replace(/^(.+)/m, '- [ ] $1')
+    } else if (nextType === 'checklist' && !body.trim()) {
+      nextBody = '- [ ] '
+    }
+    if (nextBody !== body) setBody(nextBody)
+    onSave({ ...note.meta, title, type: nextType }, nextBody)
+  }, [isChecklist, body, note.meta, title, onSave])
 
   function insertMarkdown(md) {
     const v = viewRef.current
@@ -178,6 +230,12 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
             )}
           </div>
           <button
+            onClick={toggleType}
+            aria-label={isChecklist ? 'Switch to note' : 'Switch to checklist'}
+            title={isChecklist ? 'Switch to note' : 'Switch to checklist'}
+            className={`nt-hdr-btn${isChecklist ? ' is-active' : ''}`}
+          ><Icon name={isChecklist ? 'checklist' : 'note'} size={16} /></button>
+          <button
             onClick={() => imageRef.current && imageRef.current.click()}
             aria-label="Insert image"
             title="Insert image"
@@ -190,6 +248,14 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
             className="nt-label-btn"
           ><Icon name="file" size={16} />File</button>
           <div className="nt-hdr-spacer" />
+          {onArchive && (
+            <button
+              onClick={() => { onArchive(note.meta.id); onBack() }}
+              aria-label={isArchived ? 'Unarchive' : 'Archive'}
+              title={isArchived ? 'Unarchive' : 'Archive'}
+              className="nt-hdr-btn"
+            ><Icon name={isArchived ? 'unarchive' : 'archive'} size={16} /></button>
+          )}
           <button
             onClick={() => onDelete(note.meta.id)}
             aria-label="Delete"
@@ -200,6 +266,30 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
         <input ref={imageRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
         <input ref={fileRef} type="file" onChange={handleFile} style={{ display: 'none' }} />
       </header>
+
+      {/* Tag editor row */}
+      <div className="nt-tags-wrap">
+        {tags.map((t) => (
+          <span key={t} className="nt-tag-chip">
+            {t}
+            <button
+              className="nt-tag-remove"
+              aria-label={`Remove tag ${t}`}
+              onClick={() => removeTag(t)}
+            >×</button>
+          </span>
+        ))}
+        <input
+          ref={tagInputRef}
+          className="nt-tag-input"
+          value={tagInput}
+          onChange={(e) => setTagInput(e.target.value)}
+          onKeyDown={handleTagKeyDown}
+          onBlur={handleTagBlur}
+          placeholder="Add label…"
+          aria-label="Add label"
+        />
+      </div>
 
       {conflict && (
         <div className="nt-conflict-bar">

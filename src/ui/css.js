@@ -406,6 +406,162 @@ export const CSS = `
 }
 .nt-editor-body { flex: 1; overflow: hidden; }
 
+/* ── Inline capture widget (Keep-style "Take a note…" at grid top) ──────── */
+.nt-capture-wrap {
+  padding: 0 8px 12px;
+  max-width: 1120px; margin: 0 auto;
+}
+/* Collapsed state: single-row affordance */
+.nt-capture-pill {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  cursor: text;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: box-shadow 0.14s ease;
+}
+@media (hover: hover) { .nt-capture-pill:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.14); } }
+.nt-capture-placeholder {
+  flex: 1; font-size: 15px; color: var(--muted); user-select: none;
+}
+.nt-capture-type-toggle {
+  width: 44px; height: 44px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 9px;
+  background: transparent; color: var(--muted);
+  cursor: pointer; font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease;
+}
+@media (hover: hover) { .nt-capture-type-toggle:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); } }
+.nt-capture-type-toggle.is-checklist { color: var(--accent); }
+
+/* Expanded state: inline card */
+.nt-capture-card {
+  border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+}
+.nt-capture-title {
+  width: 100%;
+  padding: 12px 16px 0;
+  border: none; background: transparent; color: var(--text);
+  font-size: 15px; font-weight: 650; font-family: var(--font);
+}
+.nt-capture-title:focus { outline: none; }
+.nt-capture-title::placeholder { color: var(--muted); font-weight: 400; }
+.nt-capture-body {
+  width: 100%;
+  padding: 8px 16px;
+  border: none; background: transparent; color: var(--text);
+  font-size: 14px; font-family: var(--font); line-height: 1.55;
+  resize: none; min-height: 72px; max-height: 280px;
+  overflow-y: auto;
+}
+.nt-capture-body:focus { outline: none; }
+.nt-capture-body::placeholder { color: var(--muted); }
+.nt-capture-footer {
+  display: flex; align-items: center; gap: 4px;
+  padding: 4px 8px; border-top: 1px solid var(--border);
+}
+.nt-capture-done {
+  margin-left: auto;
+  height: 36px; padding: 0 14px;
+  border: none; border-radius: 8px;
+  background: var(--accent); color: #fff;
+  font-size: 13px; font-weight: 600; font-family: var(--font);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: filter 0.12s ease;
+}
+@media (hover: hover) { .nt-capture-done:hover { filter: brightness(1.08); } }
+
+/* ── Label / tag filter chips ────────────────────────────────────────────── */
+.nt-chips-wrap {
+  padding: 0 8px 10px;
+  max-width: 1120px; margin: 0 auto;
+  display: flex; gap: 6px; overflow-x: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.nt-chips-wrap::-webkit-scrollbar { display: none; }
+.nt-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 32px; padding: 0 12px;
+  border-radius: 999px; border: 1px solid var(--border);
+  background: transparent; color: var(--muted);
+  font-size: 13px; font-family: var(--font);
+  white-space: nowrap; cursor: pointer; flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.nt-chip.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: var(--accent); color: var(--accent);
+}
+@media (hover: hover) {
+  .nt-chip:not(.is-active):hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+}
+
+/* ── Card tag chips ──────────────────────────────────────────────────────── */
+.nt-card-tags {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: 4px 14px 8px;
+}
+.nt-card-tag {
+  display: inline-flex; align-items: center;
+  height: 20px; padding: 0 7px;
+  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent); font-size: 11px; font-family: var(--font);
+  white-space: nowrap;
+}
+/* ── Card archived badge ────────────────────────────────────────────────── */
+.nt-card-archived {
+  position: absolute; top: 6px; left: 6px;
+  width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  color: var(--muted); pointer-events: none;
+}
+
+/* ── Tag editor in EditorPanel ───────────────────────────────────────────── */
+.nt-tags-wrap {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  padding: 4px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--surface2, var(--surface));
+  flex: 0 0 auto;
+}
+.nt-tag-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  height: 26px; padding: 0 8px;
+  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent); font-size: 12px; font-family: var(--font);
+  white-space: nowrap;
+}
+.nt-tag-remove {
+  width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%; padding: 0;
+  background: transparent; color: var(--accent);
+  cursor: pointer; font-size: 13px; line-height: 1; font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.nt-tag-remove:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.nt-tag-input {
+  flex: 1; min-width: 90px;
+  height: 26px; padding: 0 8px;
+  border: 1px dashed var(--border); border-radius: 999px;
+  background: transparent; color: var(--text);
+  font-size: 12px; font-family: var(--font);
+}
+.nt-tag-input:focus { outline: none; border-color: var(--accent); }
+.nt-tag-input::placeholder { color: var(--muted); }
+
 /* mobius-ui:ReducedMotion v1 — honor the OS reduce-motion setting */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

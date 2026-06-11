@@ -129,9 +129,10 @@ function laterSide(mine, theirs) {
 
 // mergeMeta(base, mine, theirs) -> merged frontmatter object.
 //
-// tags: set-union of both sides. title/color/pinned: taken from the side with
-// the later `updated`. mobius_rev: max(mine, theirs) + 1. parent_revs records
-// both source revs. id/created are pinned to base (stable identity).
+// tags: set-union of both sides. title/color/pinned/type/archived: taken from
+// the side with the later `updated`. mobius_rev: max(mine, theirs) + 1.
+// parent_revs records both source revs. id/created are pinned to base
+// (stable identity).
 export function mergeMeta(base, mine, theirs) {
   const winner = laterSide(mine, theirs)
 
@@ -147,6 +148,8 @@ export function mergeMeta(base, mine, theirs) {
     color: winner?.color ?? null,
     pinned: winner?.pinned ?? false,
     tags,
+    type: winner?.type ?? 'note',
+    archived: winner?.archived ?? false,
     updated: winner?.updated,
     mobius_rev: Math.max(mineRev, theirsRev) + 1,
     parent_revs: [mineRev, theirsRev],

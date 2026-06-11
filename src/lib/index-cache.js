@@ -41,6 +41,9 @@ function toEntry({meta, body}) {
     snippet: snippetOf(body),
     pinned: meta.pinned ?? false,
     color: meta.color ?? null,
+    tags: Array.isArray(meta.tags) ? meta.tags : [],
+    type: meta.type ?? 'note',
+    archived: meta.archived ?? false,
     updated: meta.updated,
   }
 }
@@ -86,6 +89,9 @@ export function notesFromIndex(index) {
         title: e.title ?? '',
         pinned: e.pinned ?? false,
         color: e.color ?? null,
+        tags: Array.isArray(e.tags) ? e.tags : [],
+        type: e.type ?? 'note',
+        archived: e.archived ?? false,
         updated: e.updated,
       },
       body: e.snippet ?? '',
