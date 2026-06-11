@@ -367,7 +367,7 @@ export const CSS = `
   font-size: 12px; white-space: nowrap; margin-right: 2px; flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
-.nt-status.is-synced { color: var(--green); }
+/* Online+idle: nothing shown (standard). Resolving uses accent; others muted. */
 .nt-status.is-resolving { color: var(--accent); }
 .nt-status.is-default { color: var(--muted); }
 /* /mobius-ui:SyncPill */

@@ -363,7 +363,7 @@ var CSS = `
   font-size: 12px; white-space: nowrap; margin-right: 2px; flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
-.nt-status.is-synced { color: var(--green); }
+/* Online+idle: nothing shown (standard). Resolving uses accent; others muted. */
 .nt-status.is-resolving { color: var(--accent); }
 .nt-status.is-default { color: var(--muted); }
 /* /mobius-ui:SyncPill */
@@ -2389,7 +2389,6 @@ function resolveNow(note) {
   }
 }
 function statusClass(status) {
-  if (status === "Synced") return "is-synced";
   if (status === "Resolving\u2026") return "is-resolving";
   return "is-default";
 }
@@ -3286,7 +3285,7 @@ function App({ appId, token }) {
     });
   }, [notes, query, activeTag]);
   const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id) || (draft && draft.meta.id === view.id ? draft : null) : null;
-  const status = !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : pending > 0 ? "Saving\u2026" : "Synced";
+  const status = !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : pending > 0 ? "Saving\u2026" : null;
   const showingArchive = activeTag === ARCHIVE_TAG;
   return /* @__PURE__ */ jsxs7("div", { className: "nt-root", children: [
     /* @__PURE__ */ jsx9("style", { children: CSS }),

@@ -22,9 +22,8 @@ function resolveNow(note) {
 
 // Map status string to modifier class for the status indicator. Using modifier
 // classes instead of a per-render cssVar snapshot avoids stale values on live
-// theme switches.
+// theme switches. 'Synced' is not shown (standard: nothing when online+idle).
 function statusClass(status) {
-  if (status === 'Synced') return 'is-synced'
   if (status === 'Resolving…') return 'is-resolving'
   return 'is-default'
 }

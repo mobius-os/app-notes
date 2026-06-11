@@ -470,7 +470,8 @@ export default function App({ appId, token }) {
   }, [notes, query, activeTag])
 
   const editing = view.mode === 'editor' ? (notes.find((n) => n.meta.id === view.id) || (draft && draft.meta.id === view.id ? draft : null)) : null
-  const status = !online ? 'Offline' : (editing && conflicts.has(editing.meta.id)) ? 'Resolving…' : pending > 0 ? 'Saving…' : 'Synced'
+  // Standard: nothing when online+idle. Show only Offline, Saving…, Resolving….
+  const status = !online ? 'Offline' : (editing && conflicts.has(editing.meta.id)) ? 'Resolving…' : pending > 0 ? 'Saving…' : null
 
   const showingArchive = activeTag === ARCHIVE_TAG
 
