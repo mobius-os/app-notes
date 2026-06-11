@@ -2004,9 +2004,12 @@ function livePreview({ resolveAttachment } = {}) {
                   }
                 } else if (name === "Image") {
                   if (!onActive(node.from, node.to)) {
-                    const md = state.sliceDoc(node.from, node.to);
-                    const mm = /!\[([^\]]*)\]\(([^)\s]+)/.exec(md);
-                    if (mm) out.push({ from: node.from, to: node.to, deco: Decoration.replace({ widget: new ImageWidget(mm[2], mm[1], resolveAttachment) }) });
+                    const urlChild = node.node.getChild("URL");
+                    if (urlChild) {
+                      const src = state.sliceDoc(urlChild.from, urlChild.to);
+                      const alt = state.sliceDoc(node.from + 2, urlChild.from - 2);
+                      out.push({ from: node.from, to: node.to, deco: Decoration.replace({ widget: new ImageWidget(src, alt, resolveAttachment) }) });
+                    }
                   }
                 } else if (name === "Link") {
                   if (!onActive(node.from, node.to)) {

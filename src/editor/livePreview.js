@@ -90,9 +90,17 @@ export function livePreview({ resolveAttachment } = {}) {
                   }
                 } else if (name === 'Image') {
                   if (!onActive(node.from, node.to)) {
-                    const md = state.sliceDoc(node.from, node.to)
-                    const mm = /!\[([^\]]*)\]\(([^)\s]+)/.exec(md)
-                    if (mm) out.push({ from: node.from, to: node.to, deco: Decoration.replace({ widget: new ImageWidget(mm[2], mm[1], resolveAttachment) }) })
+                    // Use the URL child node directly so alt text with `]` characters
+                    // (e.g. filenames like "photo[1].jpg") doesn't break the match.
+                    // The regex /!\[([^\]]*)\]\(/ fails for those because [^\]]* stops
+                    // at the first ] in the alt, leaving the rest unmatched.
+                    const urlChild = node.node.getChild('URL')
+                    if (urlChild) {
+                      const src = state.sliceDoc(urlChild.from, urlChild.to)
+                      // Alt text occupies node.from+2 ("![" prefix) .. urlChild.from-2 ("](" before URL)
+                      const alt = state.sliceDoc(node.from + 2, urlChild.from - 2)
+                      out.push({ from: node.from, to: node.to, deco: Decoration.replace({ widget: new ImageWidget(src, alt, resolveAttachment) }) })
+                    }
                   }
                 } else if (name === 'Link') {
                   if (!onActive(node.from, node.to)) {
