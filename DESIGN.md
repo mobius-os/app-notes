@@ -81,23 +81,27 @@ Möbius dark theme via CSS vars (never hardcode): `--bg #0d0d0d`, `--surface`,
 title, a **read-only markdown preview** (truncated, with checkboxes + a first
 inline image thumbnail), color accent, a pin toggle, and an attachment/`⋯`
 affordance. Tap a card → editor. A top bar holds **search** (instant,
-client-side over title+body+tags), a **+ New note** button, and a view toggle
-(grid / list). Empty state is a friendly prompt, not a blank screen.
+client-side over title+body) and a floating **+** button creates a note —
+there is no inline capture row and no view toggle. Empty state is a friendly
+prompt, not a blank screen.
 
-**Card actions** (no native dialogs): pin/unpin, color picker (small palette
-popover from `--accent`/`--green`/amber/coral/sky/pink), delete (in-app
-**ConfirmModal**), archive (optional).
+**Card actions** (no native dialogs): pin/unpin, color picker (muted ink-tone
+palette: slate / moss / sand / clay / plum + default, mixed from theme
+tokens), delete (in-app **ConfirmModal**). There is no archive and there are
+no tags (legacy notes carrying either still open fine; the fields are
+ignored).
 
 **Editor (note open).** Full-card surface with the **live-inline markdown**
 editor (§4). Header: editable title, pin, color, attach (📎 image / file),
-created/updated, sync status chip (Synced / Pending / Resolving). Auto-saves
-(debounced) — no save button. Back returns to grid. On mobile the editor is
+created/updated. Auto-saves (debounced) — no save button; opening (or a
+no-op flush) never bumps `updated`, only a real edit does, and the grid
+sorts by last edit. Back returns to grid. On mobile the editor is
 full-screen; the keyboard-resize quirk is handled by sizing to the stable
 viewport.
 
-**Sync status chip.** Reflects `storage.pendingCount()` + reconcile state:
-`Synced` (green), `Pending…` (offline/queued), `Resolving…` (a conflict
-descriptor exists / agent working). A conflicted note shows a small banner:
+**Status.** Silent when healthy: saving/pending is plumbing and never
+rendered. Only `Offline` and an actionable `Resolving…` conflict state
+surface. A conflicted note shows a small banner:
 "Edited in two places — merging…" and, when the agent finishes, updates live
 via `subscribe`.
 
