@@ -9,18 +9,18 @@
 // toolbar keeps its horizontal scroll.
 import { useLayoutEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { NOTE_COLORS } from './colors.js'
+import { NOTE_COLORS, normalizeColorName } from './colors.js'
 
 const MARGIN = 12 // keep the popover this far from the viewport edges
 
 export default function ColorPicker({ anchorRef, current, onPick, placement = 'above', align = 'start' }) {
   const [pos, setPos] = useState(null)
 
-  // Estimate the rendered size so we can flip/clamp against the viewport. The
-  // grid is repeat(4, 28px) swatches with gap 7 and padding 8 on each side.
-  const width = 4 * 28 + 3 * 7 + 2 * 8
+  // Estimate the rendered size so we can flip/clamp against the viewport. Must
+  // match the .nt-color-picker CSS: repeat(4, 44px) swatches, gap 8, padding 8.
+  const width = 4 * 44 + 3 * 8 + 2 * 8
   const rows = Math.ceil(NOTE_COLORS.length / 4)
-  const height = rows * 28 + (rows - 1) * 7 + 2 * 8
+  const height = rows * 44 + (rows - 1) * 8 + 2 * 8
 
   useLayoutEffect(() => {
     function place() {
@@ -58,12 +58,12 @@ export default function ColorPicker({ anchorRef, current, onPick, placement = 'a
           title={c.label}
           aria-label={c.label}
           onClick={() => onPick(c.name)}
-          className="nt-swatch"
-          style={{
-            // Dynamic: swatch background is the note color hex (or the "default" diagonal)
-            border: current === c.name ? '2px solid var(--text)' : '1px solid var(--border)',
-            background: c.hex || 'linear-gradient(135deg, var(--surface) 49%, var(--muted) 51%)',
-          }}
+          className={[
+            'nt-swatch',
+            c.name ? `nt-swatch--${c.name}` : 'nt-swatch--default',
+            // Legacy stored names normalize to a tone so the matching swatch highlights.
+            normalizeColorName(current) === c.name ? 'is-current' : '',
+          ].filter(Boolean).join(' ')}
         />
       ))}
     </div>,

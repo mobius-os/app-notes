@@ -3,11 +3,26 @@
 // so the app follows light/dark switches without a page reload.
 //
 // Class prefix: nt-  (Notes)
-// Inline style={} props remain ONLY for genuinely dynamic per-note values:
-//   - card tint gradient/border (depends on per-note color name → hex at render)
-//   - color bar background
-//   - color dot in editor header
-//   - swatch backgrounds in ColorPicker
+// Per-note color tones are CSS classes (nt-card--<tone> etc.) generated below
+// from the NOTE_COLORS palette, blended into theme tokens with color-mix so the
+// tones track light/dark switches. No per-note inline color styles remain.
+
+import { NOTE_COLORS } from './colors.js'
+
+// One block per tone: card surface + border, footer divider, picker swatch,
+// editor-header dot. The tone hex is mixed INTO the theme tokens rather than
+// painted raw, which is what keeps the palette muted on any theme.
+const TONE_CSS = NOTE_COLORS.filter((c) => c.name).map((c) => `
+.nt-card--${c.name} {
+  background: color-mix(in srgb, ${c.hex} 16%, var(--surface));
+  border-color: color-mix(in srgb, ${c.hex} 34%, var(--border));
+}
+.nt-card--${c.name} .nt-card-footer {
+  border-top-color: color-mix(in srgb, ${c.hex} 26%, var(--border));
+  background: color-mix(in srgb, ${c.hex} 8%, transparent);
+}
+.nt-swatch--${c.name} { background: ${c.hex}; }
+.nt-color-dot--${c.name} { background: ${c.hex}; }`).join('\n')
 
 export const CSS = `
 /* mobius-ui:Root v1 — keep in sync; library candidate. Diverge below the marker only. */
@@ -141,7 +156,7 @@ export const CSS = `
 .nt-card {
   position: relative;
   border-radius: 10px; overflow: hidden;
-  /* background + border are dynamic (per-note tint) — set via inline style */
+  background: var(--surface); border: 1px solid var(--border);
   transition: box-shadow 0.14s ease, transform 0.1s ease;
 }
 @media (hover: hover) {
@@ -171,6 +186,8 @@ export const CSS = `
 }
 .nt-card-thumb {
   width: 100%; object-fit: cover; display: block; border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2, var(--surface));
 }
 /* /mobius-ui:Card */
 
@@ -206,7 +223,7 @@ export const CSS = `
 .nt-card-footer {
   display: flex; align-items: center; gap: 2px;
   padding: 4px 6px;
-  /* border-top + background are dynamic (per-note tint) — set via inline style */
+  border-top: 1px solid var(--border); background: transparent;
   /* hidden by default; revealed on hover/focus or long-press (.nt-card--tools) */
   opacity: 0;
   transition: opacity 0.14s ease;
@@ -264,10 +281,12 @@ export const CSS = `
 .nt-swatch {
   width: 44px; height: 44px; border-radius: 9px;
   cursor: pointer; padding: 0;
-  /* border and background set via inline style (dynamic per swatch) */
+  border: 1px solid var(--border);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
   transition: transform 0.1s ease;
 }
+.nt-swatch.is-current { border: 2px solid var(--text); }
+.nt-swatch--default { background: linear-gradient(135deg, var(--surface) 49%, var(--muted) 51%); }
 .nt-swatch:active { transform: scale(0.9); }
 @media (hover: hover) { .nt-swatch:hover { transform: scale(1.1); } }
 
@@ -350,8 +369,9 @@ export const CSS = `
 /* keyboard focus ring comes from the shared mobius-ui:Focus block above */
 /* /mobius-ui:Button */
 .nt-color-dot {
-  /* width/height/border-radius/background set via inline style (dynamic per note) */
+  width: 9px; height: 9px; border-radius: 3px;
   flex-shrink: 0;
+  /* background comes from the nt-color-dot--<tone> classes generated above */
 }
 .nt-title-input {
   flex: 1; min-width: 0;
@@ -406,161 +426,26 @@ export const CSS = `
 }
 .nt-editor-body { flex: 1; overflow: hidden; }
 
-/* ── Inline capture widget (Keep-style "Take a note…" at grid top) ──────── */
-.nt-capture-wrap {
-  padding: 0 8px 12px;
-  max-width: 1120px; margin: 0 auto;
-}
-/* Collapsed state: single-row affordance */
-.nt-capture-pill {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 16px; border-radius: 12px;
-  background: var(--surface); border: 1px solid var(--border);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-  cursor: text;
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: box-shadow 0.14s ease;
-}
-@media (hover: hover) { .nt-capture-pill:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.14); } }
-.nt-capture-placeholder {
-  flex: 1; font-size: 15px; color: var(--muted); user-select: none;
-}
-.nt-capture-type-toggle {
-  width: 44px; height: 44px; flex-shrink: 0;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: none; border-radius: 9px;
-  background: transparent; color: var(--muted);
-  cursor: pointer; font-family: var(--font);
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: background 0.12s ease;
-}
-@media (hover: hover) { .nt-capture-type-toggle:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); } }
-.nt-capture-type-toggle.is-checklist { color: var(--accent); }
-
-/* Expanded state: inline card */
-.nt-capture-card {
-  border-radius: 12px;
-  background: var(--surface); border: 1px solid var(--border);
-  box-shadow: 0 2px 12px rgba(0,0,0,0.12);
-}
-.nt-capture-title {
-  width: 100%;
-  padding: 12px 16px 0;
-  border: none; background: transparent; color: var(--text);
-  font-size: 15px; font-weight: 650; font-family: var(--font);
-}
-.nt-capture-title:focus { outline: none; }
-.nt-capture-title::placeholder { color: var(--muted); font-weight: 400; }
-.nt-capture-body {
-  width: 100%;
-  padding: 8px 16px;
-  border: none; background: transparent; color: var(--text);
-  font-size: 14px; font-family: var(--font); line-height: 1.55;
-  resize: none; min-height: 72px; max-height: 280px;
-  overflow-y: auto;
-}
-.nt-capture-body:focus { outline: none; }
-.nt-capture-body::placeholder { color: var(--muted); }
-.nt-capture-footer {
-  display: flex; align-items: center; gap: 4px;
-  padding: 4px 8px; border-top: 1px solid var(--border);
-}
-.nt-capture-done {
-  margin-left: auto;
-  height: 36px; padding: 0 14px;
-  border: none; border-radius: 8px;
-  background: var(--accent); color: #fff;
-  font-size: 13px; font-weight: 600; font-family: var(--font);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: filter 0.12s ease;
-}
-@media (hover: hover) { .nt-capture-done:hover { filter: brightness(1.08); } }
-
-/* ── Label / tag filter chips ────────────────────────────────────────────── */
-.nt-chips-wrap {
-  padding: 0 8px 10px;
-  max-width: 1120px; margin: 0 auto;
-  display: flex; gap: 6px; overflow-x: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-}
-.nt-chips-wrap::-webkit-scrollbar { display: none; }
-.nt-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  height: 32px; padding: 0 12px;
-  border-radius: 999px; border: 1px solid var(--border);
-  background: transparent; color: var(--muted);
-  font-size: 13px; font-family: var(--font);
-  white-space: nowrap; cursor: pointer; flex-shrink: 0;
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
-}
-.nt-chip.is-active {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  border-color: var(--accent); color: var(--accent);
-}
-@media (hover: hover) {
-  .nt-chip:not(.is-active):hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
-}
-
-/* ── Card tag chips ──────────────────────────────────────────────────────── */
-.nt-card-tags {
-  display: flex; flex-wrap: wrap; gap: 4px;
-  padding: 4px 14px 8px;
-}
-.nt-card-tag {
-  display: inline-flex; align-items: center;
-  height: 20px; padding: 0 7px;
-  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent); font-size: 11px; font-family: var(--font);
-  white-space: nowrap;
-}
-/* ── Card archived badge ────────────────────────────────────────────────── */
-.nt-card-archived {
-  position: absolute; top: 6px; left: 6px;
-  width: 24px; height: 24px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--muted) 18%, transparent);
-  color: var(--muted); pointer-events: none;
-}
-
-/* ── Tag editor in EditorPanel ───────────────────────────────────────────── */
-.nt-tags-wrap {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
-  padding: 4px 10px;
+/* ── Stranded-attachment strip (editor) ─────────────────────────────────── */
+/* Images attached to the note (meta.attachments) whose markdown ref is no
+   longer in the body. Without this strip they'd be invisible inside the note
+   while still showing on the card — stranded data. */
+.nt-attach-strip {
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 8px 16px max(10px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--border);
   background: var(--surface2, var(--surface));
-  flex: 0 0 auto;
+  overflow-x: auto; flex: 0 0 auto;
+  overscroll-behavior: contain;
 }
-.nt-tag-chip {
-  display: inline-flex; align-items: center; gap: 3px;
-  height: 26px; padding: 0 8px;
-  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent); font-size: 12px; font-family: var(--font);
-  white-space: nowrap;
+.nt-attach-thumb {
+  height: 72px; max-width: 140px; object-fit: cover;
+  border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface); flex-shrink: 0;
 }
-.nt-tag-remove {
-  width: 16px; height: 16px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: none; border-radius: 50%; padding: 0;
-  background: transparent; color: var(--accent);
-  cursor: pointer; font-size: 13px; line-height: 1; font-family: var(--font);
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-}
-.nt-tag-remove:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
-.nt-tag-input {
-  flex: 1; min-width: 90px;
-  height: 26px; padding: 0 8px;
-  border: 1px dashed var(--border); border-radius: 999px;
-  background: transparent; color: var(--text);
-  font-size: 12px; font-family: var(--font);
-}
-.nt-tag-input:focus { outline: none; border-color: var(--accent); }
-.nt-tag-input::placeholder { color: var(--muted); }
+
+/* ── Per-note color tones (generated from NOTE_COLORS) ──────────────────── */
+${TONE_CSS}
 
 /* mobius-ui:ReducedMotion v1 — honor the OS reduce-motion setting */
 @media (prefers-reduced-motion: reduce) {

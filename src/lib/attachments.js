@@ -61,6 +61,20 @@ export function noteAttachmentRefs(meta = {}, body = '') {
   return refs
 }
 
+// Image attachments the note still owns (meta.attachments) but whose markdown
+// embed is gone from the body — e.g. a body that was overwritten by a lossy
+// snippet, or an embed the user deleted while the attachment record remained.
+// Without surfacing these, the image shows on the card (which reads
+// meta.attachments) but is invisible inside the opened note — stranded data.
+// The editor renders them in a strip below the body.
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif)$/i
+export function strandedImageRefs(meta = {}, body = '') {
+  if (!Array.isArray(meta.attachments)) return []
+  const bodyRefs = noteAttachmentRefs({}, body)
+  return meta.attachments.filter((p) =>
+    typeof p === 'string' && p.startsWith('attachments/') && IMAGE_EXT.test(p) && !bodyRefs.has(p))
+}
+
 // The set of attachment paths reachable from ANY live note. Blobs are
 // content-addressed and dedup'd, so a path may be shared across notes — the GC
 // sweep must keep a blob alive while even one note still references it.

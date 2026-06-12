@@ -9,18 +9,16 @@ test('buildIndex returns one entry per note with the projected fields', () => {
     note({id: 'a', title: 'Alpha', pinned: false, color: 'violet', updated: '2026-06-03T10:00:00Z'}, 'hello'),
   ])
   assert.equal(notes.length, 1)
-  // All projected fields including 1.1 additions: tags, type, archived
-  assert.deepEqual(Object.keys(notes[0]).sort(), ['archived', 'color', 'id', 'pinned', 'snippet', 'tags', 'title', 'type', 'updated'])
+  // Projected fields only — removed-feature fields (tags, archived) are not
+  // carried into the index even when present on legacy meta.
+  assert.deepEqual(Object.keys(notes[0]).sort(), ['color', 'id', 'pinned', 'snippet', 'title', 'type', 'updated'])
   assert.equal(notes[0].id, 'a')
   assert.equal(notes[0].title, 'Alpha')
   assert.equal(notes[0].color, 'violet')
   assert.equal(notes[0].pinned, false)
   assert.equal(notes[0].updated, '2026-06-03T10:00:00Z')
   assert.equal(notes[0].snippet, 'hello')
-  // 1.1 defaults
-  assert.deepEqual(notes[0].tags, [])
   assert.equal(notes[0].type, 'note')
-  assert.equal(notes[0].archived, false)
 })
 
 test('buildIndex sorts pinned-first, then updated descending', () => {
@@ -106,18 +104,14 @@ test('empty input produces an empty index', () => {
   assert.deepEqual(rebuildFromFiles([]), {notes: []})
 })
 
-// ── P2 feature tests (1.1) ──────────────────────────────────────────────────
+// ── Type projection + legacy leniency ───────────────────────────────────────
 
-test('buildIndex projects tags from meta', () => {
+test('buildIndex drops legacy tags/archived from the projection', () => {
   const {notes} = buildIndex([
-    note({id: 'a', tags: ['work', 'ideas'], updated: '2026-06-03T00:00:00Z'}, 'x'),
+    note({id: 'a', tags: ['work'], archived: true, updated: '2026-06-03T00:00:00Z'}, 'x'),
   ])
-  assert.deepEqual(notes[0].tags, ['work', 'ideas'])
-})
-
-test('buildIndex defaults tags to [] when absent', () => {
-  const {notes} = buildIndex([note({id: 'a'}, 'x')])
-  assert.deepEqual(notes[0].tags, [])
+  assert.equal('tags' in notes[0], false)
+  assert.equal('archived' in notes[0], false)
 })
 
 test('buildIndex projects type from meta', () => {
@@ -130,16 +124,4 @@ test('buildIndex projects type from meta', () => {
 test('buildIndex defaults type to note when absent', () => {
   const {notes} = buildIndex([note({id: 'a'}, 'x')])
   assert.equal(notes[0].type, 'note')
-})
-
-test('buildIndex projects archived from meta', () => {
-  const {notes} = buildIndex([
-    note({id: 'a', archived: true, updated: '2026-06-03T00:00:00Z'}, 'x'),
-  ])
-  assert.equal(notes[0].archived, true)
-})
-
-test('buildIndex defaults archived to false when absent', () => {
-  const {notes} = buildIndex([note({id: 'a'}, 'x')])
-  assert.equal(notes[0].archived, false)
 })

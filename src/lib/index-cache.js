@@ -33,7 +33,8 @@ function snippetOf(body) {
   return text.length > SNIPPET_LEN ? text.slice(0, SNIPPET_LEN) : text
 }
 
-// Project one `{meta, body}` to its index entry.
+// Project one `{meta, body}` to its index entry. Legacy fields from removed
+// features (tags, archived) are not projected — the grid no longer reads them.
 function toEntry({meta, body}) {
   return {
     id: meta.id,
@@ -41,9 +42,7 @@ function toEntry({meta, body}) {
     snippet: snippetOf(body),
     pinned: meta.pinned ?? false,
     color: meta.color ?? null,
-    tags: Array.isArray(meta.tags) ? meta.tags : [],
     type: meta.type ?? 'note',
-    archived: meta.archived ?? false,
     updated: meta.updated,
   }
 }
@@ -79,6 +78,13 @@ export function rebuildFromFiles(arr) {
 // snippet stands in as the preview text until listNotes() replaces these with
 // the authoritative notes (a brief transient — thumbnails/attachments appear on
 // the full load). Returns [] for a missing/malformed index.
+//
+// `placeholder: true` marks each record as DISPLAY-ONLY. The snippet is a lossy
+// projection (stripMarkdown reduces `![alt](path)` to bare alt text), so a
+// placeholder body must never reach the editor: editing one and flushing it
+// would overwrite the canonical markdown with the stripped snippet — exactly
+// the data-destruction bug that erased image embeds from real notes. The app
+// loads the authoritative note before opening the editor (see openEditor).
 export function notesFromIndex(index) {
   const entries = index && Array.isArray(index.notes) ? index.notes : []
   return entries
@@ -89,11 +95,10 @@ export function notesFromIndex(index) {
         title: e.title ?? '',
         pinned: e.pinned ?? false,
         color: e.color ?? null,
-        tags: Array.isArray(e.tags) ? e.tags : [],
         type: e.type ?? 'note',
-        archived: e.archived ?? false,
         updated: e.updated,
       },
       body: e.snippet ?? '',
+      placeholder: true,
     }))
 }

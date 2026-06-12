@@ -3,7 +3,7 @@
 // Pinned notes get their own section above the rest.
 import Card from './Card.jsx'
 
-export default function Grid({ notes, onOpen, onPin, onColor, onDelete, onArchive, resolveAttachment }) {
+export default function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const pinned = notes.filter((n) => n.meta.pinned)
   const others = notes.filter((n) => !n.meta.pinned)
 
@@ -20,7 +20,6 @@ export default function Grid({ notes, onOpen, onPin, onColor, onDelete, onArchiv
           onPin={onPin}
           onColor={onColor}
           onDelete={onDelete}
-          onArchive={onArchive}
           resolveAttachment={resolveAttachment}
         />
       ))}

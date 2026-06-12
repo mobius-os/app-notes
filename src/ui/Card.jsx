@@ -1,8 +1,8 @@
-// A single note card: full-card color tint background, pin top-right,
-// on-demand toolbar (hover/focus/long-press), rendered markdown preview.
+// A single note card: tone-class background, pin top-right, on-demand toolbar
+// (hover/focus/long-press), rendered markdown preview.
 // Tapping the body opens the editor.
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { colorHex, colorTint } from './colors.js'
+import { normalizeColorName } from './colors.js'
 import { localImageRefs, renderPreviewHTML } from '../lib/preview.js'
 import ColorPicker from './ColorPicker.jsx'
 import { Icon } from './icons.jsx'
@@ -18,7 +18,7 @@ function IconBtn({ children, title, onClick, active, danger }) {
   )
 }
 
-export default function Card({ note, onOpen, onPin, onColor, onDelete, onArchive, resolveAttachment }) {
+export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const { meta, body } = note
   const [html, setHtml] = useState('')
   const [showColors, setShowColors] = useState(false)
@@ -79,29 +79,11 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, onArchive
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [toolsOpen])
 
-  const bar = colorHex(meta.color)
-
-  // Full card background: solid tint for colored notes, surface default otherwise.
-  // The tint alpha is boosted (0.22 light / respects dark via surface blend) so
-  // it reads clearly. Title uses a slightly darkened version via CSS opacity layering.
-  const tintBg = bar ? colorTint(meta.color, 0.22) : null
-  const footerBorder = bar ? colorTint(meta.color, 0.35) : null
-  const footerBg = bar ? colorTint(meta.color, 0.12) : null
-  const thumbBorder = bar ? colorTint(meta.color, 0.28) : null
+  // Tone class drives background/border/footer styling (css.js TONE_CSS);
+  // legacy stored names (violet, sky, …) normalize to a current tone on read.
+  const tone = normalizeColorName(meta.color)
   const empty = !meta.title && !(body || '').trim()
-  const tags = Array.isArray(meta.tags) ? meta.tags : []
   const isChecklist = meta.type === 'checklist'
-  const isArchived = meta.archived === true
-
-  // Full-card background tint replaces the gradient strip approach
-  const cardStyle = {
-    background: tintBg || 'var(--surface)',
-    border: `1px solid ${bar ? colorTint(meta.color, 0.45) : 'var(--border)'}`,
-  }
-  const footerStyle = {
-    borderTop: `1px solid ${footerBorder || 'var(--border)'}`,
-    background: footerBg || 'transparent',
-  }
 
   // Long-press detection (~300ms) for touch devices
   const onTouchStart = useCallback((e) => {
@@ -122,20 +104,12 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, onArchive
     <div className="nt-card-wrap">
       <div
         ref={cardRef}
-        className={`nt-card${toolsOpen ? ' nt-card--tools' : ''}`}
-        style={cardStyle}
+        className={`nt-card${tone ? ` nt-card--${tone}` : ''}${toolsOpen ? ' nt-card--tools' : ''}`}
         onTouchStart={onTouchStart}
         onTouchEnd={cancelLongPress}
         onTouchMove={cancelLongPress}
         onTouchCancel={cancelLongPress}
       >
-        {/* Archive badge — top-left, only in archive view */}
-        {isArchived && (
-          <span className="nt-card-archived" aria-label="Archived">
-            <Icon name="archive" size={13} />
-          </span>
-        )}
-
         {/* Pin button — top-right corner */}
         <button
           title={meta.pinned ? 'Unpin' : 'Pin'}
@@ -160,8 +134,6 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, onArchive
                   className="nt-card-thumb"
                   style={{
                     aspectRatio: thumbUrls.length === 1 ? '16 / 10' : '1 / 1',
-                    border: `1px solid ${thumbBorder || 'var(--border)'}`,
-                    background: 'var(--surface2, var(--surface))',
                     gridColumn: thumbUrls.length === 3 && index === 0 ? 'span 2' : undefined,
                   }}
                 />
@@ -187,15 +159,8 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, onArchive
               />}
         </div>
 
-        {/* Tag chips — shown below body */}
-        {tags.length > 0 && (
-          <div className="nt-card-tags">
-            {tags.map((t) => <span key={t} className="nt-card-tag">{t}</span>)}
-          </div>
-        )}
-
-        {/* Footer toolbar: color + archive + delete (pin moved to top-right) */}
-        <div className="nt-card-footer" style={footerStyle}>
+        {/* Footer toolbar: color + delete (pin is top-right) */}
+        <div className="nt-card-footer">
           <div ref={colorBtnRef} className="nt-color-anchor">
             <IconBtn title="Color" onClick={() => setShowColors((v) => !v)}><Icon name="palette" size={16} /></IconBtn>
             {showColors && (
@@ -206,14 +171,6 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, onArchive
               />
             )}
           </div>
-          {onArchive && (
-            <IconBtn
-              title={isArchived ? 'Unarchive' : 'Archive'}
-              onClick={() => onArchive(meta.id)}
-            >
-              <Icon name={isArchived ? 'unarchive' : 'archive'} size={15} />
-            </IconBtn>
-          )}
           <div className="nt-spacer" />
           <IconBtn title="Delete" danger onClick={() => onDelete(meta.id)}><Icon name="trash" size={15} /></IconBtn>
         </div>

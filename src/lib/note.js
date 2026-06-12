@@ -17,9 +17,12 @@ import {sha256Hex} from './hash.js'
 // so the hash is invariant under meta key reordering and missing-vs-default
 // fields. `JSON.stringify` of this fixed-shape object is the digest input.
 //
-// `type` and `archived` are content-identity fields (changing them signals a
-// real semantic edit that should trigger sync), while `pinned` is similarly an
-// intentional user action that changes what the note *is* to the user.
+// `tags` and `archived` belong to REMOVED features (v1.2) but stay in the hash
+// input with their defaults: stored base hashes were computed over them, and
+// dropping them from the digest would make every legacy note look remotely
+// edited (a phantom conflict) on the first reconcile after the update. New
+// notes never set them, so normalize()'s defaults keep their hashes identical
+// to an explicit `tags: [], archived: false`.
 function normalize(meta, body) {
   return {
     title: meta.title ?? '',
@@ -55,7 +58,8 @@ function nowIso() {
 // A brand-new note: a fresh uuid, rev 1 based on the implicit empty rev 0, and
 // the design's default frontmatter (DESIGN §5). created === updated at birth.
 // `type` defaults to 'note'; pass 'checklist' to start in checklist mode.
-// `archived` defaults to false; absent notes are treated as not archived.
+// No `tags`/`archived` — those features are gone; normalize() defaults keep
+// the content hash identical to the explicit-default form legacy notes carry.
 export function newNote({title, type} = {}) {
   const ts = nowIso()
   return {
@@ -63,9 +67,7 @@ export function newNote({title, type} = {}) {
     title: title ?? '',
     pinned: false,
     color: null,
-    tags: [],
     type: type ?? 'note',
-    archived: false,
     created: ts,
     updated: ts,
     mobius_rev: 1,

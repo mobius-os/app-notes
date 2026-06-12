@@ -2,9 +2,43 @@
 // Edit src/app.jsx + src/{lib,ui,editor}/*, then run `npm run build`.
 
 // src/app.jsx
-import { useState as useState5, useEffect as useEffect5, useMemo as useMemo2, useCallback as useCallback4, useRef as useRef5 } from "react";
+import { useState as useState4, useEffect as useEffect4, useMemo as useMemo3, useCallback as useCallback3, useRef as useRef4 } from "react";
+
+// src/ui/colors.js
+var NOTE_COLORS = [
+  { name: null, label: "Default", hex: null },
+  { name: "slate", label: "Slate", hex: "#7d96b4" },
+  { name: "moss", label: "Moss", hex: "#84a583" },
+  { name: "sand", label: "Sand", hex: "#c2ab82" },
+  { name: "clay", label: "Clay", hex: "#bd8d7c" },
+  { name: "plum", label: "Plum", hex: "#a98ab4" }
+];
+var LEGACY_TONES = {
+  violet: "plum",
+  pink: "plum",
+  green: "moss",
+  amber: "sand",
+  coral: "clay",
+  sky: "slate"
+};
+function normalizeColorName(name) {
+  if (!name) return null;
+  if (NOTE_COLORS.some((c) => c.name === name)) return name;
+  return LEGACY_TONES[name] ?? null;
+}
 
 // src/ui/css.js
+var TONE_CSS = NOTE_COLORS.filter((c) => c.name).map((c) => `
+.nt-card--${c.name} {
+  background: color-mix(in srgb, ${c.hex} 16%, var(--surface));
+  border-color: color-mix(in srgb, ${c.hex} 34%, var(--border));
+}
+.nt-card--${c.name} .nt-card-footer {
+  border-top-color: color-mix(in srgb, ${c.hex} 26%, var(--border));
+  background: color-mix(in srgb, ${c.hex} 8%, transparent);
+}
+.nt-swatch--${c.name} { background: ${c.hex}; }
+.nt-color-dot--${c.name} { background: ${c.hex}; }`).join("\n");
 var CSS = `
 /* mobius-ui:Root v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
 .nt-root {
@@ -137,7 +171,7 @@ var CSS = `
 .nt-card {
   position: relative;
   border-radius: 10px; overflow: hidden;
-  /* background + border are dynamic (per-note tint) \u2014 set via inline style */
+  background: var(--surface); border: 1px solid var(--border);
   transition: box-shadow 0.14s ease, transform 0.1s ease;
 }
 @media (hover: hover) {
@@ -167,6 +201,8 @@ var CSS = `
 }
 .nt-card-thumb {
   width: 100%; object-fit: cover; display: block; border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2, var(--surface));
 }
 /* /mobius-ui:Card */
 
@@ -202,7 +238,7 @@ var CSS = `
 .nt-card-footer {
   display: flex; align-items: center; gap: 2px;
   padding: 4px 6px;
-  /* border-top + background are dynamic (per-note tint) \u2014 set via inline style */
+  border-top: 1px solid var(--border); background: transparent;
   /* hidden by default; revealed on hover/focus or long-press (.nt-card--tools) */
   opacity: 0;
   transition: opacity 0.14s ease;
@@ -260,10 +296,12 @@ var CSS = `
 .nt-swatch {
   width: 44px; height: 44px; border-radius: 9px;
   cursor: pointer; padding: 0;
-  /* border and background set via inline style (dynamic per swatch) */
+  border: 1px solid var(--border);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
   transition: transform 0.1s ease;
 }
+.nt-swatch.is-current { border: 2px solid var(--text); }
+.nt-swatch--default { background: linear-gradient(135deg, var(--surface) 49%, var(--muted) 51%); }
 .nt-swatch:active { transform: scale(0.9); }
 @media (hover: hover) { .nt-swatch:hover { transform: scale(1.1); } }
 
@@ -346,8 +384,9 @@ var CSS = `
 /* keyboard focus ring comes from the shared mobius-ui:Focus block above */
 /* /mobius-ui:Button */
 .nt-color-dot {
-  /* width/height/border-radius/background set via inline style (dynamic per note) */
+  width: 9px; height: 9px; border-radius: 3px;
   flex-shrink: 0;
+  /* background comes from the nt-color-dot--<tone> classes generated above */
 }
 .nt-title-input {
   flex: 1; min-width: 0;
@@ -402,161 +441,26 @@ var CSS = `
 }
 .nt-editor-body { flex: 1; overflow: hidden; }
 
-/* \u2500\u2500 Inline capture widget (Keep-style "Take a note\u2026" at grid top) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-.nt-capture-wrap {
-  padding: 0 8px 12px;
-  max-width: 1120px; margin: 0 auto;
-}
-/* Collapsed state: single-row affordance */
-.nt-capture-pill {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 16px; border-radius: 12px;
-  background: var(--surface); border: 1px solid var(--border);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-  cursor: text;
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: box-shadow 0.14s ease;
-}
-@media (hover: hover) { .nt-capture-pill:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.14); } }
-.nt-capture-placeholder {
-  flex: 1; font-size: 15px; color: var(--muted); user-select: none;
-}
-.nt-capture-type-toggle {
-  width: 44px; height: 44px; flex-shrink: 0;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: none; border-radius: 9px;
-  background: transparent; color: var(--muted);
-  cursor: pointer; font-family: var(--font);
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: background 0.12s ease;
-}
-@media (hover: hover) { .nt-capture-type-toggle:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); } }
-.nt-capture-type-toggle.is-checklist { color: var(--accent); }
-
-/* Expanded state: inline card */
-.nt-capture-card {
-  border-radius: 12px;
-  background: var(--surface); border: 1px solid var(--border);
-  box-shadow: 0 2px 12px rgba(0,0,0,0.12);
-}
-.nt-capture-title {
-  width: 100%;
-  padding: 12px 16px 0;
-  border: none; background: transparent; color: var(--text);
-  font-size: 15px; font-weight: 650; font-family: var(--font);
-}
-.nt-capture-title:focus { outline: none; }
-.nt-capture-title::placeholder { color: var(--muted); font-weight: 400; }
-.nt-capture-body {
-  width: 100%;
-  padding: 8px 16px;
-  border: none; background: transparent; color: var(--text);
-  font-size: 14px; font-family: var(--font); line-height: 1.55;
-  resize: none; min-height: 72px; max-height: 280px;
-  overflow-y: auto;
-}
-.nt-capture-body:focus { outline: none; }
-.nt-capture-body::placeholder { color: var(--muted); }
-.nt-capture-footer {
-  display: flex; align-items: center; gap: 4px;
-  padding: 4px 8px; border-top: 1px solid var(--border);
-}
-.nt-capture-done {
-  margin-left: auto;
-  height: 36px; padding: 0 14px;
-  border: none; border-radius: 8px;
-  background: var(--accent); color: #fff;
-  font-size: 13px; font-weight: 600; font-family: var(--font);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: filter 0.12s ease;
-}
-@media (hover: hover) { .nt-capture-done:hover { filter: brightness(1.08); } }
-
-/* \u2500\u2500 Label / tag filter chips \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-.nt-chips-wrap {
-  padding: 0 8px 10px;
-  max-width: 1120px; margin: 0 auto;
-  display: flex; gap: 6px; overflow-x: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-}
-.nt-chips-wrap::-webkit-scrollbar { display: none; }
-.nt-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  height: 32px; padding: 0 12px;
-  border-radius: 999px; border: 1px solid var(--border);
-  background: transparent; color: var(--muted);
-  font-size: 13px; font-family: var(--font);
-  white-space: nowrap; cursor: pointer; flex-shrink: 0;
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
-}
-.nt-chip.is-active {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  border-color: var(--accent); color: var(--accent);
-}
-@media (hover: hover) {
-  .nt-chip:not(.is-active):hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
-}
-
-/* \u2500\u2500 Card tag chips \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-.nt-card-tags {
-  display: flex; flex-wrap: wrap; gap: 4px;
-  padding: 4px 14px 8px;
-}
-.nt-card-tag {
-  display: inline-flex; align-items: center;
-  height: 20px; padding: 0 7px;
-  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent); font-size: 11px; font-family: var(--font);
-  white-space: nowrap;
-}
-/* \u2500\u2500 Card archived badge \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-.nt-card-archived {
-  position: absolute; top: 6px; left: 6px;
-  width: 24px; height: 24px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--muted) 18%, transparent);
-  color: var(--muted); pointer-events: none;
-}
-
-/* \u2500\u2500 Tag editor in EditorPanel \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-.nt-tags-wrap {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
-  padding: 4px 10px;
+/* \u2500\u2500 Stranded-attachment strip (editor) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+/* Images attached to the note (meta.attachments) whose markdown ref is no
+   longer in the body. Without this strip they'd be invisible inside the note
+   while still showing on the card \u2014 stranded data. */
+.nt-attach-strip {
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 8px 16px max(10px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--border);
   background: var(--surface2, var(--surface));
-  flex: 0 0 auto;
+  overflow-x: auto; flex: 0 0 auto;
+  overscroll-behavior: contain;
 }
-.nt-tag-chip {
-  display: inline-flex; align-items: center; gap: 3px;
-  height: 26px; padding: 0 8px;
-  border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: var(--accent); font-size: 12px; font-family: var(--font);
-  white-space: nowrap;
+.nt-attach-thumb {
+  height: 72px; max-width: 140px; object-fit: cover;
+  border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface); flex-shrink: 0;
 }
-.nt-tag-remove {
-  width: 16px; height: 16px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: none; border-radius: 50%; padding: 0;
-  background: transparent; color: var(--accent);
-  cursor: pointer; font-size: 13px; line-height: 1; font-family: var(--font);
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-}
-.nt-tag-remove:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
-.nt-tag-input {
-  flex: 1; min-width: 90px;
-  height: 26px; padding: 0 8px;
-  border: 1px dashed var(--border); border-radius: 999px;
-  background: transparent; color: var(--text);
-  font-size: 12px; font-family: var(--font);
-}
-.nt-tag-input:focus { outline: none; border-color: var(--accent); }
-.nt-tag-input::placeholder { color: var(--muted); }
+
+/* \u2500\u2500 Per-note color tones (generated from NOTE_COLORS) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+${TONE_CSS}
 
 /* mobius-ui:ReducedMotion v1 \u2014 honor the OS reduce-motion setting */
 @media (prefers-reduced-motion: reduce) {
@@ -618,9 +522,7 @@ function newNote({ title, type } = {}) {
     title: title ?? "",
     pinned: false,
     color: null,
-    tags: [],
     type: type ?? "note",
-    archived: false,
     created: ts,
     updated: ts,
     mobius_rev: 1,
@@ -658,9 +560,7 @@ function toEntry({ meta, body }) {
     snippet: snippetOf(body),
     pinned: meta.pinned ?? false,
     color: meta.color ?? null,
-    tags: Array.isArray(meta.tags) ? meta.tags : [],
     type: meta.type ?? "note",
-    archived: meta.archived ?? false,
     updated: meta.updated
   };
 }
@@ -684,13 +584,25 @@ function notesFromIndex(index) {
       title: e.title ?? "",
       pinned: e.pinned ?? false,
       color: e.color ?? null,
-      tags: Array.isArray(e.tags) ? e.tags : [],
       type: e.type ?? "note",
-      archived: e.archived ?? false,
       updated: e.updated
     },
-    body: e.snippet ?? ""
+    body: e.snippet ?? "",
+    placeholder: true
   }));
+}
+
+// src/lib/visible.js
+function visibleNotes(notes, query) {
+  const q = (query || "").trim().toLowerCase();
+  let list = notes;
+  if (q) {
+    list = list.filter((n) => (n.meta.title || "").toLowerCase().includes(q) || (n.body || "").toLowerCase().includes(q));
+  }
+  return [...list].sort((a, b) => {
+    if (!!a.meta.pinned !== !!b.meta.pinned) return a.meta.pinned ? -1 : 1;
+    return (b.meta.updated || "").localeCompare(a.meta.updated || "");
+  });
 }
 
 // src/lib/frontmatter.js
@@ -817,6 +729,12 @@ function noteAttachmentRefs(meta = {}, body = "") {
   BODY_ATTACHMENT_REF.lastIndex = 0;
   while (m = BODY_ATTACHMENT_REF.exec(String(body || ""))) refs.add(m[1]);
   return refs;
+}
+var IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif)$/i;
+function strandedImageRefs(meta = {}, body = "") {
+  if (!Array.isArray(meta.attachments)) return [];
+  const bodyRefs = noteAttachmentRefs({}, body);
+  return meta.attachments.filter((p) => typeof p === "string" && p.startsWith("attachments/") && IMAGE_EXT.test(p) && !bodyRefs.has(p));
 }
 function referencedAttachments(notes = []) {
   const refs = /* @__PURE__ */ new Set();
@@ -1514,30 +1432,6 @@ async function reconcileAll({ onApplied, onConflict, onDeleted } = {}) {
 // src/ui/Card.jsx
 import { useState as useState2, useEffect, useRef, useMemo, useCallback } from "react";
 
-// src/ui/colors.js
-var NOTE_COLORS = [
-  { name: null, label: "Default", hex: null },
-  { name: "violet", label: "Violet", hex: "#a78bfa" },
-  { name: "green", label: "Green", hex: "#6ee7b7" },
-  { name: "amber", label: "Amber", hex: "#fbbf24" },
-  { name: "coral", label: "Coral", hex: "#f87171" },
-  { name: "sky", label: "Sky", hex: "#60a5fa" },
-  { name: "pink", label: "Pink", hex: "#f472b6" }
-];
-function colorHex(name) {
-  const c = NOTE_COLORS.find((x) => x.name === name);
-  return c ? c.hex : null;
-}
-function colorTint(name, alpha = 0.16) {
-  const hex = colorHex(name);
-  if (!hex) return null;
-  const n = hex.replace("#", "");
-  const r = parseInt(n.slice(0, 2), 16);
-  const g = parseInt(n.slice(2, 4), 16);
-  const b = parseInt(n.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
 // src/lib/preview.js
 var _libs;
 async function libs() {
@@ -1586,9 +1480,9 @@ import { jsx } from "react/jsx-runtime";
 var MARGIN = 12;
 function ColorPicker({ anchorRef, current, onPick, placement = "above", align = "start" }) {
   const [pos, setPos] = useState(null);
-  const width = 4 * 28 + 3 * 7 + 2 * 8;
+  const width = 4 * 44 + 3 * 8 + 2 * 8;
   const rows = Math.ceil(NOTE_COLORS.length / 4);
-  const height = rows * 28 + (rows - 1) * 7 + 2 * 8;
+  const height = rows * 44 + (rows - 1) * 8 + 2 * 8;
   useLayoutEffect(() => {
     function place() {
       const el = anchorRef && anchorRef.current;
@@ -1624,12 +1518,12 @@ function ColorPicker({ anchorRef, current, onPick, placement = "above", align = 
             title: c.label,
             "aria-label": c.label,
             onClick: () => onPick(c.name),
-            className: "nt-swatch",
-            style: {
-              // Dynamic: swatch background is the note color hex (or the "default" diagonal)
-              border: current === c.name ? "2px solid var(--text)" : "1px solid var(--border)",
-              background: c.hex || "linear-gradient(135deg, var(--surface) 49%, var(--muted) 51%)"
-            }
+            className: [
+              "nt-swatch",
+              c.name ? `nt-swatch--${c.name}` : "nt-swatch--default",
+              // Legacy stored names normalize to a tone so the matching swatch highlights.
+              normalizeColorName(current) === c.name ? "is-current" : ""
+            ].filter(Boolean).join(" ")
           },
           c.name || "default"
         ))
@@ -1704,19 +1598,6 @@ function Icon({ name, size = 17 }) {
       /* @__PURE__ */ jsx2("path", { d: "M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" })
     ] });
   }
-  if (name === "tag") {
-    return /* @__PURE__ */ jsxs("svg", { ...common, children: [
-      /* @__PURE__ */ jsx2("path", { d: "M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82Z" }),
-      /* @__PURE__ */ jsx2("line", { x1: "7", y1: "7", x2: "7.01", y2: "7", strokeWidth: "2.5" })
-    ] });
-  }
-  if (name === "archive") {
-    return /* @__PURE__ */ jsxs("svg", { ...common, children: [
-      /* @__PURE__ */ jsx2("polyline", { points: "21 8 21 21 3 21 3 8" }),
-      /* @__PURE__ */ jsx2("rect", { x: "1", y: "3", width: "22", height: "5" }),
-      /* @__PURE__ */ jsx2("line", { x1: "10", y1: "12", x2: "14", y2: "12" })
-    ] });
-  }
   if (name === "checklist") {
     return /* @__PURE__ */ jsxs("svg", { ...common, children: [
       /* @__PURE__ */ jsx2("polyline", { points: "9 11 12 14 22 4" }),
@@ -1729,14 +1610,6 @@ function Icon({ name, size = 17 }) {
       /* @__PURE__ */ jsx2("path", { d: "M14 3v6h6" }),
       /* @__PURE__ */ jsx2("line", { x1: "8", y1: "13", x2: "16", y2: "13" }),
       /* @__PURE__ */ jsx2("line", { x1: "8", y1: "17", x2: "12", y2: "17" })
-    ] });
-  }
-  if (name === "unarchive") {
-    return /* @__PURE__ */ jsxs("svg", { ...common, children: [
-      /* @__PURE__ */ jsx2("polyline", { points: "21 8 21 21 3 21 3 8" }),
-      /* @__PURE__ */ jsx2("rect", { x: "1", y: "3", width: "22", height: "5" }),
-      /* @__PURE__ */ jsx2("polyline", { points: "10 14 12 12 14 14" }),
-      /* @__PURE__ */ jsx2("line", { x1: "12", y1: "12", x2: "12", y2: "17" })
     ] });
   }
   if (name === "check") {
@@ -1762,7 +1635,7 @@ function IconBtn({ children, title, onClick, active, danger }) {
     }
   );
 }
-function Card({ note, onOpen, onPin, onColor, onDelete, onArchive, resolveAttachment }) {
+function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const { meta, body } = note;
   const [html, setHtml] = useState2("");
   const [showColors, setShowColors] = useState2(false);
@@ -1815,23 +1688,9 @@ function Card({ note, onOpen, onPin, onColor, onDelete, onArchive, resolveAttach
     document.addEventListener("pointerdown", onPointerDown);
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [toolsOpen]);
-  const bar = colorHex(meta.color);
-  const tintBg = bar ? colorTint(meta.color, 0.22) : null;
-  const footerBorder = bar ? colorTint(meta.color, 0.35) : null;
-  const footerBg = bar ? colorTint(meta.color, 0.12) : null;
-  const thumbBorder = bar ? colorTint(meta.color, 0.28) : null;
+  const tone = normalizeColorName(meta.color);
   const empty = !meta.title && !(body || "").trim();
-  const tags2 = Array.isArray(meta.tags) ? meta.tags : [];
   const isChecklist = meta.type === "checklist";
-  const isArchived = meta.archived === true;
-  const cardStyle = {
-    background: tintBg || "var(--surface)",
-    border: `1px solid ${bar ? colorTint(meta.color, 0.45) : "var(--border)"}`
-  };
-  const footerStyle = {
-    borderTop: `1px solid ${footerBorder || "var(--border)"}`,
-    background: footerBg || "transparent"
-  };
   const onTouchStart = useCallback((e) => {
     longPressTimer.current = setTimeout(() => {
       setToolsOpen(true);
@@ -1848,14 +1707,12 @@ function Card({ note, onOpen, onPin, onColor, onDelete, onArchive, resolveAttach
     "div",
     {
       ref: cardRef,
-      className: `nt-card${toolsOpen ? " nt-card--tools" : ""}`,
-      style: cardStyle,
+      className: `nt-card${tone ? ` nt-card--${tone}` : ""}${toolsOpen ? " nt-card--tools" : ""}`,
       onTouchStart,
       onTouchEnd: cancelLongPress,
       onTouchMove: cancelLongPress,
       onTouchCancel: cancelLongPress,
       children: [
-        isArchived && /* @__PURE__ */ jsx3("span", { className: "nt-card-archived", "aria-label": "Archived", children: /* @__PURE__ */ jsx3(Icon, { name: "archive", size: 13 }) }),
         /* @__PURE__ */ jsx3(
           "button",
           {
@@ -1883,8 +1740,6 @@ function Card({ note, onOpen, onPin, onColor, onDelete, onArchive, resolveAttach
                   className: "nt-card-thumb",
                   style: {
                     aspectRatio: thumbUrls.length === 1 ? "16 / 10" : "1 / 1",
-                    border: `1px solid ${thumbBorder || "var(--border)"}`,
-                    background: "var(--surface2, var(--surface))",
                     gridColumn: thumbUrls.length === 3 && index === 0 ? "span 2" : void 0
                   }
                 },
@@ -1908,8 +1763,7 @@ function Card({ note, onOpen, onPin, onColor, onDelete, onArchive, resolveAttach
             }
           )
         ] }),
-        tags2.length > 0 && /* @__PURE__ */ jsx3("div", { className: "nt-card-tags", children: tags2.map((t) => /* @__PURE__ */ jsx3("span", { className: "nt-card-tag", children: t }, t)) }),
-        /* @__PURE__ */ jsxs2("div", { className: "nt-card-footer", style: footerStyle, children: [
+        /* @__PURE__ */ jsxs2("div", { className: "nt-card-footer", children: [
           /* @__PURE__ */ jsxs2("div", { ref: colorBtnRef, className: "nt-color-anchor", children: [
             /* @__PURE__ */ jsx3(IconBtn, { title: "Color", onClick: () => setShowColors((v) => !v), children: /* @__PURE__ */ jsx3(Icon, { name: "palette", size: 16 }) }),
             showColors && /* @__PURE__ */ jsx3(
@@ -1924,14 +1778,6 @@ function Card({ note, onOpen, onPin, onColor, onDelete, onArchive, resolveAttach
               }
             )
           ] }),
-          onArchive && /* @__PURE__ */ jsx3(
-            IconBtn,
-            {
-              title: isArchived ? "Unarchive" : "Archive",
-              onClick: () => onArchive(meta.id),
-              children: /* @__PURE__ */ jsx3(Icon, { name: isArchived ? "unarchive" : "archive", size: 15 })
-            }
-          ),
           /* @__PURE__ */ jsx3("div", { className: "nt-spacer" }),
           /* @__PURE__ */ jsx3(IconBtn, { title: "Delete", danger: true, onClick: () => onDelete(meta.id), children: /* @__PURE__ */ jsx3(Icon, { name: "trash", size: 15 }) })
         ] })
@@ -1942,7 +1788,7 @@ function Card({ note, onOpen, onPin, onColor, onDelete, onArchive, resolveAttach
 
 // src/ui/Grid.jsx
 import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
-function Grid({ notes, onOpen, onPin, onColor, onDelete, onArchive, resolveAttachment }) {
+function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const pinned = notes.filter((n) => n.meta.pinned);
   const others = notes.filter((n) => !n.meta.pinned);
   const header = (txt) => /* @__PURE__ */ jsx4("h2", { className: "nt-section-head", children: txt });
@@ -1954,7 +1800,6 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete, onArchive, resolveAttac
       onPin,
       onColor,
       onDelete,
-      onArchive,
       resolveAttachment
     },
     n.meta.id
@@ -1972,7 +1817,7 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete, onArchive, resolveAttac
 }
 
 // src/ui/EditorPanel.jsx
-import { useState as useState3, useEffect as useEffect3, useRef as useRef3, useCallback as useCallback2 } from "react";
+import { useState as useState3, useEffect as useEffect3, useRef as useRef3, useCallback as useCallback2, useMemo as useMemo2 } from "react";
 
 // src/editor/Editor.jsx
 import { useRef as useRef2, useEffect as useEffect2 } from "react";
@@ -2392,22 +2237,18 @@ function statusClass(status) {
   if (status === "Resolving\u2026") return "is-resolving";
   return "is-default";
 }
-function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, onArchive, resolveAttachment, putAttachment: putAttachment2, conflict, status }) {
+function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment: putAttachment2, conflict, status }) {
   const [title, setTitle] = useState3(note.meta.title || "");
   const [body, setBody] = useState3(note.body || "");
   const [showColors, setShowColors] = useState3(false);
   const [attachErr, setAttachErr] = useState3("");
-  const [tagInput, setTagInput] = useState3("");
-  const tagInputRef = useRef3(null);
   const timer = useRef3(null);
   const viewRef = useRef3(null);
   const imageRef = useRef3(null);
   const fileRef = useRef3(null);
   const colorBtnRef = useRef3(null);
   const latest = useRef3({ note, title: note.meta.title || "", body: note.body || "" });
-  const tags2 = Array.isArray(note.meta.tags) ? note.meta.tags : [];
   const isChecklist = note.meta.type === "checklist";
-  const isArchived = note.meta.archived === true;
   useEffect3(() => {
     if (latest.current.note.meta.id === note.meta.id) {
       latest.current = { note, title, body };
@@ -2451,31 +2292,6 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, onArchive
       window.removeEventListener("beforeunload", flushOnUnload);
     };
   }, [flushSave]);
-  const addTag = useCallback2((raw) => {
-    const tag = raw.trim().toLowerCase().replace(/\s+/g, "-");
-    if (!tag) return;
-    const next = tags2.includes(tag) ? tags2 : [...tags2, tag];
-    if (next.length === tags2.length) return;
-    onSave({ ...note.meta, title, tags: next }, body);
-  }, [tags2, note.meta, title, body, onSave]);
-  const removeTag = useCallback2((tag) => {
-    onSave({ ...note.meta, title, tags: tags2.filter((t) => t !== tag) }, body);
-  }, [tags2, note.meta, title, body, onSave]);
-  const handleTagKeyDown = useCallback2((e) => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      addTag(tagInput);
-      setTagInput("");
-    } else if (e.key === "Backspace" && tagInput === "" && tags2.length > 0) {
-      removeTag(tags2[tags2.length - 1]);
-    }
-  }, [tagInput, tags2, addTag, removeTag]);
-  const handleTagBlur = useCallback2(() => {
-    if (tagInput.trim()) {
-      addTag(tagInput);
-      setTagInput("");
-    }
-  }, [tagInput, addTag]);
   const toggleType = useCallback2(() => {
     const nextType = isChecklist ? "note" : "checklist";
     let nextBody = body;
@@ -2517,7 +2333,32 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, onArchive
       setTimeout(() => setAttachErr(""), 3500);
     }
   }
-  const colorDotHex = colorHex(note.meta.color);
+  const stranded = useMemo2(() => strandedImageRefs(note.meta, body), [note.meta, body]);
+  const strandedKey = stranded.join("\n");
+  const [strandedUrls, setStrandedUrls] = useState3([]);
+  useEffect3(() => {
+    let live = true;
+    let urls = [];
+    const refs = strandedKey ? strandedKey.split("\n") : [];
+    setStrandedUrls([]);
+    if (!refs.length || !resolveAttachment) return () => {
+    };
+    Promise.all(refs.map((ref) => resolveAttachment(ref).catch(() => null))).then((resolved) => {
+      const next = resolved.filter(Boolean);
+      if (!live) {
+        next.forEach((u) => URL.revokeObjectURL(u));
+        return;
+      }
+      urls = next;
+      setStrandedUrls(next);
+    }).catch(() => {
+    });
+    return () => {
+      live = false;
+      urls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [strandedKey, resolveAttachment]);
+  const tone = normalizeColorName(note.meta.color);
   return /* @__PURE__ */ jsxs4("div", { className: "nt-editor-root", children: [
     /* @__PURE__ */ jsxs4("header", { className: "nt-editor-hdr", children: [
       /* @__PURE__ */ jsxs4("div", { className: "nt-editor-row1", children: [
@@ -2533,13 +2374,7 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, onArchive
             children: /* @__PURE__ */ jsx6(Icon, { name: "back", size: 18 })
           }
         ),
-        colorDotHex && /* @__PURE__ */ jsx6(
-          "span",
-          {
-            className: "nt-color-dot",
-            style: { width: 9, height: 9, borderRadius: 3, background: colorDotHex }
-          }
-        ),
+        tone && /* @__PURE__ */ jsx6("span", { className: `nt-color-dot nt-color-dot--${tone}` }),
         /* @__PURE__ */ jsx6(
           "input",
           {
@@ -2625,19 +2460,6 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, onArchive
           }
         ),
         /* @__PURE__ */ jsx6("div", { className: "nt-hdr-spacer" }),
-        onArchive && /* @__PURE__ */ jsx6(
-          "button",
-          {
-            onClick: () => {
-              onArchive(note.meta.id);
-              onBack();
-            },
-            "aria-label": isArchived ? "Unarchive" : "Archive",
-            title: isArchived ? "Unarchive" : "Archive",
-            className: "nt-hdr-btn",
-            children: /* @__PURE__ */ jsx6(Icon, { name: isArchived ? "unarchive" : "archive", size: 16 })
-          }
-        ),
         /* @__PURE__ */ jsx6(
           "button",
           {
@@ -2652,39 +2474,13 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, onArchive
       /* @__PURE__ */ jsx6("input", { ref: imageRef, type: "file", accept: "image/*", onChange: handleFile, style: { display: "none" } }),
       /* @__PURE__ */ jsx6("input", { ref: fileRef, type: "file", onChange: handleFile, style: { display: "none" } })
     ] }),
-    /* @__PURE__ */ jsxs4("div", { className: "nt-tags-wrap", children: [
-      tags2.map((t) => /* @__PURE__ */ jsxs4("span", { className: "nt-tag-chip", children: [
-        t,
-        /* @__PURE__ */ jsx6(
-          "button",
-          {
-            className: "nt-tag-remove",
-            "aria-label": `Remove tag ${t}`,
-            onClick: () => removeTag(t),
-            children: "\xD7"
-          }
-        )
-      ] }, t)),
-      /* @__PURE__ */ jsx6(
-        "input",
-        {
-          ref: tagInputRef,
-          className: "nt-tag-input",
-          value: tagInput,
-          onChange: (e) => setTagInput(e.target.value),
-          onKeyDown: handleTagKeyDown,
-          onBlur: handleTagBlur,
-          placeholder: "Add label\u2026",
-          "aria-label": "Add label"
-        }
-      )
-    ] }),
     conflict && /* @__PURE__ */ jsxs4("div", { className: "nt-conflict-bar", children: [
       /* @__PURE__ */ jsx6("span", { className: "nt-conflict-msg", children: "Edited in two places \u2014 merging\u2026" }),
       /* @__PURE__ */ jsx6("button", { onClick: () => resolveNow(note), className: "nt-conflict-btn", children: "Resolve now" })
     ] }),
     attachErr && /* @__PURE__ */ jsx6("div", { className: "nt-attach-err", children: attachErr }),
-    /* @__PURE__ */ jsx6("div", { className: "nt-editor-body", children: /* @__PURE__ */ jsx6(Editor, { value: body, onChange: setBody, resolveAttachment, viewRef }) })
+    /* @__PURE__ */ jsx6("div", { className: "nt-editor-body", children: /* @__PURE__ */ jsx6(Editor, { value: body, onChange: setBody, resolveAttachment, viewRef }) }),
+    strandedUrls.length > 0 && /* @__PURE__ */ jsx6("div", { className: "nt-attach-strip", "aria-label": "Attached images", children: strandedUrls.map((u) => /* @__PURE__ */ jsx6("img", { src: u, alt: "", className: "nt-attach-thumb" }, u)) })
   ] });
 }
 
@@ -2726,151 +2522,12 @@ function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", d
   );
 }
 
-// src/ui/InlineCapture.jsx
-import { useState as useState4, useRef as useRef4, useCallback as useCallback3, useEffect as useEffect4 } from "react";
-import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
-function InlineCapture({ onCreate }) {
-  const [expanded, setExpanded] = useState4(false);
-  const [title, setTitle] = useState4("");
-  const [body, setBody] = useState4("");
-  const [isChecklist, setIsChecklist] = useState4(false);
-  const wrapRef = useRef4(null);
-  const bodyRef = useRef4(null);
-  const commit = useCallback3(() => {
-    const t = title.trim();
-    const b = body.trim();
-    if (t || b) {
-      let finalBody = b;
-      if (isChecklist && finalBody && !/^- \[[ x]\] /m.test(finalBody)) {
-        finalBody = finalBody.split("\n").filter(Boolean).map((l) => `- [ ] ${l}`).join("\n");
-      } else if (isChecklist && !finalBody) {
-        finalBody = "";
-      }
-      onCreate({ title: t, body: finalBody, type: isChecklist ? "checklist" : "note" });
-    }
-    setExpanded(false);
-    setTitle("");
-    setBody("");
-    setIsChecklist(false);
-  }, [title, body, isChecklist, onCreate]);
-  useEffect4(() => {
-    if (!expanded) return void 0;
-    const onPointerDown = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
-        commit();
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [expanded, commit]);
-  useEffect4(() => {
-    if (expanded && bodyRef.current) {
-      bodyRef.current.focus();
-    }
-  }, [expanded]);
-  const autoGrow = useCallback3((el) => {
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = el.scrollHeight + "px";
-  }, []);
-  if (!expanded) {
-    return /* @__PURE__ */ jsx8("div", { className: "nt-capture-wrap", children: /* @__PURE__ */ jsxs6(
-      "div",
-      {
-        className: "nt-capture-pill",
-        role: "button",
-        tabIndex: 0,
-        "aria-label": "Take a note",
-        onClick: () => setExpanded(true),
-        onKeyDown: (e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setExpanded(true);
-          }
-        },
-        children: [
-          /* @__PURE__ */ jsx8("span", { className: "nt-capture-placeholder", children: "Take a note\u2026" }),
-          /* @__PURE__ */ jsx8(
-            "button",
-            {
-              className: `nt-capture-type-toggle${isChecklist ? " is-checklist" : ""}`,
-              title: isChecklist ? "Switch to note" : "New checklist",
-              "aria-label": isChecklist ? "Switch to note" : "New checklist",
-              onClick: (e) => {
-                e.stopPropagation();
-                setIsChecklist((v) => !v);
-                setExpanded(true);
-              },
-              children: /* @__PURE__ */ jsx8(Icon, { name: isChecklist ? "checklist" : "checklist", size: 18 })
-            }
-          )
-        ]
-      }
-    ) });
-  }
-  return /* @__PURE__ */ jsx8("div", { className: "nt-capture-wrap", ref: wrapRef, children: /* @__PURE__ */ jsxs6("div", { className: "nt-capture-card", children: [
-    /* @__PURE__ */ jsx8(
-      "input",
-      {
-        className: "nt-capture-title",
-        value: title,
-        onChange: (e) => setTitle(e.target.value),
-        placeholder: "Title",
-        "aria-label": "Note title",
-        onKeyDown: (e) => {
-          if (e.key === "Escape") {
-            commit();
-          }
-          if (e.key === "Tab" && !e.shiftKey) {
-            e.preventDefault();
-            bodyRef.current?.focus();
-          }
-        }
-      }
-    ),
-    /* @__PURE__ */ jsx8(
-      "textarea",
-      {
-        ref: bodyRef,
-        className: "nt-capture-body",
-        value: body,
-        onChange: (e) => {
-          setBody(e.target.value);
-          autoGrow(e.target);
-        },
-        placeholder: isChecklist ? "List item" : "Take a note\u2026",
-        "aria-label": "Note body",
-        rows: 3,
-        onKeyDown: (e) => {
-          if (e.key === "Escape") {
-            commit();
-          }
-        }
-      }
-    ),
-    /* @__PURE__ */ jsxs6("div", { className: "nt-capture-footer", children: [
-      /* @__PURE__ */ jsx8(
-        "button",
-        {
-          className: `nt-capture-type-toggle${isChecklist ? " is-checklist" : ""}`,
-          title: isChecklist ? "Switch to note" : "Switch to checklist",
-          "aria-label": isChecklist ? "Switch to note" : "Switch to checklist",
-          onClick: () => setIsChecklist((v) => !v),
-          children: /* @__PURE__ */ jsx8(Icon, { name: "checklist", size: 17 })
-        }
-      ),
-      /* @__PURE__ */ jsx8("button", { className: "nt-capture-done", onClick: commit, children: "Done" })
-    ] })
-  ] }) });
-}
-
 // src/app.jsx
-import { jsx as jsx9, jsxs as jsxs7 } from "react/jsx-runtime";
-var ARCHIVE_TAG = "__archived__";
+import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
 function TopBar({ query, onQuery }) {
-  return /* @__PURE__ */ jsxs7("header", { className: "nt-topbar", children: [
-    /* @__PURE__ */ jsx9("h1", { className: "nt-title", children: "Notes" }),
-    /* @__PURE__ */ jsx9("div", { className: "nt-search-wrap", children: /* @__PURE__ */ jsx9(
+  return /* @__PURE__ */ jsxs6("header", { className: "nt-topbar", children: [
+    /* @__PURE__ */ jsx8("h1", { className: "nt-title", children: "Notes" }),
+    /* @__PURE__ */ jsx8("div", { className: "nt-search-wrap", children: /* @__PURE__ */ jsx8(
       "input",
       {
         value: query,
@@ -2882,60 +2539,15 @@ function TopBar({ query, onQuery }) {
     ) })
   ] });
 }
-function FilterChips({ tags: tags2, activeTag, onTag }) {
-  if (tags2.length === 0) {
-    return /* @__PURE__ */ jsx9("div", { className: "nt-chips-wrap", children: /* @__PURE__ */ jsxs7(
-      "button",
-      {
-        className: `nt-chip${activeTag === ARCHIVE_TAG ? " is-active" : ""}`,
-        onClick: () => onTag(activeTag === ARCHIVE_TAG ? null : ARCHIVE_TAG),
-        children: [
-          /* @__PURE__ */ jsx9(Icon, { name: "archive", size: 13 }),
-          "Archive"
-        ]
-      }
-    ) });
-  }
-  return /* @__PURE__ */ jsxs7("div", { className: "nt-chips-wrap", children: [
-    /* @__PURE__ */ jsx9(
-      "button",
-      {
-        className: `nt-chip${activeTag === null ? " is-active" : ""}`,
-        onClick: () => onTag(null),
-        children: "All"
-      }
-    ),
-    tags2.map((t) => /* @__PURE__ */ jsx9(
-      "button",
-      {
-        className: `nt-chip${activeTag === t ? " is-active" : ""}`,
-        onClick: () => onTag(activeTag === t ? null : t),
-        children: t
-      },
-      t
-    )),
-    /* @__PURE__ */ jsxs7(
-      "button",
-      {
-        className: `nt-chip${activeTag === ARCHIVE_TAG ? " is-active" : ""}`,
-        onClick: () => onTag(activeTag === ARCHIVE_TAG ? null : ARCHIVE_TAG),
-        children: [
-          /* @__PURE__ */ jsx9(Icon, { name: "archive", size: 13 }),
-          "Archive"
-        ]
-      }
-    )
-  ] });
-}
 function EmptyState({ filtered }) {
-  return /* @__PURE__ */ jsxs7("div", { className: "nt-empty", children: [
-    /* @__PURE__ */ jsx9("div", { className: "nt-empty-icon", children: /* @__PURE__ */ jsx9(Icon, { name: "edit", size: 40 }) }),
-    /* @__PURE__ */ jsx9("div", { className: "nt-empty-msg", children: filtered ? "No matching notes" : "No notes yet" }),
-    !filtered && /* @__PURE__ */ jsx9("div", { className: "nt-empty-hint", children: "Tap the field above to write your first note." })
+  return /* @__PURE__ */ jsxs6("div", { className: "nt-empty", children: [
+    /* @__PURE__ */ jsx8("div", { className: "nt-empty-icon", children: /* @__PURE__ */ jsx8(Icon, { name: "edit", size: 40 }) }),
+    /* @__PURE__ */ jsx8("div", { className: "nt-empty-msg", children: filtered ? "No matching notes" : "No notes yet" }),
+    !filtered && /* @__PURE__ */ jsx8("div", { className: "nt-empty-hint", children: "Tap + to write your first note." })
   ] });
 }
 function App({ appId, token }) {
-  useEffect5(() => {
+  useEffect4(() => {
     if (document.querySelector("style[data-nt-katex]")) return void 0;
     let cancelled = false;
     const CSS_URL = "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css";
@@ -2956,20 +2568,19 @@ function App({ appId, token }) {
       cancelled = true;
     };
   }, [token]);
-  const [notes, setNotes] = useState5([]);
-  const [loading, setLoading] = useState5(true);
-  const [query, setQuery] = useState5("");
-  const [activeTag, setActiveTag] = useState5(null);
-  const [view, setView] = useState5({ mode: "grid", id: null });
-  const [draft, setDraft] = useState5(null);
-  const [confirmId, setConfirmId] = useState5(null);
-  const [pending, setPending] = useState5(0);
-  const [conflicts, setConflicts] = useState5(() => /* @__PURE__ */ new Set());
-  const reconTimer = useRef5(null);
-  const gcTimer = useRef5(null);
-  const editorNavOwned = useRef5(false);
+  const [notes, setNotes] = useState4([]);
+  const [loading, setLoading] = useState4(true);
+  const [query, setQuery] = useState4("");
+  const [view, setView] = useState4({ mode: "grid", id: null });
+  const [draft, setDraft] = useState4(null);
+  const [confirmId, setConfirmId] = useState4(null);
+  const [pending, setPending] = useState4(0);
+  const [conflicts, setConflicts] = useState4(() => /* @__PURE__ */ new Set());
+  const reconTimer = useRef4(null);
+  const gcTimer = useRef4(null);
+  const editorNavOwned = useRef4(false);
   const online = isOnline();
-  const upsert = useCallback4((meta, body) => {
+  const upsert = useCallback3((meta, body) => {
     setNotes((prev) => {
       const next = prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { meta, body } : n) : [{ meta, body }, ...prev];
       writeIndex(next).catch(() => {
@@ -2977,7 +2588,7 @@ function App({ appId, token }) {
       return next;
     });
   }, []);
-  const onApplied = useCallback4((id, note) => {
+  const onApplied = useCallback3((id, note) => {
     setConflicts((prev) => {
       if (!prev.has(id)) return prev;
       const n = new Set(prev);
@@ -2986,7 +2597,7 @@ function App({ appId, token }) {
     });
     setNotes((prev) => prev.map((n) => n.meta.id === id ? { meta: note.meta, body: note.body } : n));
   }, []);
-  const onDeleted = useCallback4((id) => {
+  const onDeleted = useCallback3((id) => {
     setConflicts((prev) => {
       if (!prev.has(id)) return prev;
       const n = new Set(prev);
@@ -2995,29 +2606,29 @@ function App({ appId, token }) {
     });
     setNotes((prev) => prev.filter((n) => n.meta.id !== id));
   }, []);
-  const onConflict = useCallback4((id) => {
+  const onConflict = useCallback3((id) => {
     setConflicts((prev) => {
       const n = new Set(prev);
       n.add(id);
       return n;
     });
   }, []);
-  const scheduleGc = useCallback4(() => {
+  const scheduleGc = useCallback3(() => {
     if (gcTimer.current) clearTimeout(gcTimer.current);
     gcTimer.current = setTimeout(() => {
       gcAttachments().catch(() => {
       });
     }, 1500);
   }, []);
-  const runReconcile = useCallback4(() => {
+  const runReconcile = useCallback3(() => {
     reconcileAll({ onApplied, onDeleted, onConflict }).catch(() => {
     });
   }, [onApplied, onDeleted, onConflict]);
-  const scheduleReconcile = useCallback4(() => {
+  const scheduleReconcile = useCallback3(() => {
     if (reconTimer.current) clearTimeout(reconTimer.current);
     reconTimer.current = setTimeout(runReconcile, 400);
   }, [runReconcile]);
-  useEffect5(() => {
+  useEffect4(() => {
     let live = true;
     (async () => {
       readIndex().then((index) => {
@@ -3053,7 +2664,7 @@ function App({ appId, token }) {
       live = false;
     };
   }, [runReconcile]);
-  useEffect5(() => {
+  useEffect4(() => {
     const h = () => runReconcile();
     for (const ev of ["online", "focus"]) window.addEventListener(ev, h);
     const vis = () => {
@@ -3065,7 +2676,7 @@ function App({ appId, token }) {
       document.removeEventListener("visibilitychange", vis);
     };
   }, [runReconcile]);
-  useEffect5(() => {
+  useEffect4(() => {
     let live = true;
     const tick = () => pendingCount().then((n) => {
       if (live) setPending(n);
@@ -3078,11 +2689,11 @@ function App({ appId, token }) {
       clearInterval(h);
     };
   }, []);
-  useEffect5(() => () => {
+  useEffect4(() => () => {
     if (reconTimer.current) clearTimeout(reconTimer.current);
     if (gcTimer.current) clearTimeout(gcTimer.current);
   }, []);
-  const pushEditorNav = useCallback4(() => {
+  const pushEditorNav = useCallback3(() => {
     if (typeof window === "undefined" || !window.parent) return Promise.resolve(false);
     const requestId = `notes-editor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return new Promise((resolve) => {
@@ -3109,7 +2720,7 @@ function App({ appId, token }) {
       }
     });
   }, []);
-  const popEditorNav = useCallback4(() => {
+  const popEditorNav = useCallback3(() => {
     if (!editorNavOwned.current || typeof window === "undefined" || !window.parent) return;
     editorNavOwned.current = false;
     try {
@@ -3117,21 +2728,33 @@ function App({ appId, token }) {
     } catch {
     }
   }, []);
-  const openEditor = useCallback4(async (id) => {
+  const ensureAuthoritative = useCallback3(async (id) => {
+    const cur = notes.find((n) => n.meta.id === id);
+    if (!cur) return null;
+    if (!cur.placeholder) return cur;
+    const loaded = await loadNote(id).catch(() => null);
+    if (!loaded || !loaded.meta || !loaded.meta.id) return null;
+    const rec = { meta: loaded.meta, body: loaded.body };
+    setNotes((prev) => prev.map((n) => n.meta.id === id ? rec : n));
+    return rec;
+  }, [notes]);
+  const openEditor = useCallback3(async (id) => {
     window.mobius?.signal("note_opened");
+    const cur = notes.find((n) => n.meta.id === id);
+    if (cur && cur.placeholder && !await ensureAuthoritative(id)) return;
     if (view.mode === "editor") {
       setView({ mode: "editor", id });
       return;
     }
     editorNavOwned.current = await pushEditorNav();
     setView({ mode: "editor", id });
-  }, [pushEditorNav, view.mode]);
-  const createNote = useCallback4(() => {
+  }, [ensureAuthoritative, notes, pushEditorNav, view.mode]);
+  const createNote = useCallback3(() => {
     const meta = newNote({});
     setDraft({ meta, body: "" });
     openEditor(meta.id).catch(() => setView({ mode: "editor", id: meta.id }));
   }, [openEditor]);
-  const commitDraft = useCallback4(async (meta, body) => {
+  const commitDraft = useCallback3(async (meta, body) => {
     const m = { ...meta, updated: meta.updated || (/* @__PURE__ */ new Date()).toISOString() };
     m.content_hash = await contentHash(m, body);
     upsert(m, body);
@@ -3148,7 +2771,7 @@ function App({ appId, token }) {
     window.mobius?.signal("note_saved", { word_count: wordCount || void 0 });
     return m;
   }, [scheduleReconcile, upsert, scheduleGc]);
-  const persist = useCallback4(async (meta, body) => {
+  const persist = useCallback3(async (meta, body) => {
     if (draft && draft.meta.id === meta.id) {
       const next = { meta: { ...draft.meta, ...meta }, body };
       setDraft(next);
@@ -3156,8 +2779,11 @@ function App({ appId, token }) {
       await commitDraft(next.meta, next.body);
       return;
     }
-    const m = { ...meta, updated: (/* @__PURE__ */ new Date()).toISOString() };
-    m.content_hash = await contentHash(m, body);
+    const prev = notes.find((n) => n.meta.id === meta.id);
+    if (prev && prev.placeholder) return;
+    const nextHash = await contentHash(meta, body);
+    if (prev && nextHash === await contentHash(prev.meta, prev.body)) return;
+    const m = { ...meta, updated: (/* @__PURE__ */ new Date()).toISOString(), content_hash: nextHash };
     upsert(m, body);
     await recordWorking(m.id, { meta: m, body, hash: m.content_hash }).catch((err) => {
       window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "persist" });
@@ -3166,44 +2792,31 @@ function App({ appId, token }) {
     window.mobius?.signal("note_saved", { word_count: wordCount || void 0 });
     scheduleReconcile();
     scheduleGc();
-  }, [commitDraft, draft, upsert, scheduleReconcile, scheduleGc]);
-  const togglePin = useCallback4((id) => {
-    const n = notes.find((x) => x.meta.id === id);
+  }, [commitDraft, draft, notes, upsert, scheduleReconcile, scheduleGc]);
+  const togglePin = useCallback3(async (id) => {
+    if (draft && draft.meta.id === id) {
+      setDraft((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }));
+      return;
+    }
+    const n = await ensureAuthoritative(id);
     if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body);
-    else if (draft && draft.meta.id === id) setDraft((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }));
-  }, [draft, notes, persist]);
-  const setColor = useCallback4((id, color) => {
-    const n = notes.find((x) => x.meta.id === id);
+  }, [draft, ensureAuthoritative, persist]);
+  const setColor = useCallback3(async (id, color) => {
+    if (draft && draft.meta.id === id) {
+      setDraft((d) => ({ ...d, meta: { ...d.meta, color } }));
+      return;
+    }
+    const n = await ensureAuthoritative(id);
     if (n) persist({ ...n.meta, color }, n.body);
-    else if (draft && draft.meta.id === id) setDraft((d) => ({ ...d, meta: { ...d.meta, color } }));
-  }, [draft, notes, persist]);
-  const toggleArchive = useCallback4((id) => {
-    const n = notes.find((x) => x.meta.id === id);
-    if (n) persist({ ...n.meta, archived: !n.meta.archived }, n.body);
-  }, [notes, persist]);
-  const inlineCreate = useCallback4(async ({ title, body, type }) => {
-    const meta = newNote({ title, type });
-    const m = { ...meta, updated: meta.updated };
-    m.content_hash = await contentHash(m, body);
-    upsert(m, body);
-    await saveNote(m, body).catch((err) => {
-      window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "inlineCreate" });
-    });
-    await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {
-    });
-    scheduleReconcile();
-    scheduleGc();
-    const wordCount = (body || "").trim().split(/\s+/).filter(Boolean).length;
-    window.mobius?.signal("note_saved", { word_count: wordCount || void 0 });
-  }, [upsert, scheduleReconcile, scheduleGc]);
-  const queueDelete = useCallback4(async (note) => {
+  }, [draft, ensureAuthoritative, persist]);
+  const queueDelete = useCallback3(async (note) => {
     const hash = await contentHash(note.meta, note.body);
     await recordDeletion(note.meta.id, { meta: note.meta, body: note.body, hash }).catch(() => {
     });
     scheduleReconcile();
     scheduleGc();
   }, [scheduleReconcile, scheduleGc]);
-  const doDelete = useCallback4((id) => {
+  const doDelete = useCallback3((id) => {
     window.mobius?.signal("item_deleted");
     if (draft && draft.meta.id === id) {
       if (view.mode === "editor" && view.id === id) popEditorNav();
@@ -3213,8 +2826,11 @@ function App({ appId, token }) {
       return;
     }
     const n = notes.find((x) => x.meta.id === id);
-    if (n) queueDelete(n).catch(() => {
-    });
+    if (n) {
+      const target = n.placeholder ? loadNote(id).then((loaded) => loaded && loaded.meta && loaded.meta.id ? { meta: loaded.meta, body: loaded.body } : null).catch(() => null) : Promise.resolve(n);
+      target.then((t) => t ? queueDelete(t) : null).catch(() => {
+      });
+    }
     setNotes((prev) => {
       const next = prev.filter((note) => note.meta.id !== id);
       writeIndex(next).catch(() => {
@@ -3230,7 +2846,7 @@ function App({ appId, token }) {
       return v;
     });
   }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode]);
-  const back = useCallback4((fromShell = false) => {
+  const back = useCallback3((fromShell = false) => {
     if (!fromShell) popEditorNav();
     else editorNavOwned.current = false;
     if (draft && draft.meta.id === view.id) {
@@ -3239,7 +2855,7 @@ function App({ appId, token }) {
       return;
     }
     const n = notes.find((x) => x.meta.id === view.id);
-    if (n && isBlankNote(n.meta, n.body)) {
+    if (n && !n.placeholder && isBlankNote(n.meta, n.body)) {
       queueDelete(n).catch(() => {
       });
       setNotes((prev) => {
@@ -3251,7 +2867,7 @@ function App({ appId, token }) {
     }
     setView({ mode: "grid" });
   }, [draft, notes, popEditorNav, view.id, queueDelete]);
-  useEffect5(() => {
+  useEffect4(() => {
     const onMessage = (event) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === "moebius:nav-back") back(true);
@@ -3259,59 +2875,29 @@ function App({ appId, token }) {
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [back]);
-  const allTags = useMemo2(() => {
-    const set = /* @__PURE__ */ new Set();
-    for (const n of notes) {
-      if (!n.meta.archived) {
-        for (const t of n.meta.tags || []) set.add(t);
-      }
-    }
-    return [...set].sort();
-  }, [notes]);
-  const visible = useMemo2(() => {
-    const q = query.trim().toLowerCase();
-    const showArchived = activeTag === ARCHIVE_TAG;
-    let list = showArchived ? notes.filter((n) => n.meta.archived) : notes.filter((n) => !n.meta.archived);
-    if (q) {
-      list = list.filter((n) => (n.meta.title || "").toLowerCase().includes(q) || (n.body || "").toLowerCase().includes(q) || (n.meta.tags || []).join(" ").toLowerCase().includes(q));
-    }
-    if (!showArchived && activeTag) {
-      list = list.filter((n) => (n.meta.tags || []).includes(activeTag));
-    }
-    return [...list].sort((a, b) => {
-      if (showArchived) return (b.meta.updated || "").localeCompare(a.meta.updated || "");
-      if (!!a.meta.pinned !== !!b.meta.pinned) return a.meta.pinned ? -1 : 1;
-      return (b.meta.updated || "").localeCompare(a.meta.updated || "");
-    });
-  }, [notes, query, activeTag]);
-  const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id) || (draft && draft.meta.id === view.id ? draft : null) : null;
+  const visible = useMemo3(() => visibleNotes(notes, query), [notes, query]);
+  const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id && !n.placeholder) || (draft && draft.meta.id === view.id ? draft : null) : null;
   const status = !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : pending > 0 ? "Saving\u2026" : null;
-  const showingArchive = activeTag === ARCHIVE_TAG;
-  return /* @__PURE__ */ jsxs7("div", { className: "nt-root", children: [
-    /* @__PURE__ */ jsx9("style", { children: CSS }),
-    /* @__PURE__ */ jsx9(TopBar, { query, onQuery: setQuery }),
-    /* @__PURE__ */ jsxs7("main", { className: "nt-scroll", children: [
-      !loading && !showingArchive && /* @__PURE__ */ jsx9(InlineCapture, { onCreate: inlineCreate }),
-      !loading && /* @__PURE__ */ jsx9(FilterChips, { tags: allTags, activeTag, onTag: setActiveTag }),
-      loading ? /* @__PURE__ */ jsxs7("div", { className: "nt-loading", role: "status", "aria-live": "polite", children: [
-        /* @__PURE__ */ jsx9("span", { className: "nt-spinner", "aria-hidden": "true" }),
-        /* @__PURE__ */ jsx9("span", { children: "Loading\u2026" })
-      ] }) : visible.length === 0 ? /* @__PURE__ */ jsx9(EmptyState, { filtered: !!query.trim() || !!activeTag }) : /* @__PURE__ */ jsx9(
-        Grid,
-        {
-          notes: visible,
-          onOpen: (id) => {
-            openEditor(id).catch(() => setView({ mode: "editor", id }));
-          },
-          onPin: togglePin,
-          onColor: setColor,
-          onDelete: setConfirmId,
-          onArchive: toggleArchive,
-          resolveAttachment: attachmentURL
-        }
-      )
-    ] }),
-    view.mode !== "editor" && !showingArchive && /* @__PURE__ */ jsx9(
+  return /* @__PURE__ */ jsxs6("div", { className: "nt-root", children: [
+    /* @__PURE__ */ jsx8("style", { children: CSS }),
+    /* @__PURE__ */ jsx8(TopBar, { query, onQuery: setQuery }),
+    /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsxs6("div", { className: "nt-loading", role: "status", "aria-live": "polite", children: [
+      /* @__PURE__ */ jsx8("span", { className: "nt-spinner", "aria-hidden": "true" }),
+      /* @__PURE__ */ jsx8("span", { children: "Loading\u2026" })
+    ] }) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(
+      Grid,
+      {
+        notes: visible,
+        onOpen: (id) => {
+          openEditor(id).catch(() => setView({ mode: "editor", id }));
+        },
+        onPin: togglePin,
+        onColor: setColor,
+        onDelete: setConfirmId,
+        resolveAttachment: attachmentURL
+      }
+    ) }),
+    view.mode !== "editor" && /* @__PURE__ */ jsx8(
       "button",
       {
         className: "nt-fab",
@@ -3321,7 +2907,7 @@ function App({ appId, token }) {
         children: "+"
       }
     ),
-    editing && /* @__PURE__ */ jsx9(
+    editing && /* @__PURE__ */ jsx8(
       EditorPanel,
       {
         note: editing,
@@ -3330,14 +2916,13 @@ function App({ appId, token }) {
         onPin: togglePin,
         onColor: setColor,
         onDelete: setConfirmId,
-        onArchive: toggleArchive,
         resolveAttachment: attachmentURL,
         putAttachment,
         conflict: conflicts.has(editing.meta.id),
         status
       }
     ),
-    /* @__PURE__ */ jsx9(
+    /* @__PURE__ */ jsx8(
       ConfirmModal,
       {
         open: !!confirmId,

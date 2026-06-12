@@ -99,7 +99,6 @@ test('newNote returns a fresh meta with sane defaults', () => {
   assert.equal(m.parent_rev, 0)
   assert.equal(m.pinned, false)
   assert.equal(m.color, null)
-  assert.deepEqual(m.tags, [])
   assert.deepEqual(m.attachments, [])
   // created/updated are ISO strings and start equal
   assert.match(m.created, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
@@ -123,9 +122,7 @@ test('newNote defaults title to empty string when omitted', () => {
 test('newNote does not share array references between notes', () => {
   const a = newNote({title: 'a'})
   const b = newNote({title: 'b'})
-  a.tags.push('x')
   a.attachments.push('y')
-  assert.deepEqual(b.tags, [])
   assert.deepEqual(b.attachments, [])
 })
 
@@ -156,12 +153,17 @@ test('newNote accepts type checklist', () => {
   assert.equal(m.type, 'checklist')
 })
 
-test('newNote defaults archived to false', () => {
+test('newNote carries no removed-feature fields (tags, archived)', () => {
+  // The fields are gone from new notes, but normalize()'s defaults keep their
+  // content hash identical to the explicit-default form legacy notes carry
+  // (see the absent-vs-explicit hash tests below).
   const m = newNote({})
-  assert.equal(m.archived, false)
+  assert.equal('tags' in m, false)
+  assert.equal('archived' in m, false)
 })
 
-// contentHash includes type and archived
+// contentHash still digests type and the legacy archived/tags fields — stored
+// base hashes were computed over them, so the digest input cannot change.
 test('contentHash changes when type changes', async () => {
   const meta = {title: 'T', pinned: false, color: null, tags: []}
   const note = await contentHash({...meta, type: 'note'}, 'body')
@@ -188,6 +190,12 @@ test('contentHash treats absent archived as false (default)', async () => {
   const explicit = await contentHash({...meta, archived: false}, 'body')
   const absent = await contentHash(meta, 'body')
   assert.equal(explicit, absent)
+})
+
+test('contentHash treats absent tags as [] — a v1.2 note hashes like its legacy form', async () => {
+  const legacy = await contentHash({title: 'T', pinned: false, color: null, tags: [], archived: false, type: 'note'}, 'body')
+  const current = await contentHash({title: 'T', pinned: false, color: null, type: 'note'}, 'body')
+  assert.equal(legacy, current)
 })
 
 // ---------------------------------------------------------------------------
