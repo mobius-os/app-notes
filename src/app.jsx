@@ -412,8 +412,9 @@ export default function App({ appId, token }) {
   const editing = view.mode === 'editor'
     ? (notes.find((n) => n.meta.id === view.id && !n.placeholder) || (draft && draft.meta.id === view.id ? draft : null))
     : null
-  // Standard: nothing when online+idle. Show only Offline, Saving…, Resolving….
-  const status = !online ? 'Offline' : (editing && conflicts.has(editing.meta.id)) ? 'Resolving…' : pending > 0 ? 'Saving…' : null
+  // Standard: silent when healthy. Saving/pending is plumbing — only Offline
+  // and an actionable conflict state ever surface.
+  const status = !online ? 'Offline' : (editing && conflicts.has(editing.meta.id)) ? 'Resolving…' : null
 
   return (
     <div className="nt-root">

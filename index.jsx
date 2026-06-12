@@ -2877,7 +2877,7 @@ function App({ appId, token }) {
   }, [back]);
   const visible = useMemo3(() => visibleNotes(notes, query), [notes, query]);
   const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id && !n.placeholder) || (draft && draft.meta.id === view.id ? draft : null) : null;
-  const status = !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : pending > 0 ? "Saving\u2026" : null;
+  const status = !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : null;
   return /* @__PURE__ */ jsxs6("div", { className: "nt-root", children: [
     /* @__PURE__ */ jsx8("style", { children: CSS }),
     /* @__PURE__ */ jsx8(TopBar, { query, onQuery: setQuery }),
