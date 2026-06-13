@@ -153,6 +153,48 @@ test('mergeMeta: handles missing tags gracefully (empty union)', () => {
   assert.deepEqual(m.tags, [])
 })
 
+test('mergeMeta: unions attachments from both sides (a merge never drops a blob ref)', () => {
+  // A stranded image (in meta.attachments, not embedded in the body) is a
+  // supported state. If a clean body merge dropped one side's attachments, the
+  // GC sweep would free the blob the merged note still owns — silent image loss.
+  const base = { id: 'n1', created: 'C', mobius_rev: 4, attachments: ['attachments/shared.png'] }
+  const mine = {
+    id: 'n1', created: 'C', mobius_rev: 5, updated: '2026-06-03T10:00:00Z',
+    attachments: ['attachments/shared.png', 'attachments/mine.png'],
+  }
+  const theirs = {
+    id: 'n1', created: 'C', mobius_rev: 6, updated: '2026-06-03T09:00:00Z',
+    attachments: ['attachments/shared.png', 'attachments/theirs.png'],
+  }
+  const m = mergeMeta(base, mine, theirs)
+  assert.deepEqual(
+    [...m.attachments].sort(),
+    ['attachments/mine.png', 'attachments/shared.png', 'attachments/theirs.png'],
+  )
+})
+
+test('mergeMeta: attachments default to empty array when neither side has any', () => {
+  const base = { id: 'n1', created: 'C', mobius_rev: 1 }
+  const mine = { id: 'n1', created: 'C', mobius_rev: 2, updated: 'x' }
+  const theirs = { id: 'n1', created: 'C', mobius_rev: 3, updated: 'y' }
+  const m = mergeMeta(base, mine, theirs)
+  assert.deepEqual(m.attachments, [])
+})
+
+test('mergeMeta: keeps a one-sided attachment (the other side has none)', () => {
+  // The exact data-loss shape: only one device edited the attachment list (e.g.
+  // attached a stranded image), the other merely edited the body. The image's
+  // ref must survive the merge.
+  const base = { id: 'n1', created: 'C', mobius_rev: 4 }
+  const mine = {
+    id: 'n1', created: 'C', mobius_rev: 5, updated: '2026-06-03T10:00:00Z',
+    attachments: ['attachments/photo.png'],
+  }
+  const theirs = { id: 'n1', created: 'C', mobius_rev: 6, updated: '2026-06-03T11:00:00Z' }
+  const m = mergeMeta(base, mine, theirs)
+  assert.deepEqual(m.attachments, ['attachments/photo.png'])
+})
+
 // ── P2 feature tests (1.1) ──────────────────────────────────────────────────
 
 test('mergeMeta: type taken from later-updated side', () => {

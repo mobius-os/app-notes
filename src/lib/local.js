@@ -25,9 +25,20 @@ export async function ensureBase(id, rec) {
 }
 
 // Record a local edit: working advances, base stays (the merge ancestor).
-export async function recordWorking(id, working) {
+//
+// `baseHint` is the authoritative PRE-EDIT note ({meta, body, hash}) the caller
+// already holds. It is the seed for the merge ancestor on the FIRST edit of a
+// note this device hasn't tracked yet (the background ensureBase loop may not
+// have run). Defaulting base to `working` would set base === working, so
+// unsyncedLocals would EXCLUDE the note (hashes equal) — the edit never reaches
+// canonical (silent lost update) and a later edit would 3-way-merge against the
+// poisoned base. Seeding from the real pre-edit content makes the note enter the
+// reconcile queue and merge against its true ancestor. An existing base always
+// wins (it's the last-known-synced version); we only fall back to `working` when
+// the caller passed no hint AND none was tracked.
+export async function recordWorking(id, working, baseHint = null) {
   const prev = (await idbGet(KEY(id))) || {}
-  const base = prev.base || working
+  const base = prev.base || baseHint || working
   await idbSet(KEY(id), { base, working })
 }
 

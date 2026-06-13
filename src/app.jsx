@@ -305,10 +305,15 @@ export default function App({ appId, token }) {
     const prev = notes.find((n) => n.meta.id === meta.id)
     if (prev && prev.placeholder) return // display-only; never persist a snippet
     const nextHash = await contentHash(meta, body)
-    if (prev && nextHash === await contentHash(prev.meta, prev.body)) return
+    // The authoritative pre-edit note seeds the merge ancestor on a note this
+    // device hasn't tracked yet (the background ensureBase loop may not have run
+    // before this first edit). Without it, recordWorking would set base ===
+    // working and the edit would never enter the reconcile queue (lost update).
+    const baseHint = prev ? { meta: prev.meta, body: prev.body, hash: await contentHash(prev.meta, prev.body) } : null
+    if (baseHint && nextHash === baseHint.hash) return
     const m = { ...meta, updated: new Date().toISOString(), content_hash: nextHash }
     upsert(m, body)
-    await recordWorking(m.id, { meta: m, body, hash: m.content_hash }).catch((err) => {
+    await recordWorking(m.id, { meta: m, body, hash: m.content_hash }, baseHint).catch((err) => {
       window.mobius?.signal('error', { message: err?.message ?? 'save failed', source: 'persist' })
     })
     const wordCount = (body || '').trim().split(/\s+/).filter(Boolean).length

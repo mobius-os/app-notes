@@ -811,9 +811,9 @@ var KEY = (id) => `note:${id}`;
 async function ensureBase(id, rec) {
   if (!await idbGet(KEY(id))) await idbSet(KEY(id), { base: rec, working: rec });
 }
-async function recordWorking(id, working) {
+async function recordWorking(id, working, baseHint = null) {
   const prev = await idbGet(KEY(id)) || {};
-  const base = prev.base || working;
+  const base = prev.base || baseHint || working;
   await idbSet(KEY(id), { base, working });
 }
 async function recordDeletion(id, baseHint = null) {
@@ -1304,6 +1304,7 @@ function laterSide(mine, theirs) {
 function mergeMeta(base, mine, theirs) {
   const winner = laterSide(mine, theirs);
   const tags2 = [.../* @__PURE__ */ new Set([...mine?.tags ?? [], ...theirs?.tags ?? []])];
+  const attachments = [.../* @__PURE__ */ new Set([...mine?.attachments ?? [], ...theirs?.attachments ?? []])];
   const mineRev = mine?.mobius_rev ?? 0;
   const theirsRev = theirs?.mobius_rev ?? 0;
   return {
@@ -1313,6 +1314,7 @@ function mergeMeta(base, mine, theirs) {
     color: winner?.color ?? null,
     pinned: winner?.pinned ?? false,
     tags: tags2,
+    attachments,
     type: winner?.type ?? "note",
     archived: winner?.archived ?? false,
     updated: winner?.updated,
@@ -2782,10 +2784,11 @@ function App({ appId, token }) {
     const prev = notes.find((n) => n.meta.id === meta.id);
     if (prev && prev.placeholder) return;
     const nextHash = await contentHash(meta, body);
-    if (prev && nextHash === await contentHash(prev.meta, prev.body)) return;
+    const baseHint = prev ? { meta: prev.meta, body: prev.body, hash: await contentHash(prev.meta, prev.body) } : null;
+    if (baseHint && nextHash === baseHint.hash) return;
     const m = { ...meta, updated: (/* @__PURE__ */ new Date()).toISOString(), content_hash: nextHash };
     upsert(m, body);
-    await recordWorking(m.id, { meta: m, body, hash: m.content_hash }).catch((err) => {
+    await recordWorking(m.id, { meta: m, body, hash: m.content_hash }, baseHint).catch((err) => {
       window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "persist" });
     });
     const wordCount = (body || "").trim().split(/\s+/).filter(Boolean).length;

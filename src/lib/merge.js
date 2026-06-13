@@ -129,14 +129,19 @@ function laterSide(mine, theirs) {
 
 // mergeMeta(base, mine, theirs) -> merged frontmatter object.
 //
-// tags: set-union of both sides. title/color/pinned/type/archived: taken from
-// the side with the later `updated`. mobius_rev: max(mine, theirs) + 1.
+// tags: set-union of both sides. attachments: set-union of both sides — content-
+// addressed blobs are kept alive by ANY note that references them, and a stranded
+// image (in meta.attachments, not embedded in the body) is a supported state, so
+// dropping a side's attachments here would let the GC sweep free a blob the merged
+// note still owns (silent image loss). title/color/pinned/type/archived: taken
+// from the side with the later `updated`. mobius_rev: max(mine, theirs) + 1.
 // parent_revs records both source revs. id/created are pinned to base
 // (stable identity).
 export function mergeMeta(base, mine, theirs) {
   const winner = laterSide(mine, theirs)
 
   const tags = [...new Set([...(mine?.tags ?? []), ...(theirs?.tags ?? [])])]
+  const attachments = [...new Set([...(mine?.attachments ?? []), ...(theirs?.attachments ?? [])])]
 
   const mineRev = mine?.mobius_rev ?? 0
   const theirsRev = theirs?.mobius_rev ?? 0
@@ -148,6 +153,7 @@ export function mergeMeta(base, mine, theirs) {
     color: winner?.color ?? null,
     pinned: winner?.pinned ?? false,
     tags,
+    attachments,
     type: winner?.type ?? 'note',
     archived: winner?.archived ?? false,
     updated: winner?.updated,
