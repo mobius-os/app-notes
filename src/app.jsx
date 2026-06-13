@@ -21,10 +21,24 @@ import EditorPanel from './ui/EditorPanel.jsx'
 import ConfirmModal from './ui/ConfirmModal.jsx'
 import { Icon } from './ui/icons.jsx'
 
-function TopBar({ query, onQuery }) {
+function TopBar({ appId, query, onQuery }) {
   return (
     <header className="nt-topbar">
-      <h1 className="nt-title">Notes</h1>
+      {/* Brand mark: the app's own glossy icon (downscaled + cached by the
+          backend). Falls back to the accent dot if this install has no custom
+          icon (the route 404s). No app-name text — icon only. */}
+      <img
+        src={`/api/apps/${appId}/icon?size=64`}
+        alt=""
+        width={26} height={26}
+        className="nt-brand-icon"
+        onError={(e) => {
+          e.currentTarget.style.display = 'none'
+          const f = e.currentTarget.nextElementSibling
+          if (f) f.style.display = 'flex'
+        }}
+      />
+      <span className="nt-brand-fallback" style={{ display: 'none' }} aria-hidden="true">·</span>
       <div className="nt-search-wrap">
         <input
           value={query} onChange={(e) => onQuery(e.target.value)}
@@ -424,7 +438,7 @@ export default function App({ appId, token }) {
   return (
     <div className="nt-root">
       <style>{CSS}</style>
-      <TopBar query={query} onQuery={setQuery} />
+      <TopBar appId={appId} query={query} onQuery={setQuery} />
       <main className="nt-scroll">
         {loading
           ? <div className="nt-loading" role="status" aria-live="polite">

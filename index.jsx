@@ -75,9 +75,17 @@ var CSS = `
   background: var(--bg); z-index: 5;
   flex: 0 0 auto;
 }
-.nt-title {
-  font-size: 18px; font-weight: 650; color: var(--text);
-  letter-spacing: -0.01em; margin: 0; user-select: none;
+/* Brand mark \u2014 the app's real icon, rounded and sized to the search row */
+.nt-brand-icon {
+  width: 26px; height: 26px; flex-shrink: 0;
+  border-radius: 6px; object-fit: cover; display: block;
+}
+/* Accent-dot fallback when the install has no custom icon (route 404s) */
+.nt-brand-fallback {
+  width: 26px; height: 26px; flex-shrink: 0;
+  align-items: center; justify-content: center;
+  font-size: 22px; font-weight: 700; line-height: 1;
+  color: var(--accent); user-select: none;
 }
 /* Search pill \u2014 full-width rounded pill */
 .nt-search-wrap {
@@ -2526,9 +2534,24 @@ function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", d
 
 // src/app.jsx
 import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
-function TopBar({ query, onQuery }) {
+function TopBar({ appId, query, onQuery }) {
   return /* @__PURE__ */ jsxs6("header", { className: "nt-topbar", children: [
-    /* @__PURE__ */ jsx8("h1", { className: "nt-title", children: "Notes" }),
+    /* @__PURE__ */ jsx8(
+      "img",
+      {
+        src: `/api/apps/${appId}/icon?size=64`,
+        alt: "",
+        width: 26,
+        height: 26,
+        className: "nt-brand-icon",
+        onError: (e) => {
+          e.currentTarget.style.display = "none";
+          const f = e.currentTarget.nextElementSibling;
+          if (f) f.style.display = "flex";
+        }
+      }
+    ),
+    /* @__PURE__ */ jsx8("span", { className: "nt-brand-fallback", style: { display: "none" }, "aria-hidden": "true", children: "\xB7" }),
     /* @__PURE__ */ jsx8("div", { className: "nt-search-wrap", children: /* @__PURE__ */ jsx8(
       "input",
       {
@@ -2883,7 +2906,7 @@ function App({ appId, token }) {
   const status = !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : null;
   return /* @__PURE__ */ jsxs6("div", { className: "nt-root", children: [
     /* @__PURE__ */ jsx8("style", { children: CSS }),
-    /* @__PURE__ */ jsx8(TopBar, { query, onQuery: setQuery }),
+    /* @__PURE__ */ jsx8(TopBar, { appId, query, onQuery: setQuery }),
     /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsxs6("div", { className: "nt-loading", role: "status", "aria-live": "polite", children: [
       /* @__PURE__ */ jsx8("span", { className: "nt-spinner", "aria-hidden": "true" }),
       /* @__PURE__ */ jsx8("span", { children: "Loading\u2026" })
