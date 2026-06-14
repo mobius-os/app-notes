@@ -62,14 +62,14 @@ export const CSS = `
 }
 /* Brand mark — the app's real icon, rounded and sized to the search row */
 .nt-brand-icon {
-  width: 26px; height: 26px; flex-shrink: 0;
-  border-radius: 6px; object-fit: cover; display: block;
+  width: 44px; height: 44px; flex-shrink: 0;
+  border-radius: 9px; object-fit: cover; display: block;
 }
 /* Accent-dot fallback when the install has no custom icon (route 404s) */
 .nt-brand-fallback {
-  width: 26px; height: 26px; flex-shrink: 0;
+  width: 44px; height: 44px; flex-shrink: 0;
   align-items: center; justify-content: center;
-  font-size: 22px; font-weight: 700; line-height: 1;
+  font-size: 34px; font-weight: 700; line-height: 1;
   color: var(--accent); user-select: none;
 }
 /* Search pill — full-width rounded pill */

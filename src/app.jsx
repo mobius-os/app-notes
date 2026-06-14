@@ -28,9 +28,9 @@ function TopBar({ appId, query, onQuery }) {
           backend). Falls back to the accent dot if this install has no custom
           icon (the route 404s). No app-name text — icon only. */}
       <img
-        src={`/api/apps/${appId}/icon?size=64`}
+        src={`/api/apps/${appId}/icon?size=128`}
         alt=""
-        width={26} height={26}
+        width={44} height={44}
         className="nt-brand-icon"
         onError={(e) => {
           e.currentTarget.style.display = 'none'

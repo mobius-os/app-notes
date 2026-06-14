@@ -77,14 +77,14 @@ var CSS = `
 }
 /* Brand mark \u2014 the app's real icon, rounded and sized to the search row */
 .nt-brand-icon {
-  width: 26px; height: 26px; flex-shrink: 0;
-  border-radius: 6px; object-fit: cover; display: block;
+  width: 44px; height: 44px; flex-shrink: 0;
+  border-radius: 9px; object-fit: cover; display: block;
 }
 /* Accent-dot fallback when the install has no custom icon (route 404s) */
 .nt-brand-fallback {
-  width: 26px; height: 26px; flex-shrink: 0;
+  width: 44px; height: 44px; flex-shrink: 0;
   align-items: center; justify-content: center;
-  font-size: 22px; font-weight: 700; line-height: 1;
+  font-size: 34px; font-weight: 700; line-height: 1;
   color: var(--accent); user-select: none;
 }
 /* Search pill \u2014 full-width rounded pill */
@@ -2539,10 +2539,10 @@ function TopBar({ appId, query, onQuery }) {
     /* @__PURE__ */ jsx8(
       "img",
       {
-        src: `/api/apps/${appId}/icon?size=64`,
+        src: `/api/apps/${appId}/icon?size=128`,
         alt: "",
-        width: 26,
-        height: 26,
+        width: 44,
+        height: 44,
         className: "nt-brand-icon",
         onError: (e) => {
           e.currentTarget.style.display = "none";
