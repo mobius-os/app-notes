@@ -1,6 +1,6 @@
 {
   "name": "app-notes",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "private": true,
   "type": "module",
   "description": "Markdown notes for M\u00f6bius \u2014 live-inline editor, offline, git-tracked.",

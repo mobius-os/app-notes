@@ -1,10 +1,10 @@
 // Bundle the multi-file app source (src/app.jsx + src/{lib,ui,editor}/*) into a
 // single index.jsx — Möbius mini-apps are single-file: the server compiler
 // writes the source string to a temp file and esbuilds it, so relative imports
-// must already be inlined. React / react-dom / CodeMirror / KaTeX and esm.sh
-// stay EXTERNAL (resolved by the app frame's import map at runtime). The split
-// source keeps the app maintainable + unit-testable; index.jsx is the build
-// artifact we ship. Run: npm run build.
+// must already be inlined. React / react-dom / CodeMirror / KaTeX / marked /
+// dompurify stay EXTERNAL (resolved by the app frame's import map at runtime,
+// all self-hosted under /vendor). The split source keeps the app maintainable
+// + unit-testable; index.jsx is the build artifact we ship. Run: npm run build.
 import { build } from 'esbuild'
 import { readFileSync, writeFileSync } from 'node:fs'
 
@@ -17,6 +17,10 @@ const EXTERNAL = [
   '@codemirror/lang-markdown',
   '@codemirror/language',
   '@lezer/highlight',
+  // marked + dompurify are now bare specifiers resolved by the app frame's
+  // import map (vendored under /vendor), not esm.sh URLs. Keep them external so
+  // esbuild leaves the bare imports for the runtime import map to resolve.
+  'marked', 'dompurify',
   'https://esm.sh/*',
 ]
 

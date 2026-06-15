@@ -1447,8 +1447,8 @@ var _libs;
 async function libs() {
   if (!_libs) {
     const [m, d] = await Promise.all([
-      import("https://esm.sh/marked@14.1.4"),
-      import("https://esm.sh/dompurify@3.1.7")
+      import("marked"),
+      import("dompurify")
     ]);
     _libs = { marked: m.marked, purify: d.default || d };
   }

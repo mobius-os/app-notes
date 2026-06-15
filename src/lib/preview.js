@@ -1,14 +1,15 @@
 // Read-only markdown render for note CARDS (the editor itself uses CodeMirror).
-// Lazy-loads marked + DOMPurify from esm.sh — both small and already proven
-// offline in the mind/news apps (the SW runtime-caches esm.sh). All rendered
-// HTML is sanitized before it reaches the DOM.
+// Lazy-loads marked + DOMPurify via the app frame's import map, which resolves
+// the bare specifiers to the self-hosted /vendor bundles (no longer esm.sh).
+// The SW precaches both, so previews render offline-deterministically. All
+// rendered HTML is sanitized before it reaches the DOM.
 
 let _libs
 async function libs() {
   if (!_libs) {
     const [m, d] = await Promise.all([
-      import('https://esm.sh/marked@14.1.4'),
-      import('https://esm.sh/dompurify@3.1.7'),
+      import('marked'),
+      import('dompurify'),
     ])
     _libs = { marked: m.marked, purify: d.default || d }
   }
