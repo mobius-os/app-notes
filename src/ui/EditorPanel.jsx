@@ -12,11 +12,17 @@ const AUTOSAVE_MS = 600
 
 // Ask the owner shell to spawn an agent chat to resolve a note's merge conflict
 // (the autonomous cron resolver also handles it; this is the on-demand path).
-function resolveNow(note) {
+// The on-disk data dir is keyed by the app's NUMERIC storage id, not the slug:
+// the cron resolver (tick.sh) derives DATA="/data/apps/$ID" from the same id the
+// frame hands the app as `appId`. Building the draft's paths from `appId` keeps
+// the on-demand chat pointed at the dir that actually exists; a hard-coded slug
+// path (`/data/apps/notes/`) does not exist, so the agent's reads always fail.
+function resolveNow(note, appId) {
   try {
+    const data = `/data/apps/${appId}`
     window.parent.postMessage({
       type: 'moebius:new-chat',
-      draft: `Resolve the Notes merge conflict for note ${note.meta.id}: read the descriptor under /data/apps/notes/conflicts/${note.meta.id}/, 3-way-merge mine + server against base (preserve attachment refs), write the result to /data/apps/notes/notes/${note.meta.id}.md, then mark the descriptor resolved.`,
+      draft: `Resolve the Notes merge conflict for note ${note.meta.id}: read the descriptor under ${data}/conflicts/${note.meta.id}/, 3-way-merge mine + server against base (preserve attachment refs), write the result to ${data}/notes/${note.meta.id}.md, then mark the descriptor resolved.`,
     }, window.location.origin)
   } catch (e) {}
 }
@@ -29,7 +35,7 @@ function statusClass(status) {
   return 'is-default'
 }
 
-export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment, conflict, status }) {
+export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment, conflict, status }) {
   const [title, setTitle] = useState(note.meta.title || '')
   const [body, setBody] = useState(note.body || '')
   const [showColors, setShowColors] = useState(false)
@@ -245,7 +251,7 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
       {conflict && (
         <div className="nt-conflict-bar">
           <span className="nt-conflict-msg">Edited in two places — merging…</span>
-          <button onClick={() => resolveNow(note)} className="nt-conflict-btn">Resolve now</button>
+          <button onClick={() => resolveNow(note, appId)} className="nt-conflict-btn">Resolve now</button>
         </div>
       )}
 

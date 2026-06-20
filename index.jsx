@@ -1736,43 +1736,59 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
             children: /* @__PURE__ */ jsx3(Icon, { name: "pin", size: 14 })
           }
         ),
-        /* @__PURE__ */ jsxs2("div", { className: "nt-card-body", onClick: () => onOpen(meta.id), children: [
-          thumbUrls.length > 0 && /* @__PURE__ */ jsx3(
-            "div",
-            {
-              className: "nt-card-thumbs",
-              style: { gridTemplateColumns: thumbUrls.length === 1 ? "1fr" : "repeat(2, minmax(0, 1fr))" },
-              children: thumbUrls.map((url, index) => /* @__PURE__ */ jsx3(
-                "img",
+        /* @__PURE__ */ jsxs2(
+          "div",
+          {
+            className: "nt-card-body",
+            role: "button",
+            tabIndex: 0,
+            "aria-label": meta.title ? `Open note: ${meta.title}` : "Open untitled note",
+            onClick: () => onOpen(meta.id),
+            onKeyDown: (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onOpen(meta.id);
+              }
+            },
+            children: [
+              thumbUrls.length > 0 && /* @__PURE__ */ jsx3(
+                "div",
                 {
-                  src: url,
-                  alt: "",
-                  className: "nt-card-thumb",
-                  style: {
-                    aspectRatio: thumbUrls.length === 1 ? "16 / 10" : "1 / 1",
-                    gridColumn: thumbUrls.length === 3 && index === 0 ? "span 2" : void 0
-                  }
-                },
-                url
-              ))
-            }
-          ),
-          meta.title && /* @__PURE__ */ jsxs2("div", { className: "nt-card-title", style: { display: "flex", alignItems: "center", gap: 6 }, children: [
-            isChecklist && /* @__PURE__ */ jsx3(Icon, { name: "checklist", size: 13 }),
-            meta.title
-          ] }),
-          !meta.title && isChecklist && /* @__PURE__ */ jsxs2("div", { style: { display: "flex", alignItems: "center", gap: 5, marginBottom: 4, opacity: 0.55, fontSize: 12 }, children: [
-            /* @__PURE__ */ jsx3(Icon, { name: "checklist", size: 12 }),
-            "Checklist"
-          ] }),
-          empty ? /* @__PURE__ */ jsx3("div", { className: "nt-card-empty", children: "Empty note" }) : /* @__PURE__ */ jsx3(
-            "div",
-            {
-              className: "note-preview nt-card-preview",
-              dangerouslySetInnerHTML: { __html: html }
-            }
-          )
-        ] }),
+                  className: "nt-card-thumbs",
+                  style: { gridTemplateColumns: thumbUrls.length === 1 ? "1fr" : "repeat(2, minmax(0, 1fr))" },
+                  children: thumbUrls.map((url, index) => /* @__PURE__ */ jsx3(
+                    "img",
+                    {
+                      src: url,
+                      alt: "",
+                      className: "nt-card-thumb",
+                      style: {
+                        aspectRatio: thumbUrls.length === 1 ? "16 / 10" : "1 / 1",
+                        gridColumn: thumbUrls.length === 3 && index === 0 ? "span 2" : void 0
+                      }
+                    },
+                    url
+                  ))
+                }
+              ),
+              meta.title && /* @__PURE__ */ jsxs2("div", { className: "nt-card-title", style: { display: "flex", alignItems: "center", gap: 6 }, children: [
+                isChecklist && /* @__PURE__ */ jsx3(Icon, { name: "checklist", size: 13 }),
+                meta.title
+              ] }),
+              !meta.title && isChecklist && /* @__PURE__ */ jsxs2("div", { style: { display: "flex", alignItems: "center", gap: 5, marginBottom: 4, opacity: 0.55, fontSize: 12 }, children: [
+                /* @__PURE__ */ jsx3(Icon, { name: "checklist", size: 12 }),
+                "Checklist"
+              ] }),
+              empty ? /* @__PURE__ */ jsx3("div", { className: "nt-card-empty", children: "Empty note" }) : /* @__PURE__ */ jsx3(
+                "div",
+                {
+                  className: "note-preview nt-card-preview",
+                  dangerouslySetInnerHTML: { __html: html }
+                }
+              )
+            ]
+          }
+        ),
         /* @__PURE__ */ jsxs2("div", { className: "nt-card-footer", children: [
           /* @__PURE__ */ jsxs2("div", { ref: colorBtnRef, className: "nt-color-anchor", children: [
             /* @__PURE__ */ jsx3(IconBtn, { title: "Color", onClick: () => setShowColors((v) => !v), children: /* @__PURE__ */ jsx3(Icon, { name: "palette", size: 16 }) }),
@@ -2234,11 +2250,12 @@ function Editor({ value, onChange, resolveAttachment, viewRef }) {
 // src/ui/EditorPanel.jsx
 import { jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
 var AUTOSAVE_MS = 600;
-function resolveNow(note) {
+function resolveNow(note, appId) {
   try {
+    const data = `/data/apps/${appId}`;
     window.parent.postMessage({
       type: "moebius:new-chat",
-      draft: `Resolve the Notes merge conflict for note ${note.meta.id}: read the descriptor under /data/apps/notes/conflicts/${note.meta.id}/, 3-way-merge mine + server against base (preserve attachment refs), write the result to /data/apps/notes/notes/${note.meta.id}.md, then mark the descriptor resolved.`
+      draft: `Resolve the Notes merge conflict for note ${note.meta.id}: read the descriptor under ${data}/conflicts/${note.meta.id}/, 3-way-merge mine + server against base (preserve attachment refs), write the result to ${data}/notes/${note.meta.id}.md, then mark the descriptor resolved.`
     }, window.location.origin);
   } catch (e) {
   }
@@ -2247,7 +2264,7 @@ function statusClass(status) {
   if (status === "Resolving\u2026") return "is-resolving";
   return "is-default";
 }
-function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment: putAttachment2, conflict, status }) {
+function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment: putAttachment2, conflict, status }) {
   const [title, setTitle] = useState3(note.meta.title || "");
   const [body, setBody] = useState3(note.body || "");
   const [showColors, setShowColors] = useState3(false);
@@ -2486,7 +2503,7 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
     ] }),
     conflict && /* @__PURE__ */ jsxs4("div", { className: "nt-conflict-bar", children: [
       /* @__PURE__ */ jsx6("span", { className: "nt-conflict-msg", children: "Edited in two places \u2014 merging\u2026" }),
-      /* @__PURE__ */ jsx6("button", { onClick: () => resolveNow(note), className: "nt-conflict-btn", children: "Resolve now" })
+      /* @__PURE__ */ jsx6("button", { onClick: () => resolveNow(note, appId), className: "nt-conflict-btn", children: "Resolve now" })
     ] }),
     attachErr && /* @__PURE__ */ jsx6("div", { className: "nt-attach-err", children: attachErr }),
     /* @__PURE__ */ jsx6("div", { className: "nt-editor-body", children: /* @__PURE__ */ jsx6(Editor, { value: body, onChange: setBody, resolveAttachment, viewRef }) }),
@@ -2783,11 +2800,11 @@ function App({ appId, token }) {
     const m = { ...meta, updated: meta.updated || (/* @__PURE__ */ new Date()).toISOString() };
     m.content_hash = await contentHash(m, body);
     upsert(m, body);
-    setDraft(null);
     await saveNote(m, body).catch((err) => {
       window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "commitDraft" });
       throw err;
     });
+    setDraft(null);
     await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {
     });
     scheduleReconcile();
@@ -2811,9 +2828,12 @@ function App({ appId, token }) {
     if (baseHint && nextHash === baseHint.hash) return;
     const m = { ...meta, updated: (/* @__PURE__ */ new Date()).toISOString(), content_hash: nextHash };
     upsert(m, body);
-    await recordWorking(m.id, { meta: m, body, hash: m.content_hash }, baseHint).catch((err) => {
+    try {
+      await recordWorking(m.id, { meta: m, body, hash: m.content_hash }, baseHint);
+    } catch (err) {
       window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "persist" });
-    });
+      return;
+    }
     const wordCount = (body || "").trim().split(/\s+/).filter(Boolean).length;
     window.mobius?.signal("note_saved", { word_count: wordCount || void 0 });
     scheduleReconcile();
@@ -2936,6 +2956,7 @@ function App({ appId, token }) {
     editing && /* @__PURE__ */ jsx8(
       EditorPanel,
       {
+        appId,
         note: editing,
         onSave: persist,
         onBack: back,

@@ -120,7 +120,26 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
           <Icon name="pin" size={14} />
         </button>
 
-        <div className="nt-card-body" onClick={() => onOpen(meta.id)}>
+        {/* The card body is the open affordance. It can't be a real <button>:
+            it holds flow content (the thumbnail grid + the markdown preview's
+            block-level dangerouslySetInnerHTML), which is invalid inside a
+            button. So it carries the button SEMANTICS instead — role=button +
+            keyboard focus + Enter/Space activation + an aria-label naming the
+            note — so keyboard and screen-reader users get the same open action
+            pointer users get from the click. */}
+        <div
+          className="nt-card-body"
+          role="button"
+          tabIndex={0}
+          aria-label={meta.title ? `Open note: ${meta.title}` : 'Open untitled note'}
+          onClick={() => onOpen(meta.id)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              onOpen(meta.id)
+            }
+          }}
+        >
           {thumbUrls.length > 0 && (
             <div
               className="nt-card-thumbs"

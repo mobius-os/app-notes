@@ -290,11 +290,15 @@ export default function App({ appId, token }) {
     const m = { ...meta, updated: meta.updated || new Date().toISOString() }
     m.content_hash = await contentHash(m, body)
     upsert(m, body)
-    setDraft(null)
+    // Keep the draft until the canonical write resolves. Clearing it first would
+    // drop the in-flight buffer the moment saveNote starts: if the write then
+    // rejects, the edit is gone from both the draft and disk. The draft is only
+    // cleared once saveNote has committed the note for real.
     await store.saveNote(m, body).catch((err) => {
       window.mobius?.signal('error', { message: err?.message ?? 'save failed', source: 'commitDraft' })
       throw err
     })
+    setDraft(null)
     await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {})
     scheduleReconcile()
     scheduleGc()
@@ -327,9 +331,17 @@ export default function App({ appId, token }) {
     if (baseHint && nextHash === baseHint.hash) return
     const m = { ...meta, updated: new Date().toISOString(), content_hash: nextHash }
     upsert(m, body)
-    await recordWorking(m.id, { meta: m, body, hash: m.content_hash }, baseHint).catch((err) => {
+    // recordWorking is the durable write — it stamps the working copy into
+    // IndexedDB for the reconcile driver to pick up. Only signal note_saved and
+    // kick the reconcile/gc drivers if it actually landed: on a rejected write
+    // there IS no working copy to reconcile, so emitting a success signal would
+    // claim a save that never happened.
+    try {
+      await recordWorking(m.id, { meta: m, body, hash: m.content_hash }, baseHint)
+    } catch (err) {
       window.mobius?.signal('error', { message: err?.message ?? 'save failed', source: 'persist' })
-    })
+      return
+    }
     const wordCount = (body || '').trim().split(/\s+/).filter(Boolean).length
     window.mobius?.signal('note_saved', { word_count: wordCount || undefined })
     scheduleReconcile()
@@ -469,6 +481,7 @@ export default function App({ appId, token }) {
 
       {editing && (
         <EditorPanel
+          appId={appId}
           note={editing}
           onSave={persist}
           onBack={back}
