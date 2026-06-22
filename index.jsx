@@ -2,7 +2,7 @@
 // Edit src/app.jsx + src/{lib,ui,editor}/*, then run `npm run build`.
 
 // src/app.jsx
-import { useState as useState4, useEffect as useEffect4, useMemo as useMemo3, useCallback as useCallback3, useRef as useRef4 } from "react";
+import { useState as useState4, useEffect as useEffect5, useMemo as useMemo3, useCallback as useCallback4, useRef as useRef5 } from "react";
 
 // src/ui/colors.js
 var NOTE_COLORS = [
@@ -1790,6 +1790,7 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
           {
             title: meta.pinned ? "Unpin" : "Pin",
             "aria-label": meta.pinned ? "Unpin" : "Pin",
+            "aria-pressed": meta.pinned,
             onClick: (e) => {
               e.stopPropagation();
               onPin(meta.id);
@@ -2486,6 +2487,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
           {
             onClick: () => onPin(note.meta.id),
             "aria-label": note.meta.pinned ? "Unpin" : "Pin",
+            "aria-pressed": note.meta.pinned,
             title: note.meta.pinned ? "Unpin" : "Pin",
             className: `nt-hdr-btn${note.meta.pinned ? " is-active" : ""}`,
             children: /* @__PURE__ */ jsx6(Icon, { name: "pin", size: 16 })
@@ -2521,6 +2523,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
           {
             onClick: toggleType,
             "aria-label": isChecklist ? "Switch to note" : "Switch to checklist",
+            "aria-pressed": isChecklist,
             title: isChecklist ? "Switch to note" : "Switch to checklist",
             className: `nt-hdr-btn${isChecklist ? " is-active" : ""}`,
             children: /* @__PURE__ */ jsx6(Icon, { name: isChecklist ? "checklist" : "note", size: 16 })
@@ -2578,26 +2581,69 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
 }
 
 // src/ui/ConfirmModal.jsx
+import { useEffect as useEffect4, useId, useRef as useRef4, useCallback as useCallback3 } from "react";
 import { jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
 function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", danger, onConfirm, onCancel }) {
+  const dialogRef = useRef4(null);
+  const cancelRef = useRef4(null);
+  const openerRef = useRef4(null);
+  const titleId = useId();
+  useEffect4(() => {
+    if (!open2) return;
+    openerRef.current = document.activeElement;
+    cancelRef.current?.focus();
+    return () => {
+      const opener = openerRef.current;
+      if (opener && typeof opener.focus === "function" && document.contains(opener)) {
+        opener.focus();
+      }
+    };
+  }, [open2]);
+  const onKeyDown = useCallback3((e) => {
+    if (e.key === "Escape") {
+      onCancel();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    const focusable = dialogRef.current?.querySelectorAll(
+      'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (!focusable || focusable.length === 0) {
+      e.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }, [onCancel]);
   if (!open2) return null;
   return /* @__PURE__ */ jsx7(
     "div",
     {
       role: "dialog",
       "aria-modal": "true",
+      "aria-labelledby": title ? titleId : void 0,
       onClick: onCancel,
+      onKeyDown,
       className: "nt-modal-scrim",
       children: /* @__PURE__ */ jsxs5(
         "div",
         {
+          ref: dialogRef,
           onClick: (e) => e.stopPropagation(),
           className: "nt-modal",
           children: [
-            title && /* @__PURE__ */ jsx7("h2", { className: "nt-modal-title", children: title }),
+            title && /* @__PURE__ */ jsx7("h2", { id: titleId, className: "nt-modal-title", children: title }),
             message && /* @__PURE__ */ jsx7("p", { className: "nt-modal-msg", children: message }),
             /* @__PURE__ */ jsxs5("div", { className: "nt-modal-actions", children: [
-              /* @__PURE__ */ jsx7("button", { onClick: onCancel, className: "nt-modal-btn nt-modal-cancel", children: "Cancel" }),
+              /* @__PURE__ */ jsx7("button", { ref: cancelRef, onClick: onCancel, className: "nt-modal-btn nt-modal-cancel", children: "Cancel" }),
               /* @__PURE__ */ jsx7(
                 "button",
                 {
@@ -2655,7 +2701,7 @@ function EmptyState({ filtered }) {
   ] });
 }
 function App({ appId, token }) {
-  useEffect4(() => {
+  useEffect5(() => {
     if (document.querySelector("style[data-nt-katex]")) return void 0;
     let cancelled = false;
     const CSS_URL = "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css";
@@ -2684,12 +2730,12 @@ function App({ appId, token }) {
   const [confirmId, setConfirmId] = useState4(null);
   const [pending, setPending] = useState4(0);
   const [conflicts, setConflicts] = useState4(() => /* @__PURE__ */ new Set());
-  const reconTimer = useRef4(null);
-  const gcTimer = useRef4(null);
-  const editorNavOwned = useRef4(false);
+  const reconTimer = useRef5(null);
+  const gcTimer = useRef5(null);
+  const editorNavOwned = useRef5(false);
   const online = isOnline();
-  const saveLocks = useRef4(/* @__PURE__ */ new Map());
-  const withSaveLock = useCallback3((id, fn) => {
+  const saveLocks = useRef5(/* @__PURE__ */ new Map());
+  const withSaveLock = useCallback4((id, fn) => {
     const locks = saveLocks.current;
     const prev = locks.get(id) || Promise.resolve();
     const result = prev.then(fn, fn);
@@ -2702,7 +2748,7 @@ function App({ appId, token }) {
     });
     return result;
   }, []);
-  const restoreNote = useCallback3((id, prevNote) => {
+  const restoreNote = useCallback4((id, prevNote) => {
     setNotes((prev) => {
       const next = prevNote ? prev.map((n) => n.meta.id === id ? prevNote : n) : prev.filter((n) => n.meta.id !== id);
       writeIndex(next).catch(() => {
@@ -2710,7 +2756,7 @@ function App({ appId, token }) {
       return next;
     });
   }, []);
-  const upsert = useCallback3((meta, body) => {
+  const upsert = useCallback4((meta, body) => {
     setNotes((prev) => {
       const next = prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { meta, body } : n) : [{ meta, body }, ...prev];
       writeIndex(next).catch(() => {
@@ -2718,7 +2764,7 @@ function App({ appId, token }) {
       return next;
     });
   }, []);
-  const onApplied = useCallback3((id, note) => {
+  const onApplied = useCallback4((id, note) => {
     setConflicts((prev) => {
       if (!prev.has(id)) return prev;
       const n = new Set(prev);
@@ -2727,7 +2773,7 @@ function App({ appId, token }) {
     });
     setNotes((prev) => prev.map((n) => n.meta.id === id ? { meta: note.meta, body: note.body } : n));
   }, []);
-  const onDeleted = useCallback3((id) => {
+  const onDeleted = useCallback4((id) => {
     setConflicts((prev) => {
       if (!prev.has(id)) return prev;
       const n = new Set(prev);
@@ -2736,29 +2782,29 @@ function App({ appId, token }) {
     });
     setNotes((prev) => prev.filter((n) => n.meta.id !== id));
   }, []);
-  const onConflict = useCallback3((id) => {
+  const onConflict = useCallback4((id) => {
     setConflicts((prev) => {
       const n = new Set(prev);
       n.add(id);
       return n;
     });
   }, []);
-  const scheduleGc = useCallback3(() => {
+  const scheduleGc = useCallback4(() => {
     if (gcTimer.current) clearTimeout(gcTimer.current);
     gcTimer.current = setTimeout(() => {
       gcAttachments().catch(() => {
       });
     }, 1500);
   }, []);
-  const runReconcile = useCallback3(() => {
+  const runReconcile = useCallback4(() => {
     reconcileAll({ onApplied, onDeleted, onConflict }).catch(() => {
     });
   }, [onApplied, onDeleted, onConflict]);
-  const scheduleReconcile = useCallback3(() => {
+  const scheduleReconcile = useCallback4(() => {
     if (reconTimer.current) clearTimeout(reconTimer.current);
     reconTimer.current = setTimeout(runReconcile, 400);
   }, [runReconcile]);
-  useEffect4(() => {
+  useEffect5(() => {
     let live = true;
     (async () => {
       readIndex().then((index) => {
@@ -2794,7 +2840,7 @@ function App({ appId, token }) {
       live = false;
     };
   }, [runReconcile]);
-  useEffect4(() => {
+  useEffect5(() => {
     const h = () => runReconcile();
     for (const ev of ["online", "focus"]) window.addEventListener(ev, h);
     const vis = () => {
@@ -2806,7 +2852,7 @@ function App({ appId, token }) {
       document.removeEventListener("visibilitychange", vis);
     };
   }, [runReconcile]);
-  useEffect4(() => {
+  useEffect5(() => {
     let live = true;
     const tick = () => pendingCount().then((n) => {
       if (live) setPending(n);
@@ -2819,11 +2865,11 @@ function App({ appId, token }) {
       clearInterval(h);
     };
   }, []);
-  useEffect4(() => () => {
+  useEffect5(() => () => {
     if (reconTimer.current) clearTimeout(reconTimer.current);
     if (gcTimer.current) clearTimeout(gcTimer.current);
   }, []);
-  const pushEditorNav = useCallback3(() => {
+  const pushEditorNav = useCallback4(() => {
     if (typeof window === "undefined" || !window.parent) return Promise.resolve(false);
     const requestId = `notes-editor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     return new Promise((resolve) => {
@@ -2850,7 +2896,7 @@ function App({ appId, token }) {
       }
     });
   }, []);
-  const popEditorNav = useCallback3(() => {
+  const popEditorNav = useCallback4(() => {
     if (!editorNavOwned.current || typeof window === "undefined" || !window.parent) return;
     editorNavOwned.current = false;
     try {
@@ -2858,7 +2904,7 @@ function App({ appId, token }) {
     } catch {
     }
   }, []);
-  const ensureAuthoritative = useCallback3(async (id) => {
+  const ensureAuthoritative = useCallback4(async (id) => {
     const cur = notes.find((n) => n.meta.id === id);
     if (!cur) return null;
     if (!cur.placeholder) return cur;
@@ -2868,7 +2914,7 @@ function App({ appId, token }) {
     setNotes((prev) => prev.map((n) => n.meta.id === id ? rec : n));
     return rec;
   }, [notes]);
-  const openEditor = useCallback3(async (id) => {
+  const openEditor = useCallback4(async (id) => {
     window.mobius?.signal("note_opened");
     const cur = notes.find((n) => n.meta.id === id);
     if (cur && cur.placeholder && !await ensureAuthoritative(id)) return;
@@ -2879,12 +2925,12 @@ function App({ appId, token }) {
     editorNavOwned.current = await pushEditorNav();
     setView({ mode: "editor", id });
   }, [ensureAuthoritative, notes, pushEditorNav, view.mode]);
-  const createNote = useCallback3(() => {
+  const createNote = useCallback4(() => {
     const meta = newNote({});
     setDraft({ meta, body: "" });
     openEditor(meta.id).catch(() => setView({ mode: "editor", id: meta.id }));
   }, [openEditor]);
-  const commitDraft = useCallback3(async (meta, body) => {
+  const commitDraft = useCallback4(async (meta, body) => {
     const m = { ...meta, updated: meta.updated || (/* @__PURE__ */ new Date()).toISOString() };
     m.content_hash = await contentHash(m, body);
     const prevNote = notes.find((n) => n.meta.id === m.id) || null;
@@ -2924,7 +2970,7 @@ function App({ appId, token }) {
     window.mobius?.signal("note_saved", { word_count: wordCount || void 0 });
     return m;
   }, [notes, scheduleReconcile, upsert, restoreNote, scheduleGc]);
-  const persist = useCallback3((meta, body) => {
+  const persist = useCallback4((meta, body) => {
     return withSaveLock(meta.id, async () => {
       if (draft && draft.meta.id === meta.id) {
         const next = { meta: { ...draft.meta, ...meta }, body };
@@ -2954,7 +3000,7 @@ function App({ appId, token }) {
       scheduleGc();
     });
   }, [commitDraft, draft, notes, upsert, restoreNote, withSaveLock, scheduleReconcile, scheduleGc]);
-  const togglePin = useCallback3(async (id) => {
+  const togglePin = useCallback4(async (id) => {
     if (draft && draft.meta.id === id) {
       setDraft((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }));
       return;
@@ -2962,7 +3008,7 @@ function App({ appId, token }) {
     const n = await ensureAuthoritative(id);
     if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body);
   }, [draft, ensureAuthoritative, persist]);
-  const setColor = useCallback3(async (id, color) => {
+  const setColor = useCallback4(async (id, color) => {
     if (draft && draft.meta.id === id) {
       setDraft((d) => ({ ...d, meta: { ...d.meta, color } }));
       return;
@@ -2970,14 +3016,14 @@ function App({ appId, token }) {
     const n = await ensureAuthoritative(id);
     if (n) persist({ ...n.meta, color }, n.body);
   }, [draft, ensureAuthoritative, persist]);
-  const queueDelete = useCallback3(async (note) => {
+  const queueDelete = useCallback4(async (note) => {
     const hash = await contentHash(note.meta, note.body);
     await recordDeletion(note.meta.id, { meta: note.meta, body: note.body, hash }).catch(() => {
     });
     scheduleReconcile();
     scheduleGc();
   }, [scheduleReconcile, scheduleGc]);
-  const doDelete = useCallback3((id) => {
+  const doDelete = useCallback4((id) => {
     window.mobius?.signal("item_deleted");
     if (draft && draft.meta.id === id) {
       if (view.mode === "editor" && view.id === id) popEditorNav();
@@ -3007,7 +3053,7 @@ function App({ appId, token }) {
       return v;
     });
   }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode]);
-  const back = useCallback3((fromShell = false) => {
+  const back = useCallback4((fromShell = false) => {
     if (!fromShell) popEditorNav();
     else editorNavOwned.current = false;
     if (draft && draft.meta.id === view.id) {
@@ -3028,7 +3074,7 @@ function App({ appId, token }) {
     }
     setView({ mode: "grid" });
   }, [draft, notes, popEditorNav, view.id, queueDelete]);
-  useEffect4(() => {
+  useEffect5(() => {
     const onMessage = (event) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === "moebius:nav-back") back(true);

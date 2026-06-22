@@ -198,6 +198,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
           <button
             onClick={() => onPin(note.meta.id)}
             aria-label={note.meta.pinned ? 'Unpin' : 'Pin'}
+            aria-pressed={note.meta.pinned}
             title={note.meta.pinned ? 'Unpin' : 'Pin'}
             className={`nt-hdr-btn${note.meta.pinned ? ' is-active' : ''}`}
           ><Icon name="pin" size={16} /></button>
@@ -221,6 +222,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
           <button
             onClick={toggleType}
             aria-label={isChecklist ? 'Switch to note' : 'Switch to checklist'}
+            aria-pressed={isChecklist}
             title={isChecklist ? 'Switch to note' : 'Switch to checklist'}
             className={`nt-hdr-btn${isChecklist ? ' is-active' : ''}`}
           ><Icon name={isChecklist ? 'checklist' : 'note'} size={16} /></button>

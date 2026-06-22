@@ -114,6 +114,7 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
         <button
           title={meta.pinned ? 'Unpin' : 'Pin'}
           aria-label={meta.pinned ? 'Unpin' : 'Pin'}
+          aria-pressed={meta.pinned}
           onClick={(e) => { e.stopPropagation(); onPin(meta.id) }}
           className={`nt-card-pin${meta.pinned ? ' is-pinned' : ''}`}
         >
