@@ -19,8 +19,7 @@
 // (the new edit) and theirs (whatever the server holds now), mirroring the
 // hook's baseRef. We seed base from the value loaded at first sight of a note.
 
-import { notePath, docId, mergeNoteDocs, conflictDescriptorFor } from './note-doc.js'
-import { contentHash } from './note.js'
+import { notePath, docId, mergeNoteDocs } from './note-doc.js'
 
 const S = () => window.mobius.storage
 
@@ -43,11 +42,16 @@ function makeChains() {
 }
 
 // makeNoteCollection({ onConflict }) → the imperative note-document store.
-// `onConflict(descriptor)` is invoked when a merge produces a genuine body
-// conflict; the caller persists the descriptor (store.writeConflict) and flags
-// the editor. All methods are async and never throw on a durable result; an
-// update() that the server REFUSES rejects with the runtime's DurableWriteError
-// so the UI can surface doc.lastError (no silent loss, no false save).
+// `onConflict({ base, mine, theirs })` is invoked when a merge produces a genuine
+// overlapping-body conflict — the SAME sides shape makeMergeNote (the open-editor
+// liveDoc path) passes, so both writers drive one handler. The handler (app.jsx)
+// owns building + DURABLY persisting the descriptor and flagging the editor;
+// keeping the build there (not here) means there is exactly one descriptor
+// builder and one shape, so the handler never receives an already-built
+// descriptor it would mis-handle. All methods are async and never throw on a
+// durable result; an update() that the server REFUSES rejects with the runtime's
+// DurableWriteError so the UI can surface doc.lastError (no silent loss, no false
+// save).
 export function makeNoteCollection({ onConflict } = {}) {
   const withChain = makeChains()
   // base[id] = our last-confirmed document for that note (the 3-way ancestor).
@@ -108,14 +112,15 @@ export function makeNoteCollection({ onConflict } = {}) {
       // write leaves the ancestor intact for the next attempt.
       const result = await S().durableWrite(path, merged, { kind: 'json' })
       bases.set(id, merged)
-      // Record the conflict descriptor AFTER the durable write landed, so the
-      // editor's "merging…" bar reflects a real on-disk divergence. Awaited (not
-      // fire-and-forget) so it's deterministic.
+      // Surface a genuine conflict AFTER the durable note write landed, so the
+      // editor's "merging…" bar reflects a real on-disk divergence. We forward the
+      // raw sides ({ base, mine, theirs }) — the SAME shape makeMergeNote passes —
+      // so the handler is the single place that builds + durably persists the
+      // descriptor (the descriptor is the sole surviving copy of THEIRS's body, so
+      // its write must be durable-or-loud, which the handler owns). Awaiting the
+      // handler keeps the descriptor's persistence deterministic for this path.
       if (conflict && typeof onConflict === 'function') {
-        try {
-          const descriptor = await conflictDescriptorFor(base, mine, theirs, contentHash)
-          if (descriptor) onConflict(descriptor)
-        } catch (e) {}
+        try { await onConflict({ base, mine, theirs }) } catch (e) {}
       }
       return { result, value: merged }
     })

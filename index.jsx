@@ -1166,7 +1166,7 @@ async function readIndex() {
   }
 }
 async function writeConflict(path, descriptor) {
-  return S().set(path, descriptor);
+  return S().durableWrite(path, descriptor, { kind: "json" });
 }
 async function putAttachment(file) {
   const buf = await file.arrayBuffer();
@@ -1280,8 +1280,7 @@ function makeNoteCollection({ onConflict } = {}) {
       bases.set(id, merged);
       if (conflict && typeof onConflict === "function") {
         try {
-          const descriptor = await conflictDescriptorFor(base, mine, theirs, contentHash);
-          if (descriptor) onConflict(descriptor);
+          await onConflict({ base, mine, theirs });
         } catch (e) {
         }
       }
@@ -2656,19 +2655,24 @@ function App({ appId, token }) {
   const gcTimer = useRef5(null);
   const editorNavOwned = useRef5(false);
   const online = isOnline();
-  const onConflict = useCallback4((sides) => {
-    setConflicts((prev) => {
-      const id = sides?.mine?.meta?.id ?? sides?.theirs?.meta?.id ?? sides?.base?.meta?.id;
-      if (id == null || prev.has(id)) return prev;
-      const n = new Set(prev);
-      n.add(id);
-      return n;
-    });
-    conflictDescriptorFor(sides.base, sides.mine, sides.theirs, contentHash).then((d) => {
-      if (d) writeConflict(d.path, d).catch(() => {
-      });
-    }).catch(() => {
-    });
+  const onConflict = useCallback4(async (sides) => {
+    const id = sides?.mine?.meta?.id ?? sides?.theirs?.meta?.id ?? sides?.base?.meta?.id;
+    if (id != null) {
+      setConflicts((prev) => prev.has(id) ? prev : new Set(prev).add(id));
+    }
+    try {
+      const d = await conflictDescriptorFor(sides.base, sides.mine, sides.theirs, contentHash);
+      if (d) await writeConflict(d.path, d);
+    } catch (err) {
+      window.mobius?.signal("error", { message: err?.message ?? "conflict save failed", source: "onConflict" });
+      if (id != null) {
+        setConflicts((prev) => prev.has(id) ? prev : new Set(prev).add(id));
+        setSaveError({
+          id,
+          message: "Merge conflict could not be saved for recovery \u2014 your local copy is kept. Reconnect and reopen the note to retry."
+        });
+      }
+    }
   }, []);
   const collection = useMemo3(() => makeNoteCollection({ onConflict }), [onConflict]);
   const openId = view.mode === "editor" ? view.id : null;

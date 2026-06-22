@@ -140,17 +140,22 @@ test('(d) concurrent same-note edits 3-way-merge via merge3 (no lost edit)', asy
 test('(d2) overlapping same-line concurrent edits keep MINE and flag a conflict', async () => {
   const h = makeMockStorage()
   await withWindow(h, async () => {
-    const descriptors = []
-    const c = makeNoteCollection({ onConflict: (d) => descriptors.push(d) })
+    const sides = []
+    const c = makeNoteCollection({ onConflict: (s) => sides.push(s) })
     h.seed(notePath('n5'), note('n5', 'a\nb\nc'))
     await c.load('n5')
     h.seed(notePath('n5'), note('n5', 'a\nY\nc')) // server edited line 2
     const { value } = await c.update('n5', (prev) => ({ ...prev, body: 'a\nX\nc' })) // we edited line 2
     // LWW: our edit lands canonically, never silently dropped.
     assert.equal(value.body, 'a\nX\nc')
-    // The descriptor is recorded inside update() (awaited), so it's ready now.
-    assert.equal(descriptors.length, 1)
-    assert.equal(descriptors[0].noteId, 'n5')
+    // The conflict is surfaced inside update() (awaited) with the UNIFIED contract:
+    // raw { base, mine, theirs } sides — the SAME shape makeMergeNote passes — so a
+    // single handler owns building + durably persisting the descriptor. The server
+    // (theirs) side carries its conflicting body, which the descriptor must keep.
+    assert.equal(sides.length, 1)
+    assert.equal(sides[0].mine.meta.id, 'n5')
+    assert.equal(sides[0].mine.body, 'a\nX\nc')   // our edit (lands in the note)
+    assert.equal(sides[0].theirs.body, 'a\nY\nc') // the server side (lost from the note; kept in the descriptor)
   })
 })
 

@@ -142,18 +142,39 @@ export default function App({ appId, token }) {
   const online = store.isOnline()
 
   // The conflict callback for any merge that detects a genuine overlapping-body
-  // conflict: persist the immutable descriptor (so the cron/agent resolver and
-  // "Resolve now" can act) and flag the note so the editor shows the merging bar.
-  // Async hashing runs here, off the synchronous merge.
-  const onConflict = useCallback((sides) => {
-    setConflicts((prev) => {
-      const id = sides?.mine?.meta?.id ?? sides?.theirs?.meta?.id ?? sides?.base?.meta?.id
-      if (id == null || prev.has(id)) return prev
-      const n = new Set(prev); n.add(id); return n
-    })
-    conflictDescriptorFor(sides.base, sides.mine, sides.theirs, contentHash)
-      .then((d) => { if (d) store.writeConflict(d.path, d).catch(() => {}) })
-      .catch(() => {})
+  // conflict. BOTH writers (the open-editor liveDoc via makeMergeNote, and the
+  // collection's update for closed notes) call this with the SAME { base, mine,
+  // theirs } sides — one shape, one builder here. The descriptor is the ONLY
+  // surviving copy of THEIRS's body (the note file keeps just MINE's), and it is
+  // the sole input to the "Resolve now" / cron resolver, so its write must be
+  // durable-or-loud: store.writeConflict now uses durableWrite, which resolves on
+  // 'synced'/'queued' (queued offline drains on reconnect) and REJECTS on a fatal
+  // dead-letter. On rejection we KEEP the note flagged conflicted and surface a
+  // visible error rather than swallowing it — otherwise the server side would be
+  // silently and permanently lost. Returns a promise so the collection path can
+  // await deterministic persistence. Async hashing runs here, off the sync merge.
+  const onConflict = useCallback(async (sides) => {
+    const id = sides?.mine?.meta?.id ?? sides?.theirs?.meta?.id ?? sides?.base?.meta?.id
+    if (id != null) {
+      setConflicts((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+    }
+    try {
+      const d = await conflictDescriptorFor(sides.base, sides.mine, sides.theirs, contentHash)
+      if (d) await store.writeConflict(d.path, d)
+    } catch (err) {
+      // The descriptor write fatally dead-lettered (or the descriptor could not be
+      // built). The losing side's body lives ONLY in this descriptor, so a swallowed
+      // failure is silent data loss. Keep the note flagged conflicted and raise a
+      // visible, actionable error so the user/agent can re-capture it on reconnect.
+      window.mobius?.signal('error', { message: err?.message ?? 'conflict save failed', source: 'onConflict' })
+      if (id != null) {
+        setConflicts((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+        setSaveError({
+          id,
+          message: 'Merge conflict could not be saved for recovery — your local copy is kept. Reconnect and reopen the note to retry.',
+        })
+      }
+    }
   }, [])
 
   // The per-note document collection (the sole note-document writer). Built once;

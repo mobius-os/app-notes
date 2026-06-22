@@ -66,10 +66,16 @@ export async function readIndex() {
 
 // Persist a conflict descriptor (a JSON object) at its
 // conflicts/<id>/<hashes>.json path so tick.sh's resolver and the in-app
-// "Resolve now" agent can find it. The runtime's set() stores the bare JSON
-// object at a .json path.
+// "Resolve now" agent can find it. This descriptor is the SOLE surviving copy of
+// the losing side's body in a real two-device conflict (the note file keeps only
+// MINE's body), so its write must be durable-or-loud: durableWrite resolves
+// 'synced'|'queued' (queued offline is durable success, drains on reconnect) and
+// REJECTS DurableWriteError on a fatal dead-letter. The legacy set() would LIE —
+// report success while persisting nothing on a 4xx — silently destroying the
+// server side; the caller relies on this rejection to keep the note flagged and
+// surface a visible error instead.
 export async function writeConflict(path, descriptor) {
-  return S().set(path, descriptor)
+  return S().durableWrite(path, descriptor, { kind: 'json' })
 }
 
 // Store a File/Blob as a content-addressed attachment; returns
