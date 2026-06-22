@@ -1,7 +1,7 @@
 {
   "id": "notes",
   "name": "Notes",
-  "version": "1.2.8",
+  "version": "1.2.9",
   "description": "Markdown notes that render as you type, with checklists, pins, colors, search, and images.",
   "author": "mobius-os",
   "license": "MIT",
@@ -18,7 +18,8 @@
     "notes-meta.json": {
       "app": "notes",
       "data_type": "notes",
-      "format": "markdown+frontmatter",
+      "format": "json",
+      "note_shape": "{ meta: {frontmatter fields}, body: markdown-string }",
       "dir": "notes/",
       "index": "index.json",
       "attachments": "attachments/"

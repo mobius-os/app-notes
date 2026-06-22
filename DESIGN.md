@@ -162,16 +162,34 @@ exactly "renders as markdown as you type."
 
 ## 5. Data model & storage layout
 
+> **v1.2.9 migration — persistence moved onto the platform `useDocument`
+> primitive.** Each note is now a JSON document at `notes/<noteId>.json` holding
+> `{ "meta": {…frontmatter fields…}, "body": "<markdown string>" }` — the body is
+> still the note's markdown, so dreaming-agent readability is preserved; only the
+> on-disk envelope changed (markdown-frontmatter → JSON), because the runtime's
+> `window.mobius.createUseDocument` writer is JSON-only. The app's homemade
+> durability machinery — the shadow-IndexedDB outbox, the per-device base/working
+> copies with a monotonic seq + seq-CAS `promote`, the `drafts/` working copies,
+> and the reconcile driver — is **deleted**: the platform runtime's serialized
+> per-path writer + offline outbox now own durability, and `merge3`/`mergeMeta`
+> (unchanged) are the `useDocument` merge for concurrent same-note edits. A
+> one-time idempotent startup pass migrates any legacy `notes/<id>.md` →
+> `notes/<id>.json`. The `conflicts/` descriptor contract is unchanged; the cron
+> + "Resolve now" resolvers now read/write the `.json` document. The rest of this
+> section describes the original model; the per-note merge/conflict SEMANTICS it
+> documents still hold, only the file format and the durability mechanism moved.
+
 ```
-notes/<noteId>.md                  canonical note (frontmatter + markdown)
+notes/<noteId>.json                canonical note: { meta, body } (body = markdown)
 attachments/<sha256>.<ext>         content-addressed blobs (images + files)
-drafts/<deviceId>/<noteId>/<opId>.md   offline edits land HERE, never canonical
 conflicts/<noteId>/<conflictId>.json   immutable, versioned conflict descriptors
 leases/<noteId>.json               resolver lease (resolverId, leaseUntil, descriptorHash)
 index.json                         DERIVED cache (rebuildable); never authoritative
 notes-meta.json                    self-describing data contract for dreaming
 .git/                              server-side history (cron snapshot)
 ```
+(Pre-v1.2.9: `notes/<noteId>.md` frontmatter-markdown + a `drafts/` working-copy
+tree — both retired by the migration above.)
 
 **Note file** = YAML frontmatter + markdown body:
 

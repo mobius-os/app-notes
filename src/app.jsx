@@ -4,23 +4,51 @@
 // index.jsx the platform installs (npm run build). React comes from the import
 // map (/vendor/react); the live-inline editor from `codemirror`; math from
 // `katex`; card previews lazy-load marked + DOMPurify from esm.sh. Pure logic
-// (frontmatter, hashing, merge, reconcile) lives in src/lib/* and is unit-tested
-// with `node --test`. Notes persist as plain markdown files (frontmatter + body)
-// so the dreaming agent can read them. See DESIGN.md for the model.
+// (frontmatter, hashing, merge) lives in src/lib/* and is unit-tested with
+// `node --test`.
+//
+// PERSISTENCE (migrated to the platform useDocument primitive): each note is a
+// JSON document at notes/<id>.json holding { meta, body } (body is the markdown
+// string). The platform runtime owns durability — its serialized per-path writer
+// + offline outbox replace the app's old shadow-IndexedDB outbox, seq-CAS
+// promote, and reconcile driver (all deleted). A note write is durable on a
+// 'synced' or 'queued' result; a server refusal rejects DurableWriteError, which
+// surfaces as an error (never a false "saved"). Concurrent same-note edits
+// 3-way-merge via merge3 (note-doc.js → merge.js, conflict semantics preserved
+// exactly); a real conflict still emits the immutable conflicts/<id>/…json
+// descriptor the cron/agent resolver reads. See DESIGN.md for the model.
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { CSS } from './ui/css.js'
 import { newNote, contentHash, isBlankNote } from './lib/note.js'
 import { notesFromIndex } from './lib/index-cache.js'
 import { visibleNotes } from './lib/visible.js'
 import * as store from './lib/store.js'
-import { ensureBase, recordWorking, recordCreate, recordDeletion, promote, unsyncedLocals } from './lib/local.js'
-import { reconcileAll } from './lib/reconciler.js'
-import { isDurableWrite } from './lib/durable.js'
+import { makeNoteCollection } from './lib/collection.js'
+import { notePath, makeMergeNote, conflictDescriptorFor } from './lib/note-doc.js'
+import { migrateLegacyNotes } from './lib/migrate.js'
 import Grid from './ui/Grid.jsx'
 import EditorPanel from './ui/EditorPanel.jsx'
 import ConfirmModal from './ui/ConfirmModal.jsx'
 import { Icon } from './ui/icons.jsx'
+
+// A no-op document handle: the value the open-note hook returns when no note is
+// open (the sentinel path) or under the unit-test harness, where window.mobius
+// is absent. Keeps a stable shape so callers can read .value/.status/.lastError
+// unconditionally.
+const NO_DOC = { value: null, status: 'idle', lastError: null, update: async () => {}, set: async () => {}, refresh: async () => {} }
+
+// Bind the platform document hook ONCE at module top with the app's own React,
+// as the runtime requires (window.mobius.useDocument is intentionally NOT
+// self-bound — see mobius-runtime.js: it must run on the app's React instance).
+// When the runtime is absent (the node:test unit harness imports this bundle),
+// fall back to a trivial hook that returns NO_DOC, so the hook is ALWAYS called
+// (one fixed position in the hook order — never a conditional hook call).
+const HAS_RUNTIME_DOC =
+  typeof window !== 'undefined' && !!(window.mobius && window.mobius.createUseDocument)
+const useDocument = HAS_RUNTIME_DOC
+  ? window.mobius.createUseDocument(React)
+  : () => NO_DOC
 
 function TopBar({ appId, query, onQuery }) {
   return (
@@ -102,44 +130,75 @@ export default function App({ appId, token }) {
   const [confirmId, setConfirmId] = useState(null)
   const [pending, setPending] = useState(0)
   const [conflicts, setConflicts] = useState(() => new Set())
-  const reconTimer = useRef(null)
+  const [saveError, setSaveError] = useState(null)
   const gcTimer = useRef(null)
   const editorNavOwned = useRef(false)
   const online = store.isOnline()
 
-  // Per-note save serialization. Without it, two overlapping autosaves of the
-  // SAME note both reach the canonical writer; the storage outbox is
-  // last-write-wins with no ordering guarantee, so the earlier edit's write can
-  // land LAST and overwrite the later edit (the saveNote-resolves-out-of-order
-  // data-loss race). Chaining each note's save behind the previous one keeps a
-  // single write per note in flight at a time, so canonical bytes AND the local
-  // base/working settle in submission (edit) order. Keyed by note id; the tail
-  // is dropped once it drains.
-  const saveLocks = useRef(new Map())
-  const withSaveLock = useCallback((id, fn) => {
-    const locks = saveLocks.current
-    const prev = locks.get(id) || Promise.resolve()
-    const result = prev.then(fn, fn)
-    const tail = result.then(() => {}, () => {})
-    locks.set(id, tail)
-    tail.then(() => { if (locks.get(id) === tail) locks.delete(id) })
-    return result
+  // The conflict callback for any merge that detects a genuine overlapping-body
+  // conflict: persist the immutable descriptor (so the cron/agent resolver and
+  // "Resolve now" can act) and flag the note so the editor shows the merging bar.
+  // Async hashing runs here, off the synchronous merge.
+  const onConflict = useCallback((sides) => {
+    setConflicts((prev) => {
+      const id = sides?.mine?.meta?.id ?? sides?.theirs?.meta?.id ?? sides?.base?.meta?.id
+      if (id == null || prev.has(id)) return prev
+      const n = new Set(prev); n.add(id); return n
+    })
+    conflictDescriptorFor(sides.base, sides.mine, sides.theirs, contentHash)
+      .then((d) => { if (d) store.writeConflict(d.path, d).catch(() => {}) })
+      .catch(() => {})
   }, [])
 
-  // Inverse of upsert: put a captured pre-write note back (or remove the entry
-  // when there was none, i.e. a brand-new note). Used to roll back the optimistic
-  // upsert when the durable write fails — otherwise the in-memory note keeps the
-  // attempted buffer, the editor's buffer-vs-note guard goes clean, and the
-  // retry is permanently disarmed (a never-saved note silently lost on reload).
-  const restoreNote = useCallback((id, prevNote) => {
+  // The per-note document collection (the sole note-document writer). Built once;
+  // its update()/remove() run the same lww read-merge-write the platform
+  // useDocument hook uses, so a dynamic, unbounded note set works without
+  // breaking React's rules of hooks. The open editor note ALSO gets a real
+  // useDocument hook below — its writes and the collection's never target the
+  // same path (grid actions act on closed notes; editor actions on the open one).
+  const collection = useMemo(() => makeNoteCollection({ onConflict }), [onConflict])
+
+  // The live document hook for the currently-open note (literal per-note
+  // useDocument). It provides the open note's optimistic value, save status, and
+  // lastError. Its merge is mergeNote (merge3 + mergeMeta), identity the note id,
+  // mode 'lww' (per-note files avoid same-path clobber; backend CAS isn't live).
+  const openId = view.mode === 'editor' ? view.id : null
+  const openPath = openId ? notePath(openId) : '__notes_no_open__.json'
+  const mergeNote = useMemo(() => makeMergeNote(onConflict), [onConflict])
+  // Always called (stable hook position); inert when no note is open (the
+  // sentinel path is never written) or under the test harness (returns NO_DOC).
+  const liveDoc = useDocument(openPath, {
+    initial: null,
+    identity: (d) => (d && d.meta ? d.meta.id : undefined),
+    merge: mergeNote,
+    mode: 'lww',
+  })
+
+  // Surface the open note's durable-write failure as an actionable error (never a
+  // silent loss, never a false save). A 'queued' result is durable success and
+  // leaves status 'saving' with no lastError — so we only treat lastError as a
+  // failure.
+  useEffect(() => {
+    if (openId && liveDoc.lastError) {
+      setSaveError({ id: openId, message: 'Could not save — your edit is kept. Retrying when possible.' })
+    }
+  }, [openId, liveDoc.lastError])
+
+  // Mirror the open note's live document value back into the grid's `notes`
+  // array (replaces the old reconciler's onApplied callback): when a concurrent
+  // server edit 3-way-merges into the open note, the merged value lands in
+  // liveDoc.value; reflect it so the grid card and a later re-open show the
+  // merged content, not the stale optimistic copy. The editor buffer reconciles
+  // via its own note-prop effect.
+  useEffect(() => {
+    const v = liveDoc.value
+    if (!openId || !v || !v.meta || v.meta.id !== openId) return
     setNotes((prev) => {
-      const next = prevNote
-        ? prev.map((n) => (n.meta.id === id ? prevNote : n))
-        : prev.filter((n) => n.meta.id !== id)
-      store.writeIndex(next).catch(() => {})
-      return next
+      const cur = prev.find((n) => n.meta.id === openId)
+      if (cur && cur.body === v.body && cur.meta.content_hash === v.meta.content_hash) return prev
+      return prev.map((n) => (n.meta.id === openId ? { meta: v.meta, body: v.body } : n))
     })
-  }, [])
+  }, [openId, liveDoc.value])
 
   const upsert = useCallback((meta, body) => {
     setNotes((prev) => {
@@ -151,21 +210,9 @@ export default function App({ appId, token }) {
     })
   }, [])
 
-  const onApplied = useCallback((id, note) => {
-    setConflicts((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n })
-    setNotes((prev) => prev.map((n) => (n.meta.id === id ? { meta: note.meta, body: note.body } : n)))
-  }, [])
-  const onDeleted = useCallback((id) => {
-    setConflicts((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n })
-    setNotes((prev) => prev.filter((n) => n.meta.id !== id))
-  }, [])
-  const onConflict = useCallback((id) => {
-    setConflicts((prev) => { const n = new Set(prev); n.add(id); return n })
-  }, [])
-
   // Debounced attachment GC. Deletes and body edits can orphan content-addressed
-  // blobs; sweep them after the dust settles (the working copy / canonical write
-  // has landed) against the current authoritative note set.
+  // blobs; sweep them after the dust settles (the durable write has landed)
+  // against the current authoritative note set.
   const scheduleGc = useCallback(() => {
     if (gcTimer.current) clearTimeout(gcTimer.current)
     gcTimer.current = setTimeout(() => {
@@ -173,18 +220,15 @@ export default function App({ appId, token }) {
     }, 1500)
   }, [])
 
-  const runReconcile = useCallback(() => { reconcileAll({ onApplied, onDeleted, onConflict }).catch(() => {}) }, [onApplied, onDeleted, onConflict])
-  const scheduleReconcile = useCallback(() => {
-    if (reconTimer.current) clearTimeout(reconTimer.current)
-    reconTimer.current = setTimeout(runReconcile, 400)
-  }, [runReconcile])
-
-  // Initial load: paint the derived index.json cache first for an instant grid,
-  // then read the canonical notes overlaid with any unsynced local edits (so an
-  // offline edit survives a reload), seed bases + flush the reconcile queue.
+  // Initial load: migrate any legacy markdown notes to the JSON document model
+  // (idempotent, before the first read so old notes never vanish), paint the
+  // derived index.json cache for an instant grid, then read the canonical note
+  // documents (the runtime overlays any queued offline write, so an offline edit
+  // survives a reload).
   useEffect(() => {
     let live = true
     ;(async () => {
+      await migrateLegacyNotes().catch(() => {})
       // Fast cold-load: the index is a strictly-derived cache, so render its
       // placeholders immediately while the authoritative files are enumerated.
       store.readIndex()
@@ -196,40 +240,14 @@ export default function App({ appId, token }) {
           }
         })
         .catch(() => {})
-      const canonical = await store.listNotes().catch(() => [])
-      let merged = canonical
-      try {
-        const unsynced = await unsyncedLocals()
-        if (unsynced.length) {
-          const map = new Map(canonical.map((n) => [n.meta.id, n]))
-          for (const [id, rec] of unsynced) map.set(id, { meta: rec.working.meta, body: rec.working.body })
-          merged = [...map.values()]
-        }
-      } catch (e) {}
+      const canonical = await collection.list().catch(() => [])
       if (!live) return
-      setNotes(merged)
+      setNotes(canonical)
       setLoading(false)
-      window.mobius?.signal('app_ready', { item_count: merged.length })
-      // Seed a base for notes we haven't tracked yet (background; non-blocking).
-      for (const n of canonical) {
-        contentHash(n.meta, n.body).then((hash) => ensureBase(n.meta.id, { meta: n.meta, body: n.body, hash })).catch(() => {})
-      }
-      runReconcile()
+      window.mobius?.signal('app_ready', { item_count: canonical.length })
     })()
     return () => { live = false }
-  }, [runReconcile])
-
-  // Re-reconcile when connectivity / focus returns.
-  useEffect(() => {
-    const h = () => runReconcile()
-    for (const ev of ['online', 'focus']) window.addEventListener(ev, h)
-    const vis = () => { if (document.visibilityState === 'visible') runReconcile() }
-    document.addEventListener('visibilitychange', vis)
-    return () => {
-      for (const ev of ['online', 'focus']) window.removeEventListener(ev, h)
-      document.removeEventListener('visibilitychange', vis)
-    }
-  }, [runReconcile])
+  }, [collection])
 
   useEffect(() => {
     let live = true
@@ -240,15 +258,9 @@ export default function App({ appId, token }) {
 
   // Clear pending debounce timers on unmount.
   useEffect(() => () => {
-    if (reconTimer.current) clearTimeout(reconTimer.current)
     if (gcTimer.current) clearTimeout(gcTimer.current)
   }, [])
 
-  // A brand-new note opens as an in-memory draft first. It is not inserted into
-  // the grid until the user actually writes something, avoiding the distracting
-  // empty-card flash before the full editor opens. Once meaningful, the first
-  // save lands canonical directly (no ancestor yet, so no conflict is possible)
-  // and seeds its base; later edits go through the working copy + reconcile.
   const pushEditorNav = useCallback(() => {
     if (typeof window === 'undefined' || !window.parent) return Promise.resolve(false)
     const requestId = `notes-editor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -296,15 +308,15 @@ export default function App({ appId, token }) {
     const cur = notes.find((n) => n.meta.id === id)
     if (!cur) return null
     if (!cur.placeholder) return cur
-    const loaded = await store.loadNote(id).catch(() => null)
+    const loaded = await collection.load(id).catch(() => null)
     if (!loaded || !loaded.meta || !loaded.meta.id) return null
-    const rec = { meta: loaded.meta, body: loaded.body }
-    setNotes((prev) => prev.map((n) => (n.meta.id === id ? rec : n)))
-    return rec
-  }, [notes])
+    setNotes((prev) => prev.map((n) => (n.meta.id === id ? loaded : n)))
+    return loaded
+  }, [notes, collection])
 
   const openEditor = useCallback(async (id) => {
     window.mobius?.signal('note_opened')
+    setSaveError(null)
     const cur = notes.find((n) => n.meta.id === id)
     if (cur && cur.placeholder && !(await ensureAuthoritative(id))) return
     if (view.mode === 'editor') {
@@ -321,116 +333,71 @@ export default function App({ appId, token }) {
     openEditor(meta.id).catch(() => setView({ mode: 'editor', id: meta.id }))
   }, [openEditor])
 
-  const commitDraft = useCallback(async (meta, body) => {
+  // Persist a note's full document ({ meta, body }). EXACTLY ONE writer touches a
+  // given note path: the OPEN editor note writes through its live useDocument
+  // hook (liveDoc.update — the literal per-note document); every other note (grid
+  // pin/color/delete on a closed note, a draft's first save) writes through the
+  // collection's update, which runs the IDENTICAL lww read-merge-write. The
+  // routing is exclusive — the editor is full-screen, so the grid never acts on
+  // the open note — so the two writers can never target the same path
+  // concurrently. Both serialize the read-merge-write per path, merge concurrent
+  // edits via merge3, and resolve DURABLE (synced/queued) or REJECT
+  // DurableWriteError on a server refusal. We optimistically upsert the in-memory
+  // note, then on a rejection keep the edit and surface an error so it is never
+  // lost AND never falsely reported saved.
+  const writeNote = useCallback(async (meta, body, { isDraftCommit = false } = {}) => {
+    const id = meta.id
     const m = { ...meta, updated: meta.updated || new Date().toISOString() }
     m.content_hash = await contentHash(m, body)
-    // Capture the pre-write in-memory note (null for a brand-new note) so the
-    // optimistic upsert can be rolled back if the durable write fails. Without
-    // the rollback, the notes entry keeps the attempted buffer; the editor's
-    // buffer-vs-note guard then reads clean and the retry is disarmed — a
-    // never-durably-saved note is lost on reload.
-    const prevNote = notes.find((n) => n.meta.id === m.id) || null
     upsert(m, body)
-    // A brand-new note's first save lands canonical directly (no ancestor yet).
-    // The write is DURABLE only on a synced/queued result. A failure is not just
-    // a rejected promise — a RESOLVED non-durable result ({synced:false} with no
-    // queue, {ok:false}, …) means the bytes never landed either. On EITHER, do
-    // not lose the edit and do not falsely report success: degrade to the same
-    // durable path an offline edit takes — record a working-copy CREATE in
-    // IndexedDB (survives reload via the initial-load merge; the reconcile driver
-    // re-attempts the canonical create) — then clear the draft (its content is
-    // now durably held) and WITHHOLD note_saved (sync is pending, not confirmed).
-    // Only if even that local write fails (storage truly full) do we roll back
-    // the optimistic upsert, keep the draft, and surface a hard retry.
-    const queueCreate = async (reason) => {
-      try {
-        await recordCreate(m.id, { meta: m, body, hash: m.content_hash })
-      } catch (e) {
-        restoreNote(m.id, prevNote)
-        window.mobius?.signal('error', { message: e?.message ?? 'save failed', source: 'commitDraft' })
-        const err = new Error('save not durable')
-        err.nonDurable = true
-        throw err
-      }
-      window.mobius?.signal('error', { message: reason, source: 'commitDraft' })
-      setDraft(null)
-      scheduleReconcile()
-      scheduleGc()
-    }
-    let res
+    const writeThroughHook = HAS_RUNTIME_DOC && openId === id
     try {
-      res = await store.saveNote(m, body)
-    } catch (err) {
-      await queueCreate(err?.message ?? 'save failed')
-      return m
-    }
-    if (!isDurableWrite(res)) {
-      await queueCreate('save not durable — queued locally')
-      return m
-    }
-    setDraft(null)
-    await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {})
-    scheduleReconcile()
-    scheduleGc()
-    const wordCount = (body || '').trim().split(/\s+/).filter(Boolean).length
-    window.mobius?.signal('note_saved', { word_count: wordCount || undefined })
-    return m
-  }, [notes, scheduleReconcile, upsert, restoreNote, scheduleGc])
-
-  // Persist an edit: stamp the working copy + update the UI, then let the
-  // reconcile driver (the sole canonical writer) land it / merge / flag conflict.
-  // `updated` is stamped ONLY when the content actually changed (hash compare):
-  // the grid sorts on it (visible.js), so a real edit bumps the note to the top
-  // while opening a note — or a flush that didn't change anything — never does.
-  const persist = useCallback((meta, body) => {
-    // Serialize all saves of a given note id behind one another. Overlapping
-    // autosaves of the same note would otherwise both reach the canonical writer
-    // and, under the last-write-wins outbox, land out of order (the earlier edit
-    // overwriting the later one). One in-flight save per note keeps canonical
-    // bytes and the local base/working in submission (edit) order.
-    return withSaveLock(meta.id, async () => {
-      if (draft && draft.meta.id === meta.id) {
-        const next = { meta: { ...draft.meta, ...meta }, body }
-        setDraft(next)
-        if (isBlankNote(next.meta, next.body)) return
-        await commitDraft(next.meta, next.body)
-        return
+      let result
+      if (writeThroughHook) {
+        result = await liveDoc.update(() => ({ meta: m, body }))
+      } else {
+        ;({ result } = await collection.update(id, () => ({ meta: m, body })))
       }
-      const prev = notes.find((n) => n.meta.id === meta.id)
-      if (prev && prev.placeholder) return // display-only; never persist a snippet
-      const nextHash = await contentHash(meta, body)
-      // The authoritative pre-edit note seeds the merge ancestor on a note this
-      // device hasn't tracked yet (the background ensureBase loop may not have run
-      // before this first edit). Without it, recordWorking would set base ===
-      // working and the edit would never enter the reconcile queue (lost update).
-      const baseHint = prev ? { meta: prev.meta, body: prev.body, hash: await contentHash(prev.meta, prev.body) } : null
-      if (baseHint && nextHash === baseHint.hash) return
-      const m = { ...meta, updated: new Date().toISOString(), content_hash: nextHash }
-      // Capture the pre-write note so the optimistic upsert can be rolled back if
-      // the durable write throws — otherwise the in-memory note keeps the edit,
-      // the editor's buffer-vs-note guard goes clean, and recordWorking is never
-      // retried (the edit is dropped, canonical still holds the pre-edit body).
-      const prevNote = prev || null
-      upsert(m, body)
-      // recordWorking is the durable write — it stamps the working copy into
-      // IndexedDB for the reconcile driver to pick up. Only signal note_saved and
-      // kick the reconcile/gc drivers if it actually landed: on a rejected write
-      // there IS no working copy to reconcile, so emitting a success signal would
-      // claim a save that never happened, and the in-memory upsert must be rolled
-      // back so the retry stays armed.
-      try {
-        await recordWorking(m.id, { meta: m, body, hash: m.content_hash }, baseHint)
-      } catch (err) {
-        restoreNote(m.id, prevNote)
-        window.mobius?.signal('error', { message: err?.message ?? 'save failed', source: 'persist' })
-        return
-      }
-      const wordCount = (body || '').trim().split(/\s+/).filter(Boolean).length
-      window.mobius?.signal('note_saved', { word_count: wordCount || undefined })
-      scheduleReconcile()
+      setSaveError((e) => (e && e.id === id ? null : e))
+      if (isDraftCommit) setDraft(null)
       scheduleGc()
-    })
-  }, [commitDraft, draft, notes, upsert, restoreNote, withSaveLock, scheduleReconcile, scheduleGc])
+      const wordCount = (body || '').trim().split(/\s+/).filter(Boolean).length
+      window.mobius?.signal('note_saved', {
+        word_count: wordCount || undefined,
+        durability: result?.durability,
+      })
+      return m
+    } catch (err) {
+      // Durable write REFUSED by the server (DurableWriteError). Do not claim a
+      // save and do not lose the edit: keep the optimistic in-memory note (so the
+      // buffer is preserved and the user can retry) and surface an error. A draft
+      // is kept open so its content isn't dropped. (An OFFLINE write does NOT land
+      // here — it resolves 'queued', which is durable success.)
+      window.mobius?.signal('error', { message: err?.message ?? 'save failed', source: 'writeNote' })
+      setSaveError({ id, message: 'Could not save — your edit is kept. Retrying when possible.' })
+      return m
+    }
+  }, [openId, liveDoc, upsert, collection, scheduleGc])
+
+  // Persist an edit from the editor or a draft. `updated` is stamped only when
+  // the content actually changed (hash compare): the grid sorts on it, so a real
+  // edit bumps the note to the top while opening a note — or a flush that didn't
+  // change anything — never does.
+  const persist = useCallback(async (meta, body) => {
+    if (draft && draft.meta.id === meta.id) {
+      const next = { meta: { ...draft.meta, ...meta }, body }
+      setDraft(next)
+      if (isBlankNote(next.meta, next.body)) return
+      await writeNote(next.meta, next.body, { isDraftCommit: true })
+      return
+    }
+    const prev = notes.find((n) => n.meta.id === meta.id)
+    if (prev && prev.placeholder) return // display-only; never persist a snippet
+    const nextHash = await contentHash(meta, body)
+    const prevHash = prev ? await contentHash(prev.meta, prev.body) : null
+    if (prevHash != null && nextHash === prevHash) return // nothing changed — don't bump order
+    await writeNote({ ...meta, updated: new Date().toISOString() }, body)
+  }, [draft, notes, writeNote])
 
   const togglePin = useCallback(async (id) => {
     if (draft && draft.meta.id === id) {
@@ -449,12 +416,14 @@ export default function App({ appId, token }) {
     if (n) persist({ ...n.meta, color }, n.body)
   }, [draft, ensureAuthoritative, persist])
 
-  const queueDelete = useCallback(async (note) => {
-    const hash = await contentHash(note.meta, note.body)
-    await recordDeletion(note.meta.id, { meta: note.meta, body: note.body, hash }).catch(() => {})
-    scheduleReconcile()
+  // Delete a note: remove its canonical document via the collection (the runtime
+  // queues the delete offline and drains it on reconnect). Clear any conflict
+  // flag and sweep orphaned attachments after.
+  const queueDelete = useCallback(async (id) => {
+    await collection.remove(id).catch(() => {})
+    setConflicts((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n })
     scheduleGc()
-  }, [scheduleReconcile, scheduleGc])
+  }, [collection, scheduleGc])
 
   const doDelete = useCallback((id) => {
     window.mobius?.signal('item_deleted')
@@ -466,16 +435,7 @@ export default function App({ appId, token }) {
       return
     }
     const n = notes.find((x) => x.meta.id === id)
-    if (n) {
-      // Tombstone the authoritative note, not a placeholder projection — the
-      // deletion's merge ancestor must match what is actually on disk.
-      const target = n.placeholder
-        ? store.loadNote(id)
-          .then((loaded) => (loaded && loaded.meta && loaded.meta.id ? { meta: loaded.meta, body: loaded.body } : null))
-          .catch(() => null)
-        : Promise.resolve(n)
-      target.then((t) => (t ? queueDelete(t) : null)).catch(() => {})
-    }
+    if (n) queueDelete(id).catch(() => {})
     setNotes((prev) => {
       const next = prev.filter((note) => note.meta.id !== id)
       store.writeIndex(next).catch(() => {})
@@ -501,7 +461,7 @@ export default function App({ appId, token }) {
     }
     const n = notes.find((x) => x.meta.id === view.id)
     if (n && !n.placeholder && isBlankNote(n.meta, n.body)) {
-      queueDelete(n).catch(() => {})
+      queueDelete(n.meta.id).catch(() => {})
       setNotes((prev) => {
         const next = prev.filter((x) => x.meta.id !== n.meta.id)
         store.writeIndex(next).catch(() => {})
@@ -527,9 +487,13 @@ export default function App({ appId, token }) {
   const editing = view.mode === 'editor'
     ? (notes.find((n) => n.meta.id === view.id && !n.placeholder) || (draft && draft.meta.id === view.id ? draft : null))
     : null
-  // Standard: silent when healthy. Saving/pending is plumbing — only Offline
-  // and an actionable conflict state ever surface.
-  const status = !online ? 'Offline' : (editing && conflicts.has(editing.meta.id)) ? 'Resolving…' : null
+  // Standard: silent when healthy. Saving/pending is plumbing — only Offline, an
+  // actionable conflict state, and a hard save error ever surface.
+  const status = saveError && editing && saveError.id === editing.meta.id
+    ? 'Save failed'
+    : !online ? 'Offline'
+    : (editing && conflicts.has(editing.meta.id)) ? 'Resolving…'
+    : null
 
   return (
     <div className="nt-root">

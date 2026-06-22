@@ -2,7 +2,7 @@
 // Edit src/app.jsx + src/{lib,ui,editor}/*, then run `npm run build`.
 
 // src/app.jsx
-import { useState as useState4, useEffect as useEffect5, useMemo as useMemo3, useCallback as useCallback4, useRef as useRef5 } from "react";
+import React, { useState as useState4, useEffect as useEffect5, useMemo as useMemo3, useCallback as useCallback4, useRef as useRef5 } from "react";
 
 // src/ui/colors.js
 var NOTE_COLORS = [
@@ -615,103 +615,6 @@ function visibleNotes(notes, query) {
   });
 }
 
-// src/lib/frontmatter.js
-var FENCE = "---";
-function parseScalar(raw) {
-  const s = raw.trim();
-  if (s === "") return "";
-  if (s === "true") return true;
-  if (s === "false") return false;
-  if (s === "null" || s === "~") return null;
-  if (s[0] === '"' && s[s.length - 1] === '"' || s[0] === "'" && s[s.length - 1] === "'") {
-    return s.slice(1, -1);
-  }
-  if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
-  return s;
-}
-function parseValue(raw) {
-  const s = raw.trim();
-  if (s[0] === "[" && s[s.length - 1] === "]") {
-    const inner = s.slice(1, -1).trim();
-    if (inner === "") return [];
-    return inner.split(",").map((el) => parseScalar(el));
-  }
-  return parseScalar(s);
-}
-function parseFrontmatter(md) {
-  const text = String(md);
-  if (!text.startsWith(FENCE + "\n") && text !== FENCE) {
-    return { meta: {}, body: text };
-  }
-  const lines = text.split("\n");
-  let close = -1;
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i] === FENCE) {
-      close = i;
-      break;
-    }
-  }
-  if (close === -1) {
-    return { meta: {}, body: text };
-  }
-  const meta = {};
-  for (let i = 1; i < close; i++) {
-    const line = lines[i];
-    if (line.trim() === "") continue;
-    const colon = line.indexOf(":");
-    if (colon === -1) continue;
-    const key = line.slice(0, colon).trim();
-    const value = line.slice(colon + 1);
-    meta[key] = parseValue(value);
-  }
-  const body = lines.slice(close + 1).join("\n");
-  return { meta, body };
-}
-function serializeScalar(v) {
-  if (v === null) return "null";
-  if (v === true) return "true";
-  if (v === false) return "false";
-  if (typeof v === "number") return String(v);
-  const s = String(v);
-  const ambiguous = s === "" || s === "true" || s === "false" || s === "null" || s === "~" || /^-?\d+(\.\d+)?$/.test(s) || /[:,#\[\]]/.test(s) || s.trim() !== s;
-  return ambiguous ? JSON.stringify(s) : s;
-}
-function serializeValue(v) {
-  if (Array.isArray(v)) {
-    return "[" + v.map((el) => serializeScalar(el)).join(", ") + "]";
-  }
-  return serializeScalar(v);
-}
-var KEY_ORDER = [
-  "id",
-  "title",
-  "pinned",
-  "color",
-  "tags",
-  "type",
-  "archived",
-  "created",
-  "updated",
-  "mobius_rev",
-  "parent_rev",
-  "parent_revs",
-  "content_hash",
-  "attachments"
-];
-function orderedKeys(meta) {
-  const known = KEY_ORDER.filter((k) => k in meta);
-  const extra = Object.keys(meta).filter((k) => !KEY_ORDER.includes(k)).sort();
-  return [...known, ...extra];
-}
-function serializeNote(meta, body) {
-  const keys = orderedKeys(meta);
-  const yaml = keys.map((k) => `${k}: ${serializeValue(meta[k])}`).join("\n");
-  return `${FENCE}
-${yaml}
-${FENCE}
-${String(body)}`;
-}
-
 // src/lib/attachments.js
 function attachmentPath(sha, ext) {
   return `attachments/${sha}.${ext}`;
@@ -754,252 +657,6 @@ function referencedAttachments(notes = []) {
   }
   return refs;
 }
-
-// src/lib/idb.js
-var DB_NAME = "notes-local";
-var STORE = "kv";
-function open() {
-  return new Promise((resolve, reject) => {
-    const r = indexedDB.open(DB_NAME, 1);
-    r.onupgradeneeded = () => {
-      const db = r.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
-    };
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
-  });
-}
-async function run(mode, fn) {
-  const db = await open();
-  try {
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, mode);
-      const store = tx.objectStore(STORE);
-      const box = {};
-      fn(store, box);
-      tx.oncomplete = () => resolve(box.value);
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
-  }
-}
-function idbGet(key) {
-  return run("readonly", (store, box) => {
-    const r = store.get(key);
-    r.onsuccess = () => {
-      box.value = r.result;
-    };
-  });
-}
-function idbSet(key, value) {
-  return run("readwrite", (store) => {
-    store.put(value, key);
-  });
-}
-function idbDel(key) {
-  return run("readwrite", (store) => {
-    store.delete(key);
-  });
-}
-function idbEntries() {
-  return run("readonly", (store, box) => {
-    box.value = [];
-    const r = store.openCursor();
-    r.onsuccess = (e) => {
-      const cur = e.target.result;
-      if (!cur) return;
-      box.value.push([cur.key, cur.value]);
-      cur.continue();
-    };
-  });
-}
-
-// src/lib/local.js
-var KEY = (id) => `note:${id}`;
-var _locks = /* @__PURE__ */ new Map();
-function withLock(id, fn) {
-  const prev = _locks.get(id) || Promise.resolve();
-  const result = prev.then(fn, fn);
-  const tail = result.then(() => {
-  }, () => {
-  });
-  _locks.set(id, tail);
-  tail.then(() => {
-    if (_locks.get(id) === tail) _locks.delete(id);
-  });
-  return result;
-}
-function nextSeq(prev) {
-  return (prev && typeof prev.seq === "number" ? prev.seq : 0) + 1;
-}
-async function ensureBase(id, rec) {
-  return withLock(id, async () => {
-    if (!await idbGet(KEY(id))) await idbSet(KEY(id), { base: rec, working: rec, seq: 1 });
-  });
-}
-async function recordWorking(id, working, baseHint = null) {
-  return withLock(id, async () => {
-    const prev = await idbGet(KEY(id)) || {};
-    const hasRecord = "base" in prev || "working" in prev;
-    const base = hasRecord ? prev.base : baseHint || working;
-    const seq = nextSeq(prev);
-    await idbSet(KEY(id), { base, working, seq });
-    return seq;
-  });
-}
-async function recordCreate(id, working) {
-  return withLock(id, async () => {
-    const prev = await idbGet(KEY(id)) || {};
-    if (prev.base) {
-      const seq2 = nextSeq(prev);
-      await idbSet(KEY(id), { base: prev.base, working, seq: seq2 });
-      return seq2;
-    }
-    const seq = nextSeq(prev);
-    await idbSet(KEY(id), { base: null, working, seq });
-    return seq;
-  });
-}
-async function recordDeletion(id, baseHint = null) {
-  return withLock(id, async () => {
-    const prev = await idbGet(KEY(id)) || {};
-    const base = prev.base || baseHint;
-    if (!base) return false;
-    await idbSet(KEY(id), { base, working: null, seq: nextSeq(prev) });
-    return true;
-  });
-}
-async function promote(id, synced, seq = null) {
-  return withLock(id, async () => {
-    const prev = await idbGet(KEY(id)) || {};
-    const prevSeq = typeof prev.seq === "number" ? prev.seq : 0;
-    if (seq != null && seq < prevSeq) return false;
-    await idbSet(KEY(id), { base: synced, working: synced, seq: seq != null ? seq : prevSeq });
-    return true;
-  });
-}
-async function clearLocal(id) {
-  return withLock(id, () => idbDel(KEY(id)));
-}
-async function unsyncedLocals() {
-  const entries = await idbEntries();
-  const out = [];
-  for (const [k, v] of entries) {
-    if (!k.startsWith("note:") || !v || !("working" in v)) continue;
-    if (v.base == null) {
-      if (v.working != null) out.push([k.slice(5), v]);
-    } else if (v.working === null) {
-      out.push([k.slice(5), v]);
-    } else if (v.working.hash !== v.base.hash) {
-      out.push([k.slice(5), v]);
-    }
-  }
-  return out;
-}
-
-// src/lib/store.js
-var S = () => window.mobius.storage;
-var notePath = (id) => `notes/${id}.md`;
-async function sha256Bytes(buffer) {
-  const digest = await crypto.subtle.digest("SHA-256", buffer);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-function extFromName(name) {
-  const m = /\.([A-Za-z0-9]+)$/.exec(name || "");
-  return m ? m[1].toLowerCase() : null;
-}
-async function listNotes() {
-  let entries;
-  try {
-    entries = await S().list("notes");
-  } catch {
-    entries = [];
-  }
-  const out = [];
-  for (const e of entries || []) {
-    if (e.type !== "file" || !e.name.endsWith(".md")) continue;
-    const text = await S().getText(e.path);
-    if (text == null) continue;
-    const { meta, body } = parseFrontmatter(text);
-    if (meta && meta.id) out.push({ meta, body });
-  }
-  return out;
-}
-async function loadNote(id) {
-  const text = await S().getText(notePath(id));
-  return text == null ? null : parseFrontmatter(text);
-}
-async function saveNote(meta, body) {
-  return S().setText(notePath(meta.id), serializeNote(meta, body), {
-    contentType: "text/markdown;charset=utf-8"
-  });
-}
-async function deleteNote(id) {
-  return S().remove(notePath(id));
-}
-async function writeIndex(notes) {
-  return S().set("index.json", buildIndex(notes));
-}
-async function readIndex() {
-  try {
-    return await S().get("index.json");
-  } catch {
-    return null;
-  }
-}
-async function writeConflict(path, descriptor) {
-  return S().set(path, descriptor);
-}
-async function putAttachment(file) {
-  const buf = await file.arrayBuffer();
-  const sha = await sha256Bytes(buf);
-  const ext = extFromType(file.type) || extFromName(file.name) || "bin";
-  const path = attachmentPath(sha, ext);
-  await S().setBlob(path, file, { contentType: file.type || "application/octet-stream" });
-  return { sha, ext, path, name: file.name || `${sha}.${ext}` };
-}
-async function gcAttachments() {
-  let entries;
-  try {
-    entries = await S().list("attachments");
-  } catch {
-    return;
-  }
-  const live = entries && entries.length ? entries.filter((e) => e.type === "file" && e.path.startsWith("attachments/")) : [];
-  if (!live.length) return;
-  const notes = await listNotes().catch(() => null);
-  if (notes == null) return;
-  const referenced = referencedAttachments(notes);
-  try {
-    const pending = await unsyncedLocals();
-    for (const [, rec] of pending) {
-      const w = rec && rec.working;
-      if (!w) continue;
-      for (const p of noteAttachmentRefs(w.meta || {}, w.body || "")) referenced.add(p);
-    }
-  } catch {
-  }
-  for (const e of live) {
-    if (referenced.has(e.path)) continue;
-    try {
-      await S().remove(e.path);
-    } catch {
-    }
-  }
-}
-async function attachmentURL(path) {
-  let blob;
-  try {
-    blob = await S().getBlob(path);
-  } catch {
-    return null;
-  }
-  return blob ? URL.createObjectURL(blob) : null;
-}
-var pendingCount = () => S().pendingCount();
-var isOnline = () => window.mobius ? window.mobius.online : true;
 
 // node_modules/node-diff3/dist/diff3.mjs
 function LCS(buffer1, buffer2) {
@@ -1379,126 +1036,364 @@ function mergeMeta(base, mine, theirs) {
   };
 }
 
-// src/lib/sync.js
-var hashOf = (side) => side ? side.hash : null;
-var attachmentsOf = (side) => side?.meta?.attachments ?? [];
-function buildConflict({ base, mine, server }) {
-  const noteId = base?.meta?.id ?? mine?.meta?.id ?? server?.meta?.id;
-  const baseHash = hashOf(base);
-  const mineHash = hashOf(mine);
-  const serverHash = hashOf(server);
+// src/lib/note-doc.js
+var notePath = (id) => `notes/${id}.json`;
+function sameContent(a, b) {
+  if (a == null || b == null) return a == null && b == null;
+  const am = a.meta ?? {};
+  const bm = b.meta ?? {};
+  const eqArr = (x, y) => {
+    const xs = Array.isArray(x) ? x : [];
+    const ys = Array.isArray(y) ? y : [];
+    return xs.length === ys.length && xs.every((v, i) => v === ys[i]);
+  };
+  return (am.title ?? "") === (bm.title ?? "") && String(a.body ?? "") === String(b.body ?? "") && (am.pinned ?? false) === (bm.pinned ?? false) && (am.color ?? null) === (bm.color ?? null) && (am.type ?? "note") === (bm.type ?? "note") && (am.archived ?? false) === (bm.archived ?? false) && eqArr(am.tags, bm.tags);
+}
+var docId = (doc) => doc && doc.meta ? doc.meta.id : void 0;
+function buildConflictDescriptor({ noteId, base, mine, server, hashes }) {
+  const { baseHash, mineHash, serverHash } = hashes;
   return {
-    action: "conflict",
-    descriptor: {
-      noteId,
-      baseHash,
-      mineHash,
-      serverHash,
-      base,
-      mine,
-      server,
-      attachmentsMine: attachmentsOf(mine),
-      attachmentsServer: attachmentsOf(server),
-      status: "open",
-      path: `conflicts/${noteId}/${baseHash}.${mineHash}.${serverHash}.json`
-    }
+    noteId,
+    baseHash,
+    mineHash,
+    serverHash,
+    base,
+    mine,
+    server,
+    attachmentsMine: mine?.meta?.attachments ?? [],
+    attachmentsServer: server?.meta?.attachments ?? [],
+    status: "open",
+    path: `conflicts/${noteId}/${baseHash}.${mineHash}.${serverHash}.json`
   };
 }
-function reconcile({ base, mine, server }) {
-  if (mine === null && server === null) return { action: "noop" };
-  if (hashOf(mine) === hashOf(server)) return { action: "noop" };
-  if (mine === null) {
-    if (base && server && hashOf(server) === hashOf(base)) {
-      return { action: "delete" };
-    }
-    return buildConflict({ base, mine, server });
-  }
-  if (server === null && base == null) {
-    return {
-      action: "fast-forward",
-      note: {
-        meta: { ...mine.meta, parent_rev: 0, mobius_rev: 1 },
-        body: mine.body
-      }
-    };
-  }
-  if (server === null) {
-    return buildConflict({ base, mine, server });
-  }
-  if (base && hashOf(server) === hashOf(base)) {
-    const baseRev = base.meta?.mobius_rev ?? 0;
-    return {
-      action: "fast-forward",
-      note: {
-        meta: { ...mine.meta, parent_rev: baseRev, mobius_rev: baseRev + 1 },
-        body: mine.body
-      }
-    };
+function mergeNoteDocs(base, mine, theirs) {
+  if (mine == null) return { value: theirs ?? base ?? null, conflict: false };
+  if (theirs == null) return { value: mine, conflict: false };
+  if (base != null && sameContent(theirs, base)) {
+    return { value: mine, conflict: false };
   }
   const baseBody = base?.body ?? "";
-  const bodyMerge = merge3(baseBody, mine.body, server.body);
+  const bodyMerge = merge3(baseBody, mine.body ?? "", theirs.body ?? "");
+  const meta = mergeMeta(base?.meta ?? {}, mine.meta ?? {}, theirs.meta ?? {});
   if (bodyMerge.clean) {
-    return {
-      action: "merged",
-      note: {
-        meta: mergeMeta(base?.meta ?? {}, mine.meta, server.meta),
-        body: bodyMerge.text
-      }
-    };
+    return { value: { meta, body: bodyMerge.text }, conflict: false };
   }
-  return buildConflict({ base, mine, server });
+  return { value: { meta, body: mine.body }, conflict: true };
 }
-
-// src/lib/reconciler.js
-var _running = false;
-async function reconcileAll({ onApplied, onConflict, onDeleted } = {}) {
-  if (_running || !isOnline()) return { ran: false };
-  _running = true;
-  const results = [];
-  try {
-    const work = await unsyncedLocals();
-    for (const [id, rec] of work) {
+function makeMergeNote(onConflict) {
+  return function mergeNote(base, mine, theirs) {
+    const { value, conflict } = mergeNoteDocs(base, mine, theirs);
+    if (conflict && typeof onConflict === "function") {
       try {
-        const loaded = await loadNote(id);
-        const server = loaded ? { meta: loaded.meta, body: loaded.body, hash: await contentHash(loaded.meta, loaded.body) } : null;
-        const decision = reconcile({ base: rec.base, mine: rec.working, server });
-        if (decision.action === "noop") {
-          if (rec.working === null) await clearLocal(id);
-          else await promote(id, rec.working, rec.seq);
-        } else if (decision.action === "delete") {
-          const res = await deleteNote(id);
-          if (res && res.synced) {
-            await clearLocal(id);
-            if (onDeleted) onDeleted(id);
-          }
-        } else if (decision.action === "fast-forward" || decision.action === "merged") {
-          const note = decision.note;
-          note.meta.content_hash = await contentHash(note.meta, note.body);
-          note.meta.updated = note.meta.updated || (/* @__PURE__ */ new Date()).toISOString();
-          const res = await saveNote(note.meta, note.body);
-          if (res && res.synced) {
-            await promote(id, { meta: note.meta, body: note.body, hash: note.meta.content_hash }, rec.seq);
-            if (onApplied) onApplied(id, note);
-          }
-        } else if (decision.action === "conflict") {
-          const d = decision.descriptor;
-          await writeConflict(d.path, d);
-          if (onConflict) onConflict(id, d);
-        }
-        results.push([id, decision.action]);
+        onConflict({ base, mine, theirs });
       } catch (e) {
-        results.push([id, "error"]);
       }
     }
-  } finally {
-    _running = false;
-  }
-  return { ran: true, results };
+    return value;
+  };
+}
+async function conflictDescriptorFor(base, mine, theirs, hashOf) {
+  const noteId = docId(mine) ?? docId(theirs) ?? docId(base);
+  if (noteId == null) return null;
+  const [baseHash, mineHash, serverHash] = await Promise.all([
+    base ? hashOf(base.meta, base.body) : Promise.resolve(null),
+    hashOf(mine.meta, mine.body),
+    hashOf(theirs.meta, theirs.body)
+  ]);
+  return buildConflictDescriptor({
+    noteId,
+    base,
+    mine,
+    server: theirs,
+    hashes: { baseHash, mineHash, serverHash }
+  });
 }
 
-// src/lib/durable.js
-function isDurableWrite(res) {
-  return !!res && (res.synced === true || res.queued === true);
+// src/lib/store.js
+var S = () => window.mobius.storage;
+async function sha256Bytes(buffer) {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function extFromName(name) {
+  const m = /\.([A-Za-z0-9]+)$/.exec(name || "");
+  return m ? m[1].toLowerCase() : null;
+}
+async function listNotes() {
+  let entries;
+  try {
+    entries = await S().list("notes");
+  } catch {
+    entries = [];
+  }
+  const out = [];
+  for (const e of entries || []) {
+    if (e.type !== "file" || !e.name.endsWith(".json")) continue;
+    let doc;
+    try {
+      doc = await S().get(e.path);
+    } catch {
+      doc = null;
+    }
+    if (doc && doc.meta && doc.meta.id) out.push({ meta: doc.meta, body: doc.body ?? "" });
+  }
+  return out;
+}
+async function writeIndex(notes) {
+  return S().set("index.json", buildIndex(notes));
+}
+async function readIndex() {
+  try {
+    return await S().get("index.json");
+  } catch {
+    return null;
+  }
+}
+async function writeConflict(path, descriptor) {
+  return S().set(path, descriptor);
+}
+async function putAttachment(file) {
+  const buf = await file.arrayBuffer();
+  const sha = await sha256Bytes(buf);
+  const ext = extFromType(file.type) || extFromName(file.name) || "bin";
+  const path = attachmentPath(sha, ext);
+  await S().setBlob(path, file, { contentType: file.type || "application/octet-stream" });
+  return { sha, ext, path, name: file.name || `${sha}.${ext}` };
+}
+async function gcAttachments() {
+  let entries;
+  try {
+    entries = await S().list("attachments");
+  } catch {
+    return;
+  }
+  const live = entries && entries.length ? entries.filter((e) => e.type === "file" && e.path.startsWith("attachments/")) : [];
+  if (!live.length) return;
+  const notes = await listNotes().catch(() => null);
+  if (notes == null) return;
+  const referenced = referencedAttachments(notes);
+  for (const e of live) {
+    if (referenced.has(e.path)) continue;
+    try {
+      await S().remove(e.path);
+    } catch {
+    }
+  }
+}
+async function attachmentURL(path) {
+  let blob;
+  try {
+    blob = await S().getBlob(path);
+  } catch {
+    return null;
+  }
+  return blob ? URL.createObjectURL(blob) : null;
+}
+var pendingCount = () => S().pendingCount();
+var isOnline = () => window.mobius ? window.mobius.online : true;
+
+// src/lib/collection.js
+var S2 = () => window.mobius.storage;
+function makeChains() {
+  const chains = /* @__PURE__ */ new Map();
+  return function withChain(key, fn) {
+    const prev = chains.get(key) || Promise.resolve();
+    const result = prev.then(fn, fn);
+    const tail = result.then(() => {
+    }, () => {
+    });
+    chains.set(key, tail);
+    tail.then(() => {
+      if (chains.get(key) === tail) chains.delete(key);
+    });
+    return result;
+  };
+}
+function makeNoteCollection({ onConflict } = {}) {
+  const withChain = makeChains();
+  const bases = /* @__PURE__ */ new Map();
+  async function list() {
+    let entries;
+    try {
+      entries = await S2().list("notes");
+    } catch {
+      entries = [];
+    }
+    const out = [];
+    for (const e of entries || []) {
+      if (e.type !== "file" || !e.name.endsWith(".json")) continue;
+      let doc;
+      try {
+        doc = await S2().get(e.path);
+      } catch {
+        doc = null;
+      }
+      if (doc && doc.meta && doc.meta.id) {
+        bases.set(doc.meta.id, doc);
+        out.push({ meta: doc.meta, body: doc.body ?? "" });
+      }
+    }
+    return out;
+  }
+  async function load(id) {
+    let doc;
+    try {
+      doc = await S2().get(notePath(id));
+    } catch {
+      return null;
+    }
+    if (!doc || !doc.meta || !doc.meta.id) return null;
+    bases.set(id, doc);
+    return { meta: doc.meta, body: doc.body ?? "" };
+  }
+  function ensureBase(id, doc) {
+    if (!bases.has(id)) bases.set(id, doc);
+  }
+  function update(id, fn) {
+    const path = notePath(id);
+    return withChain(path, async () => {
+      const base = bases.get(id) ?? null;
+      const mine = fn(base ? { meta: base.meta, body: base.body } : null);
+      let theirs = base;
+      try {
+        theirs = await S2().get(path) ?? base;
+      } catch (e) {
+      }
+      const { value: merged, conflict } = mergeNoteDocs(base, mine, theirs);
+      const result = await S2().durableWrite(path, merged, { kind: "json" });
+      bases.set(id, merged);
+      if (conflict && typeof onConflict === "function") {
+        try {
+          const descriptor = await conflictDescriptorFor(base, mine, theirs, contentHash);
+          if (descriptor) onConflict(descriptor);
+        } catch (e) {
+        }
+      }
+      return { result, value: merged };
+    });
+  }
+  function remove(id) {
+    const path = notePath(id);
+    return withChain(path, async () => {
+      const res = await S2().remove(path);
+      bases.delete(id);
+      return res;
+    });
+  }
+  return { list, load, update, remove, ensureBase, notePath, docId };
+}
+
+// src/lib/frontmatter.js
+var FENCE = "---";
+function parseScalar(raw) {
+  const s = raw.trim();
+  if (s === "") return "";
+  if (s === "true") return true;
+  if (s === "false") return false;
+  if (s === "null" || s === "~") return null;
+  if (s[0] === '"' && s[s.length - 1] === '"' || s[0] === "'" && s[s.length - 1] === "'") {
+    return s.slice(1, -1);
+  }
+  if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+  return s;
+}
+function parseValue(raw) {
+  const s = raw.trim();
+  if (s[0] === "[" && s[s.length - 1] === "]") {
+    const inner = s.slice(1, -1).trim();
+    if (inner === "") return [];
+    return inner.split(",").map((el) => parseScalar(el));
+  }
+  return parseScalar(s);
+}
+function parseFrontmatter(md) {
+  const text = String(md);
+  if (!text.startsWith(FENCE + "\n") && text !== FENCE) {
+    return { meta: {}, body: text };
+  }
+  const lines = text.split("\n");
+  let close = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i] === FENCE) {
+      close = i;
+      break;
+    }
+  }
+  if (close === -1) {
+    return { meta: {}, body: text };
+  }
+  const meta = {};
+  for (let i = 1; i < close; i++) {
+    const line = lines[i];
+    if (line.trim() === "") continue;
+    const colon = line.indexOf(":");
+    if (colon === -1) continue;
+    const key = line.slice(0, colon).trim();
+    const value = line.slice(colon + 1);
+    meta[key] = parseValue(value);
+  }
+  const body = lines.slice(close + 1).join("\n");
+  return { meta, body };
+}
+
+// src/lib/migrate.js
+var S3 = () => window.mobius.storage;
+var legacyPath = (id) => `notes/${id}.md`;
+var idFromMd = (name) => name.endsWith(".md") ? name.slice(0, -3) : null;
+async function migrateNote(id) {
+  let json;
+  try {
+    json = await S3().get(notePath(id));
+  } catch {
+    json = void 0;
+  }
+  if (json && json.meta && json.meta.id) {
+    try {
+      await S3().remove(legacyPath(id));
+    } catch {
+    }
+    return "already";
+  }
+  let text;
+  try {
+    text = await S3().getText(legacyPath(id));
+  } catch {
+    text = null;
+  }
+  if (text == null) return "skipped";
+  const { meta, body } = parseFrontmatter(text);
+  if (!meta || !meta.id) return "skipped";
+  let res;
+  try {
+    res = await S3().set(notePath(id), { meta, body });
+  } catch {
+    return "deferred";
+  }
+  if (res && res.synced === true) {
+    try {
+      await S3().remove(legacyPath(id));
+    } catch {
+    }
+    return "migrated";
+  }
+  if (res && res.queued === true) return "queued";
+  return "deferred";
+}
+async function migrateLegacyNotes() {
+  let entries;
+  try {
+    entries = await S3().list("notes");
+  } catch {
+    return [];
+  }
+  const results = [];
+  for (const e of entries || []) {
+    if (e.type !== "file") continue;
+    const id = idFromMd(e.name);
+    if (!id) continue;
+    results.push([id, await migrateNote(id)]);
+  }
+  return results;
 }
 
 // src/ui/Card.jsx
@@ -2322,7 +2217,7 @@ function resolveNow(note, appId) {
     const data = `/data/apps/${appId}`;
     window.parent.postMessage({
       type: "moebius:new-chat",
-      draft: `Resolve the Notes merge conflict for note ${note.meta.id}: read the descriptor under ${data}/conflicts/${note.meta.id}/, 3-way-merge mine + server against base (preserve attachment refs), write the result to ${data}/notes/${note.meta.id}.md, then mark the descriptor resolved.`
+      draft: `Resolve the Notes merge conflict for note ${note.meta.id}: read the descriptor under ${data}/conflicts/${note.meta.id}/, 3-way-merge mine + server against base (preserve attachment refs), write the result to ${data}/notes/${note.meta.id}.json as a JSON object {"meta":{...},"body":"<merged markdown>"}, then mark the descriptor resolved.`
     }, window.location.origin);
   } catch (e) {
   }
@@ -2583,13 +2478,13 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
 // src/ui/ConfirmModal.jsx
 import { useEffect as useEffect4, useId, useRef as useRef4, useCallback as useCallback3 } from "react";
 import { jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
-function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", danger, onConfirm, onCancel }) {
+function ConfirmModal({ open, title, message, confirmLabel = "Confirm", danger, onConfirm, onCancel }) {
   const dialogRef = useRef4(null);
   const cancelRef = useRef4(null);
   const openerRef = useRef4(null);
   const titleId = useId();
   useEffect4(() => {
-    if (!open2) return;
+    if (!open) return;
     openerRef.current = document.activeElement;
     cancelRef.current?.focus();
     return () => {
@@ -2598,7 +2493,7 @@ function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", d
         opener.focus();
       }
     };
-  }, [open2]);
+  }, [open]);
   const onKeyDown = useCallback3((e) => {
     if (e.key === "Escape") {
       onCancel();
@@ -2623,7 +2518,7 @@ function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", d
       first.focus();
     }
   }, [onCancel]);
-  if (!open2) return null;
+  if (!open) return null;
   return /* @__PURE__ */ jsx7(
     "div",
     {
@@ -2663,6 +2558,12 @@ function ConfirmModal({ open: open2, title, message, confirmLabel = "Confirm", d
 
 // src/app.jsx
 import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
+var NO_DOC = { value: null, status: "idle", lastError: null, update: async () => {
+}, set: async () => {
+}, refresh: async () => {
+} };
+var HAS_RUNTIME_DOC = typeof window !== "undefined" && !!(window.mobius && window.mobius.createUseDocument);
+var useDocument = HAS_RUNTIME_DOC ? window.mobius.createUseDocument(React) : () => NO_DOC;
 function TopBar({ appId, query, onQuery }) {
   return /* @__PURE__ */ jsxs6("header", { className: "nt-topbar", children: [
     /* @__PURE__ */ jsx8(
@@ -2730,63 +2631,54 @@ function App({ appId, token }) {
   const [confirmId, setConfirmId] = useState4(null);
   const [pending, setPending] = useState4(0);
   const [conflicts, setConflicts] = useState4(() => /* @__PURE__ */ new Set());
-  const reconTimer = useRef5(null);
+  const [saveError, setSaveError] = useState4(null);
   const gcTimer = useRef5(null);
   const editorNavOwned = useRef5(false);
   const online = isOnline();
-  const saveLocks = useRef5(/* @__PURE__ */ new Map());
-  const withSaveLock = useCallback4((id, fn) => {
-    const locks = saveLocks.current;
-    const prev = locks.get(id) || Promise.resolve();
-    const result = prev.then(fn, fn);
-    const tail = result.then(() => {
-    }, () => {
+  const onConflict = useCallback4((sides) => {
+    setConflicts((prev) => {
+      const id = sides?.mine?.meta?.id ?? sides?.theirs?.meta?.id ?? sides?.base?.meta?.id;
+      if (id == null || prev.has(id)) return prev;
+      const n = new Set(prev);
+      n.add(id);
+      return n;
     });
-    locks.set(id, tail);
-    tail.then(() => {
-      if (locks.get(id) === tail) locks.delete(id);
-    });
-    return result;
-  }, []);
-  const restoreNote = useCallback4((id, prevNote) => {
-    setNotes((prev) => {
-      const next = prevNote ? prev.map((n) => n.meta.id === id ? prevNote : n) : prev.filter((n) => n.meta.id !== id);
-      writeIndex(next).catch(() => {
+    conflictDescriptorFor(sides.base, sides.mine, sides.theirs, contentHash).then((d) => {
+      if (d) writeConflict(d.path, d).catch(() => {
       });
-      return next;
+    }).catch(() => {
     });
   }, []);
+  const collection = useMemo3(() => makeNoteCollection({ onConflict }), [onConflict]);
+  const openId = view.mode === "editor" ? view.id : null;
+  const openPath = openId ? notePath(openId) : "__notes_no_open__.json";
+  const mergeNote = useMemo3(() => makeMergeNote(onConflict), [onConflict]);
+  const liveDoc = useDocument(openPath, {
+    initial: null,
+    identity: (d) => d && d.meta ? d.meta.id : void 0,
+    merge: mergeNote,
+    mode: "lww"
+  });
+  useEffect5(() => {
+    if (openId && liveDoc.lastError) {
+      setSaveError({ id: openId, message: "Could not save \u2014 your edit is kept. Retrying when possible." });
+    }
+  }, [openId, liveDoc.lastError]);
+  useEffect5(() => {
+    const v = liveDoc.value;
+    if (!openId || !v || !v.meta || v.meta.id !== openId) return;
+    setNotes((prev) => {
+      const cur = prev.find((n) => n.meta.id === openId);
+      if (cur && cur.body === v.body && cur.meta.content_hash === v.meta.content_hash) return prev;
+      return prev.map((n) => n.meta.id === openId ? { meta: v.meta, body: v.body } : n);
+    });
+  }, [openId, liveDoc.value]);
   const upsert = useCallback4((meta, body) => {
     setNotes((prev) => {
       const next = prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { meta, body } : n) : [{ meta, body }, ...prev];
       writeIndex(next).catch(() => {
       });
       return next;
-    });
-  }, []);
-  const onApplied = useCallback4((id, note) => {
-    setConflicts((prev) => {
-      if (!prev.has(id)) return prev;
-      const n = new Set(prev);
-      n.delete(id);
-      return n;
-    });
-    setNotes((prev) => prev.map((n) => n.meta.id === id ? { meta: note.meta, body: note.body } : n));
-  }, []);
-  const onDeleted = useCallback4((id) => {
-    setConflicts((prev) => {
-      if (!prev.has(id)) return prev;
-      const n = new Set(prev);
-      n.delete(id);
-      return n;
-    });
-    setNotes((prev) => prev.filter((n) => n.meta.id !== id));
-  }, []);
-  const onConflict = useCallback4((id) => {
-    setConflicts((prev) => {
-      const n = new Set(prev);
-      n.add(id);
-      return n;
     });
   }, []);
   const scheduleGc = useCallback4(() => {
@@ -2796,17 +2688,11 @@ function App({ appId, token }) {
       });
     }, 1500);
   }, []);
-  const runReconcile = useCallback4(() => {
-    reconcileAll({ onApplied, onDeleted, onConflict }).catch(() => {
-    });
-  }, [onApplied, onDeleted, onConflict]);
-  const scheduleReconcile = useCallback4(() => {
-    if (reconTimer.current) clearTimeout(reconTimer.current);
-    reconTimer.current = setTimeout(runReconcile, 400);
-  }, [runReconcile]);
   useEffect5(() => {
     let live = true;
     (async () => {
+      await migrateLegacyNotes().catch(() => {
+      });
       readIndex().then((index) => {
         const cached = notesFromIndex(index);
         if (live && cached.length) {
@@ -2815,43 +2701,16 @@ function App({ appId, token }) {
         }
       }).catch(() => {
       });
-      const canonical = await listNotes().catch(() => []);
-      let merged = canonical;
-      try {
-        const unsynced = await unsyncedLocals();
-        if (unsynced.length) {
-          const map = new Map(canonical.map((n) => [n.meta.id, n]));
-          for (const [id, rec] of unsynced) map.set(id, { meta: rec.working.meta, body: rec.working.body });
-          merged = [...map.values()];
-        }
-      } catch (e) {
-      }
+      const canonical = await collection.list().catch(() => []);
       if (!live) return;
-      setNotes(merged);
+      setNotes(canonical);
       setLoading(false);
-      window.mobius?.signal("app_ready", { item_count: merged.length });
-      for (const n of canonical) {
-        contentHash(n.meta, n.body).then((hash) => ensureBase(n.meta.id, { meta: n.meta, body: n.body, hash })).catch(() => {
-        });
-      }
-      runReconcile();
+      window.mobius?.signal("app_ready", { item_count: canonical.length });
     })();
     return () => {
       live = false;
     };
-  }, [runReconcile]);
-  useEffect5(() => {
-    const h = () => runReconcile();
-    for (const ev of ["online", "focus"]) window.addEventListener(ev, h);
-    const vis = () => {
-      if (document.visibilityState === "visible") runReconcile();
-    };
-    document.addEventListener("visibilitychange", vis);
-    return () => {
-      for (const ev of ["online", "focus"]) window.removeEventListener(ev, h);
-      document.removeEventListener("visibilitychange", vis);
-    };
-  }, [runReconcile]);
+  }, [collection]);
   useEffect5(() => {
     let live = true;
     const tick = () => pendingCount().then((n) => {
@@ -2866,7 +2725,6 @@ function App({ appId, token }) {
     };
   }, []);
   useEffect5(() => () => {
-    if (reconTimer.current) clearTimeout(reconTimer.current);
     if (gcTimer.current) clearTimeout(gcTimer.current);
   }, []);
   const pushEditorNav = useCallback4(() => {
@@ -2908,14 +2766,14 @@ function App({ appId, token }) {
     const cur = notes.find((n) => n.meta.id === id);
     if (!cur) return null;
     if (!cur.placeholder) return cur;
-    const loaded = await loadNote(id).catch(() => null);
+    const loaded = await collection.load(id).catch(() => null);
     if (!loaded || !loaded.meta || !loaded.meta.id) return null;
-    const rec = { meta: loaded.meta, body: loaded.body };
-    setNotes((prev) => prev.map((n) => n.meta.id === id ? rec : n));
-    return rec;
-  }, [notes]);
+    setNotes((prev) => prev.map((n) => n.meta.id === id ? loaded : n));
+    return loaded;
+  }, [notes, collection]);
   const openEditor = useCallback4(async (id) => {
     window.mobius?.signal("note_opened");
+    setSaveError(null);
     const cur = notes.find((n) => n.meta.id === id);
     if (cur && cur.placeholder && !await ensureAuthoritative(id)) return;
     if (view.mode === "editor") {
@@ -2930,76 +2788,50 @@ function App({ appId, token }) {
     setDraft({ meta, body: "" });
     openEditor(meta.id).catch(() => setView({ mode: "editor", id: meta.id }));
   }, [openEditor]);
-  const commitDraft = useCallback4(async (meta, body) => {
+  const writeNote = useCallback4(async (meta, body, { isDraftCommit = false } = {}) => {
+    const id = meta.id;
     const m = { ...meta, updated: meta.updated || (/* @__PURE__ */ new Date()).toISOString() };
     m.content_hash = await contentHash(m, body);
-    const prevNote = notes.find((n) => n.meta.id === m.id) || null;
     upsert(m, body);
-    const queueCreate = async (reason) => {
-      try {
-        await recordCreate(m.id, { meta: m, body, hash: m.content_hash });
-      } catch (e) {
-        restoreNote(m.id, prevNote);
-        window.mobius?.signal("error", { message: e?.message ?? "save failed", source: "commitDraft" });
-        const err = new Error("save not durable");
-        err.nonDurable = true;
-        throw err;
-      }
-      window.mobius?.signal("error", { message: reason, source: "commitDraft" });
-      setDraft(null);
-      scheduleReconcile();
-      scheduleGc();
-    };
-    let res;
+    const writeThroughHook = HAS_RUNTIME_DOC && openId === id;
     try {
-      res = await saveNote(m, body);
-    } catch (err) {
-      await queueCreate(err?.message ?? "save failed");
-      return m;
-    }
-    if (!isDurableWrite(res)) {
-      await queueCreate("save not durable \u2014 queued locally");
-      return m;
-    }
-    setDraft(null);
-    await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {
-    });
-    scheduleReconcile();
-    scheduleGc();
-    const wordCount = (body || "").trim().split(/\s+/).filter(Boolean).length;
-    window.mobius?.signal("note_saved", { word_count: wordCount || void 0 });
-    return m;
-  }, [notes, scheduleReconcile, upsert, restoreNote, scheduleGc]);
-  const persist = useCallback4((meta, body) => {
-    return withSaveLock(meta.id, async () => {
-      if (draft && draft.meta.id === meta.id) {
-        const next = { meta: { ...draft.meta, ...meta }, body };
-        setDraft(next);
-        if (isBlankNote(next.meta, next.body)) return;
-        await commitDraft(next.meta, next.body);
-        return;
+      let result;
+      if (writeThroughHook) {
+        result = await liveDoc.update(() => ({ meta: m, body }));
+      } else {
+        ;
+        ({ result } = await collection.update(id, () => ({ meta: m, body })));
       }
-      const prev = notes.find((n) => n.meta.id === meta.id);
-      if (prev && prev.placeholder) return;
-      const nextHash = await contentHash(meta, body);
-      const baseHint = prev ? { meta: prev.meta, body: prev.body, hash: await contentHash(prev.meta, prev.body) } : null;
-      if (baseHint && nextHash === baseHint.hash) return;
-      const m = { ...meta, updated: (/* @__PURE__ */ new Date()).toISOString(), content_hash: nextHash };
-      const prevNote = prev || null;
-      upsert(m, body);
-      try {
-        await recordWorking(m.id, { meta: m, body, hash: m.content_hash }, baseHint);
-      } catch (err) {
-        restoreNote(m.id, prevNote);
-        window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "persist" });
-        return;
-      }
-      const wordCount = (body || "").trim().split(/\s+/).filter(Boolean).length;
-      window.mobius?.signal("note_saved", { word_count: wordCount || void 0 });
-      scheduleReconcile();
+      setSaveError((e) => e && e.id === id ? null : e);
+      if (isDraftCommit) setDraft(null);
       scheduleGc();
-    });
-  }, [commitDraft, draft, notes, upsert, restoreNote, withSaveLock, scheduleReconcile, scheduleGc]);
+      const wordCount = (body || "").trim().split(/\s+/).filter(Boolean).length;
+      window.mobius?.signal("note_saved", {
+        word_count: wordCount || void 0,
+        durability: result?.durability
+      });
+      return m;
+    } catch (err) {
+      window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "writeNote" });
+      setSaveError({ id, message: "Could not save \u2014 your edit is kept. Retrying when possible." });
+      return m;
+    }
+  }, [openId, liveDoc, upsert, collection, scheduleGc]);
+  const persist = useCallback4(async (meta, body) => {
+    if (draft && draft.meta.id === meta.id) {
+      const next = { meta: { ...draft.meta, ...meta }, body };
+      setDraft(next);
+      if (isBlankNote(next.meta, next.body)) return;
+      await writeNote(next.meta, next.body, { isDraftCommit: true });
+      return;
+    }
+    const prev = notes.find((n) => n.meta.id === meta.id);
+    if (prev && prev.placeholder) return;
+    const nextHash = await contentHash(meta, body);
+    const prevHash = prev ? await contentHash(prev.meta, prev.body) : null;
+    if (prevHash != null && nextHash === prevHash) return;
+    await writeNote({ ...meta, updated: (/* @__PURE__ */ new Date()).toISOString() }, body);
+  }, [draft, notes, writeNote]);
   const togglePin = useCallback4(async (id) => {
     if (draft && draft.meta.id === id) {
       setDraft((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }));
@@ -3016,13 +2848,17 @@ function App({ appId, token }) {
     const n = await ensureAuthoritative(id);
     if (n) persist({ ...n.meta, color }, n.body);
   }, [draft, ensureAuthoritative, persist]);
-  const queueDelete = useCallback4(async (note) => {
-    const hash = await contentHash(note.meta, note.body);
-    await recordDeletion(note.meta.id, { meta: note.meta, body: note.body, hash }).catch(() => {
+  const queueDelete = useCallback4(async (id) => {
+    await collection.remove(id).catch(() => {
     });
-    scheduleReconcile();
+    setConflicts((prev) => {
+      if (!prev.has(id)) return prev;
+      const n = new Set(prev);
+      n.delete(id);
+      return n;
+    });
     scheduleGc();
-  }, [scheduleReconcile, scheduleGc]);
+  }, [collection, scheduleGc]);
   const doDelete = useCallback4((id) => {
     window.mobius?.signal("item_deleted");
     if (draft && draft.meta.id === id) {
@@ -3033,11 +2869,8 @@ function App({ appId, token }) {
       return;
     }
     const n = notes.find((x) => x.meta.id === id);
-    if (n) {
-      const target = n.placeholder ? loadNote(id).then((loaded) => loaded && loaded.meta && loaded.meta.id ? { meta: loaded.meta, body: loaded.body } : null).catch(() => null) : Promise.resolve(n);
-      target.then((t) => t ? queueDelete(t) : null).catch(() => {
-      });
-    }
+    if (n) queueDelete(id).catch(() => {
+    });
     setNotes((prev) => {
       const next = prev.filter((note) => note.meta.id !== id);
       writeIndex(next).catch(() => {
@@ -3063,7 +2896,7 @@ function App({ appId, token }) {
     }
     const n = notes.find((x) => x.meta.id === view.id);
     if (n && !n.placeholder && isBlankNote(n.meta, n.body)) {
-      queueDelete(n).catch(() => {
+      queueDelete(n.meta.id).catch(() => {
       });
       setNotes((prev) => {
         const next = prev.filter((x) => x.meta.id !== n.meta.id);
@@ -3084,7 +2917,7 @@ function App({ appId, token }) {
   }, [back]);
   const visible = useMemo3(() => visibleNotes(notes, query), [notes, query]);
   const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id && !n.placeholder) || (draft && draft.meta.id === view.id ? draft : null) : null;
-  const status = !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : null;
+  const status = saveError && editing && saveError.id === editing.meta.id ? "Save failed" : !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : null;
   return /* @__PURE__ */ jsxs6("div", { className: "nt-root", children: [
     /* @__PURE__ */ jsx8("style", { children: CSS }),
     /* @__PURE__ */ jsx8(TopBar, { appId, query, onQuery: setQuery }),

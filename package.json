@@ -1,9 +1,9 @@
 {
   "name": "app-notes",
-  "version": "1.2.8",
+  "version": "1.2.9",
   "private": true,
   "type": "module",
-  "description": "Markdown notes for M\u00f6bius \u2014 live-inline editor, offline, git-tracked.",
+  "description": "Markdown notes for Möbius — live-inline editor, offline, git-tracked.",
   "scripts": {
     "build": "node build.mjs",
     "test": "node --import ./test/setup.mjs --test"
@@ -16,6 +16,7 @@
     "@codemirror/view": "6.43.0",
     "@lezer/highlight": "1.2.3",
     "esbuild": "^0.25.12",
+    "fake-indexeddb": "^6.2.5",
     "katex": "0.16.22",
     "node-diff3": "^3.1.2"
   }

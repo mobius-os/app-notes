@@ -47,23 +47,32 @@ You are given a CONFLICT DESCRIPTOR file path. It is JSON with:
   { noteId, baseHash, base:{meta,body}, mineHash, mine:{meta,body},
     serverHash, server:{meta,body}, attachmentsMine, attachmentsServer, status }
 
+Notes are stored as JSON documents at <DATA>/notes/<noteId>.json — each file is
+{ "meta": {...frontmatter fields...}, "body": "<markdown string>" }. The note's
+text content is the `body` string (markdown). (Older installs may still hold a
+legacy <noteId>.md frontmatter-markdown file; if only the .md exists, treat its
+parsed { meta, body } as the canonical note and write the resolved result as the
+.json document, then delete the .md.)
+
 Procedure (follow exactly):
 1. Read the descriptor JSON.
-2. Re-read the CURRENT canonical note BODY at <DATA>/notes/<noteId>.md. If its
-   body no longer matches the descriptor's `server.body` (a newer edit landed
-   since the conflict), ABANDON — do NOT write the note, leave the descriptor
-   as-is, and stop. A later tick retries against the new state.
+2. Re-read the CURRENT canonical note at <DATA>/notes/<noteId>.json and take its
+   `body`. If that body no longer matches the descriptor's `server.body` (a newer
+   edit landed since the conflict), ABANDON — do NOT write the note, leave the
+   descriptor as-is, and stop. A later tick retries against the new state.
 3. Otherwise do a careful THREE-WAY merge of base/mine/server BODIES: keep both
    sides' intent, reason about meaning (not just lines), and PRESERVE every
    attachment reference exactly — ![alt](attachments/<sha>.<ext>) and
-   [name](attachments/<sha>.<ext>). Merge frontmatter: union `tags`; keep `id`
-   and `created`; set `parent_revs` to [mine.mobius_rev, server.mobius_rev];
+   [name](attachments/<sha>.<ext>). Merge frontmatter: union `attachments`; keep
+   `id` and `created`; set `parent_revs` to [mine.mobius_rev, server.mobius_rev];
    bump `mobius_rev`; refresh `updated`; recompute `content_hash`.
-4. Write the merged note to <DATA>/notes/<noteId>.md by writing a sibling
-   <noteId>.md.tmp first and then renaming it over the final path (atomic).
+4. Write the merged note to <DATA>/notes/<noteId>.json as a JSON object
+   { "meta": {...}, "body": "<merged markdown>" } by writing a sibling
+   <noteId>.json.tmp first and then renaming it over the final path (atomic).
 5. Only if the written file matches what you intended, set the descriptor's
    "status" field to "resolved".
-Keep the markdown clean. Never invent content. Touch only this note + descriptor.
+Keep the markdown body clean. Never invent content. Touch only this note +
+descriptor.
 PROMPT
 
 shopt -s nullglob

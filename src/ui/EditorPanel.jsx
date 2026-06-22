@@ -17,12 +17,14 @@ const AUTOSAVE_MS = 600
 // frame hands the app as `appId`. Building the draft's paths from `appId` keeps
 // the on-demand chat pointed at the dir that actually exists; a hard-coded slug
 // path (`/data/apps/notes/`) does not exist, so the agent's reads always fail.
+// Notes are JSON documents ({ meta, body }) at notes/<id>.json now (post the
+// useDocument migration); the body field holds the markdown.
 function resolveNow(note, appId) {
   try {
     const data = `/data/apps/${appId}`
     window.parent.postMessage({
       type: 'moebius:new-chat',
-      draft: `Resolve the Notes merge conflict for note ${note.meta.id}: read the descriptor under ${data}/conflicts/${note.meta.id}/, 3-way-merge mine + server against base (preserve attachment refs), write the result to ${data}/notes/${note.meta.id}.md, then mark the descriptor resolved.`,
+      draft: `Resolve the Notes merge conflict for note ${note.meta.id}: read the descriptor under ${data}/conflicts/${note.meta.id}/, 3-way-merge mine + server against base (preserve attachment refs), write the result to ${data}/notes/${note.meta.id}.json as a JSON object {"meta":{...},"body":"<merged markdown>"}, then mark the descriptor resolved.`,
     }, window.location.origin)
   } catch (e) {}
 }

@@ -38,15 +38,19 @@ npm test         # node --test over the pure logic in src/lib/*
 ## Data layout (`/data/apps/<id>/`)
 
 ```
-notes/<noteId>.md            canonical note: YAML frontmatter + markdown body
+notes/<noteId>.json          canonical note: { meta, body } — body is markdown
 attachments/<sha256>.<ext>   content-addressed image/file blobs (dedup'd)
-drafts/, conflicts/, leases/ sync working state (git-ignored)
+conflicts/, leases/          sync working state (git-ignored)
 index.json                   derived grid cache (rebuildable; never authoritative)
 notes-meta.json              self-describing contract for the dreaming agent
 .git/                        history snapshot (tick.sh cron)
 ```
 
-Every note is plain markdown + frontmatter — grep-, git-, and dreaming-friendly.
+Each note is a JSON document whose `body` field is plain markdown — still grep-,
+git-, and dreaming-friendly. (As of v1.2.9 the persistence layer rides the
+platform `useDocument` primitive, which is JSON-only; a one-time startup pass
+migrates pre-existing `notes/<id>.md` files. The runtime owns durability now —
+the old shadow outbox + reconcile driver were removed.)
 
 ## Offline + conflicts
 

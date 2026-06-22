@@ -1,20 +1,21 @@
-// Storage IO for Notes — the ONLY module that touches window.mobius.storage.
-// Pure logic (parse/serialize/hash/index/merge/reconcile) lives in the other
-// src/lib/* modules so it stays unit-testable; this glue is browser-only.
+// Storage IO for Notes — the glue that touches window.mobius.storage for the
+// non-note-document concerns: attachments (content-addressed blobs), the derived
+// index cache, and conflict descriptors. The per-note documents themselves now
+// live behind collection.js (each note is a JSON document at notes/<id>.json,
+// written through the platform's useDocument-style serialized writer). Pure logic
+// (parse/serialize/hash/index/merge) lives in the other src/lib/* modules so it
+// stays unit-testable; this glue is browser-only.
 //
-// Canonical notes live at notes/<id>.md (frontmatter + body). Attachments are
-// content-addressed blobs at attachments/<sha>.<ext> (immutable, dedup'd).
-// index.json is a DERIVED cache (titles/snippets) — rebuilt from the notes,
-// never authoritative. Offline edits go to per-device draft paths (see
-// reconciler.js, Phase G), never straight to the canonical path.
+// Canonical notes live at notes/<id>.json ({ meta, body }); body is the markdown
+// string. Attachments are content-addressed blobs at attachments/<sha>.<ext>
+// (immutable, dedup'd). index.json is a DERIVED cache (titles/snippets) — rebuilt
+// from the notes, never authoritative.
 
-import { parseFrontmatter, serializeNote } from './frontmatter.js'
 import { buildIndex } from './index-cache.js'
-import { attachmentPath, extFromType, referencedAttachments, noteAttachmentRefs } from './attachments.js'
-import { unsyncedLocals } from './local.js'
+import { attachmentPath, extFromType, referencedAttachments } from './attachments.js'
+import { notePath } from './note-doc.js'
 
 const S = () => window.mobius.storage
-const notePath = (id) => `notes/${id}.md`
 
 // Hash raw bytes for content-addressed attachments (crypto.subtle is available
 // in the same-origin secure-context iframe). hash.js handles string hashing for
@@ -29,37 +30,28 @@ function extFromName(name) {
   return m ? m[1].toLowerCase() : null
 }
 
-// Enumerate notes/ and parse each markdown file. Offline-capable (list + getText
-// both read through the runtime's cache). Skips anything without a valid id.
+// Enumerate notes/ and read each JSON document. Offline-capable (list + get both
+// read through the runtime's cache). Skips anything without a valid id and any
+// non-.json entry (a half-migrated dir may still hold a legacy .md the migration
+// pass converts). The collection owns this for the app; this copy backs the
+// attachment GC, which must read the AUTHORITATIVE on-disk note set.
 export async function listNotes() {
   let entries
   try { entries = await S().list('notes') } catch { entries = [] }
   const out = []
   for (const e of entries || []) {
-    if (e.type !== 'file' || !e.name.endsWith('.md')) continue
-    const text = await S().getText(e.path)
-    if (text == null) continue
-    const { meta, body } = parseFrontmatter(text)
-    if (meta && meta.id) out.push({ meta, body })
+    if (e.type !== 'file' || !e.name.endsWith('.json')) continue
+    let doc
+    try { doc = await S().get(e.path) } catch { doc = null }
+    if (doc && doc.meta && doc.meta.id) out.push({ meta: doc.meta, body: doc.body ?? '' })
   }
   return out
 }
 
 export async function loadNote(id) {
-  const text = await S().getText(notePath(id))
-  return text == null ? null : parseFrontmatter(text)
-}
-
-// Write a note to its canonical path. The caller bumps meta.mobius_rev /
-// content_hash first (see note.js). Returns {synced}|{queued}.
-export async function saveNote(meta, body) {
-  return S().setText(notePath(meta.id), serializeNote(meta, body), {
-    contentType: 'text/markdown;charset=utf-8',
-  })
-}
-
-export async function deleteNote(id) {
-  return S().remove(notePath(id))
+  let doc
+  try { doc = await S().get(notePath(id)) } catch { return null }
+  return doc && doc.meta && doc.meta.id ? { meta: doc.meta, body: doc.body ?? '' } : null
 }
 
 // Rewrite the derived index from the current in-memory notes. A cache for fast
@@ -72,11 +64,10 @@ export async function readIndex() {
   try { return await S().get('index.json') } catch { return null }
 }
 
-// Persist a conflict descriptor (a JSON object) at its conflicts/<id>/<hashes>.json
-// path so tick.sh's resolver and the in-app "Resolve now" agent can find it.
-// Mirrors writeIndex: the runtime's set() stores the bare JSON object at a .json
-// path. (Was a missing `store.set` — undefined, so the conflict branch threw and
-// no descriptor was ever written.)
+// Persist a conflict descriptor (a JSON object) at its
+// conflicts/<id>/<hashes>.json path so tick.sh's resolver and the in-app
+// "Resolve now" agent can find it. The runtime's set() stores the bare JSON
+// object at a .json path.
 export async function writeConflict(path, descriptor) {
   return S().set(path, descriptor)
 }
@@ -94,20 +85,17 @@ export async function putAttachment(file) {
 }
 
 // Garbage-collect orphaned attachment blobs: build the referenced set from the
-// AUTHORITATIVE on-disk notes (not in-memory React state — a note may still
-// exist canonically while its delete is mid-reconcile) UNIONED with the durable
-// pending working copies (the unsynced local edits not yet reconciled to
-// canonical), then remove any blob in attachments/ that nothing still
-// references. The pending union is load-bearing: attaching an image to an
-// EXISTING note records the new ref only on the working copy first — the
-// canonical .md isn't rewritten until reconcile lands — so a sweep that read
-// only listNotes() would see the blob as unreferenced and delete it out from
-// under the in-flight edit, losing the image. Runs after a delete or an editor
-// save, so deleting a note — or editing an image/file ref out of a body —
-// eventually frees its now-unreachable blobs. Content-addressed blobs are
-// shared, so a blob survives while ANY note (canonical or pending) keeps it.
-// Best-effort: a failed list/remove is swallowed (the blob persists until the
-// next sweep).
+// AUTHORITATIVE on-disk notes, then remove any blob in attachments/ that nothing
+// still references. Content-addressed blobs are shared, so a blob survives while
+// ANY note keeps it. Runs after a delete or an editor save, so deleting a note —
+// or editing an image/file ref out of a body — eventually frees its now-
+// unreachable blobs. Best-effort: a failed list/remove is swallowed (the blob
+// persists until the next sweep).
+//
+// Unlike the pre-migration version, there is no separate "pending working copy"
+// union to add: the runtime's read-your-writes means listNotes() already sees an
+// in-flight edit's attachment ref (the queued write overlays the canonical read),
+// so the authoritative note set is the complete referenced set.
 export async function gcAttachments() {
   let entries
   try { entries = await S().list('attachments') } catch { return }
@@ -116,18 +104,6 @@ export async function gcAttachments() {
   const notes = await listNotes().catch(() => null)
   if (notes == null) return // couldn't read the authoritative set — skip; never free blindly
   const referenced = referencedAttachments(notes)
-  // Union the durable pending working copies: a not-yet-reconciled edit (a new
-  // attachment on an existing note) is referenced only here, not in canonical.
-  // Best-effort — if the local state can't be read we keep the canonical set
-  // rather than risk freeing a blob a pending edit still needs.
-  try {
-    const pending = await unsyncedLocals()
-    for (const [, rec] of pending) {
-      const w = rec && rec.working
-      if (!w) continue // tombstone (deletion); contributes no live refs
-      for (const p of noteAttachmentRefs(w.meta || {}, w.body || '')) referenced.add(p)
-    }
-  } catch {}
   for (const e of live) {
     if (referenced.has(e.path)) continue
     try { await S().remove(e.path) } catch {}
