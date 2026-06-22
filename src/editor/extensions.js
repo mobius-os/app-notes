@@ -37,7 +37,11 @@ const highlightStyle = HighlightStyle.define([
 
 const theme = EditorView.theme({
   '&': { height: '100%', backgroundColor: 'transparent', color: 'var(--text)' },
-  '.cm-scroller': { overflow: 'auto', fontFamily: 'var(--font)', lineHeight: '1.65', fontSize: '15px' },
+  // overscrollBehavior:contain — without it, adding a tall image makes this
+  // scroller overscroll-bouncy and Android's overscroll-stretch reveals the
+  // (transparent) iframe <html> behind the transparent editor as a warm
+  // color-scheme tint over the cards. Matches the .nt-scroll containment.
+  '.cm-scroller': { overflow: 'auto', overscrollBehavior: 'contain', fontFamily: 'var(--font)', lineHeight: '1.65', fontSize: '15px' },
   '.cm-content': { padding: '16px 18px 40vh', caretColor: 'var(--accent)', maxWidth: '760px', margin: '0 auto', width: '100%' },
   '&.cm-focused': { outline: 'none' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
