@@ -46,6 +46,59 @@ test('(b) a dead-lettered durable write REJECTS (error, not a false save)', asyn
   })
 })
 
+test('(b2) a closed-note save dead-letter rejects AND does not lose the existing note', async () => {
+  // The closed-note write path (app.writeNote -> collection.update for a note that
+  // is not the open editor). A dead-letter MUST reject so the caller surfaces a
+  // visible error (the grid-level 'Save failed' banner / the editor staying open)
+  // and MUST NOT destroy the note that is already on disk.
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    const c = makeNoteCollection({})
+    // An existing, server-confirmed note.
+    h.seed(notePath('c1'), note('c1', 'original', { title: 'Keep me' }))
+    await c.load('c1') // seeds the merge ancestor (base)
+    // A closed-note edit (e.g. a grid pin/color, or an autosave flush) is refused.
+    h.forceDeadLetter(notePath('c1'), 413)
+    await assert.rejects(
+      () => c.update('c1', (prev) => ({ ...prev, body: 'edited' })),
+      (e) => e instanceof DurableWriteError && e.code === 'dead_letter',
+    )
+    // The note is NOT lost: the prior server value is intact (the refused write
+    // clobbered nothing), so the user's data survives and a retry is possible.
+    assert.equal(h.server.get(notePath('c1')).value.body, 'original')
+    assert.equal(h.server.get(notePath('c1')).value.meta.title, 'Keep me')
+    // A subsequent retry (server now accepts) lands the edit and merges cleanly
+    // against the UNCHANGED ancestor — no lost edit, no false-saved state stuck.
+    const { result, value } = await c.update('c1', (prev) => ({ ...prev, body: 'edited' }))
+    assert.equal(result.durability, 'synced')
+    assert.equal(value.body, 'edited')
+    assert.equal(h.server.get(notePath('c1')).value.body, 'edited')
+  })
+})
+
+test('(b3) a retry of the SAME content after a dead-letter still reaches the server', async () => {
+  // Guards the optimistic-baseline regression: after a refused save the app keeps
+  // the optimistic note (so buffer == note), and a naive 'nothing changed' skip
+  // would suppress the retry forever. The collection layer must (and does) re-issue
+  // the identical write — base never advanced on the refused write, so the retry
+  // merges against the last-confirmed ancestor and lands. (The app's `forceSave`
+  // gate is what makes flushSave/persist actually CALL this retry; this test pins
+  // that the underlying write is not idempotently swallowed server-side.)
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    const c = makeNoteCollection({})
+    h.seed(notePath('r1'), note('r1', 'base'))
+    await c.load('r1')
+    h.forceDeadLetter(notePath('r1'), 413)
+    await assert.rejects(() => c.update('r1', () => note('r1', 'retry me')))
+    assert.equal(h.server.get(notePath('r1')).value.body, 'base') // unchanged
+    // Retry the EXACT same content; it must now land (server accepts).
+    const { result } = await c.update('r1', () => note('r1', 'retry me'))
+    assert.equal(result.durability, 'synced')
+    assert.equal(h.server.get(notePath('r1')).value.body, 'retry me')
+  })
+})
+
 test('(c) an OFFLINE write is durable success (queued), not a failure', async () => {
   const h = makeMockStorage()
   await withWindow(h, async () => {
@@ -53,9 +106,12 @@ test('(c) an OFFLINE write is durable success (queued), not a failure', async ()
     h.setOnline(false)
     const { result } = await c.update('n3', () => note('n3', 'offline edit'))
     assert.equal(result.durability, 'queued')
-    // Read-your-writes: the value is durably held locally.
-    const stored = h.raw.get(notePath('n3'))
-    assert.equal(stored.value.body, 'offline edit')
+    // Read-your-writes: the value is durably held in the local overlay and visible
+    // to get(), but it is NOT on the server yet (queued != server-confirmed).
+    const seen = await h.storage.get(notePath('n3'))
+    assert.equal(seen.body, 'offline edit')
+    assert.equal(h.overlay.has(notePath('n3')), true)
+    assert.equal(h.server.has(notePath('n3')), false)
     assert.equal(await h.storage.pendingCount(), 1)
   })
 })

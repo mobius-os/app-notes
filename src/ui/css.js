@@ -434,6 +434,22 @@ export const CSS = `
   background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger); font-size: 13px; flex: 0 0 auto;
 }
+/* Grid-level save-failure banner — surfaces a refused (dead-lettered) write that
+   happened with no editor open (a closed-note pin/color, or a back-out after a
+   refused save). Never silent: a failed save the user can't see is data loss. */
+.nt-save-err {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger); font-size: 13px; flex: 0 0 auto;
+}
+.nt-save-err-msg { flex: 1; }
+.nt-save-err-btn {
+  border: 1px solid var(--danger); background: transparent; color: var(--danger);
+  border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
 .nt-editor-body { flex: 1; overflow: hidden; }
 
 /* ── Stranded-attachment strip (editor) ─────────────────────────────────── */

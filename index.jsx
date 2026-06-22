@@ -449,6 +449,22 @@ var CSS = `
   background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger); font-size: 13px; flex: 0 0 auto;
 }
+/* Grid-level save-failure banner \u2014 surfaces a refused (dead-lettered) write that
+   happened with no editor open (a closed-note pin/color, or a back-out after a
+   refused save). Never silent: a failed save the user can't see is data loss. */
+.nt-save-err {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger); font-size: 13px; flex: 0 0 auto;
+}
+.nt-save-err-msg { flex: 1; }
+.nt-save-err-btn {
+  border: 1px solid var(--danger); background: transparent; color: var(--danger);
+  border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  font-family: var(--font);
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
 .nt-editor-body { flex: 1; overflow: hidden; }
 
 /* \u2500\u2500 Stranded-attachment strip (editor) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
@@ -1347,11 +1363,7 @@ async function migrateNote(id) {
   } catch {
     json = void 0;
   }
-  if (json && json.meta && json.meta.id) {
-    try {
-      await S3().remove(legacyPath(id));
-    } catch {
-    }
+  if (json && json.meta && json.meta.id === id) {
     return "already";
   }
   let text;
@@ -1365,19 +1377,18 @@ async function migrateNote(id) {
   if (!meta || !meta.id) return "skipped";
   let res;
   try {
-    res = await S3().set(notePath(id), { meta, body });
+    res = await S3().durableWrite(notePath(id), { meta, body }, { kind: "json" });
   } catch {
     return "deferred";
   }
-  if (res && res.synced === true) {
+  if (res && res.durability === "synced") {
     try {
       await S3().remove(legacyPath(id));
     } catch {
     }
     return "migrated";
   }
-  if (res && res.queued === true) return "queued";
-  return "deferred";
+  return "queued";
 }
 async function migrateLegacyNotes() {
   let entries;
@@ -2226,7 +2237,7 @@ function statusClass(status) {
   if (status === "Resolving\u2026") return "is-resolving";
   return "is-default";
 }
-function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment: putAttachment2, conflict, status }) {
+function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment: putAttachment2, conflict, status, forceSave }) {
   const [title, setTitle] = useState3(note.meta.title || "");
   const [body, setBody] = useState3(note.body || "");
   const [showColors, setShowColors] = useState3(false);
@@ -2246,15 +2257,16 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
   const flushSave = useCallback2(() => {
     const cur = latest.current;
     if (!cur?.note) return Promise.resolve();
-    if (cur.title === (cur.note.meta.title || "") && cur.body === (cur.note.body || "")) {
+    if (!forceSave && cur.title === (cur.note.meta.title || "") && cur.body === (cur.note.body || "")) {
       return Promise.resolve();
     }
     if (timer.current) clearTimeout(timer.current);
     return Promise.resolve(onSave({ ...cur.note.meta, title: cur.title }, cur.body));
-  }, [onSave]);
+  }, [onSave, forceSave]);
   useEffect3(() => {
     if (timer.current) clearTimeout(timer.current);
-    flushSave();
+    flushSave().catch(() => {
+    });
     latest.current = { note, title: note.meta.title || "", body: note.body || "" };
     setTitle(note.meta.title || "");
     setBody(note.body || "");
@@ -2263,16 +2275,19 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
     if (title === (note.meta.title || "") && body === (note.body || "")) return;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      flushSave();
+      flushSave().catch(() => {
+      });
     }, AUTOSAVE_MS);
     return () => clearTimeout(timer.current);
   }, [title, body, flushSave]);
   useEffect3(() => {
     const flushOnHide = () => {
-      if (document.visibilityState === "hidden") flushSave();
+      if (document.visibilityState === "hidden") flushSave().catch(() => {
+      });
     };
     const flushOnUnload = () => {
-      flushSave();
+      flushSave().catch(() => {
+      });
     };
     document.addEventListener("visibilitychange", flushOnHide);
     window.addEventListener("beforeunload", flushOnUnload);
@@ -2290,7 +2305,8 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
       nextBody = "- [ ] ";
     }
     if (nextBody !== body) setBody(nextBody);
-    onSave({ ...note.meta, title, type: nextType }, nextBody);
+    Promise.resolve(onSave({ ...note.meta, title, type: nextType }, nextBody)).catch(() => {
+    });
   }, [isChecklist, body, note.meta, title, onSave]);
   function insertMarkdown(md) {
     const v = viewRef.current;
@@ -2355,7 +2371,11 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
           "button",
           {
             onClick: async () => {
-              await flushSave();
+              try {
+                await flushSave();
+              } catch {
+                return;
+              }
               onBack();
             },
             "aria-label": "Back",
@@ -2632,6 +2652,7 @@ function App({ appId, token }) {
   const [pending, setPending] = useState4(0);
   const [conflicts, setConflicts] = useState4(() => /* @__PURE__ */ new Set());
   const [saveError, setSaveError] = useState4(null);
+  const [failedSaveIds, setFailedSaveIds] = useState4(() => /* @__PURE__ */ new Set());
   const gcTimer = useRef5(null);
   const editorNavOwned = useRef5(false);
   const online = isOnline();
@@ -2662,6 +2683,7 @@ function App({ appId, token }) {
   useEffect5(() => {
     if (openId && liveDoc.lastError) {
       setSaveError({ id: openId, message: "Could not save \u2014 your edit is kept. Retrying when possible." });
+      setFailedSaveIds((s) => s.has(openId) ? s : new Set(s).add(openId));
     }
   }, [openId, liveDoc.lastError]);
   useEffect5(() => {
@@ -2773,7 +2795,7 @@ function App({ appId, token }) {
   }, [notes, collection]);
   const openEditor = useCallback4(async (id) => {
     window.mobius?.signal("note_opened");
-    setSaveError(null);
+    setSaveError((e) => e && failedSaveIds.has(e.id) ? e : null);
     const cur = notes.find((n) => n.meta.id === id);
     if (cur && cur.placeholder && !await ensureAuthoritative(id)) return;
     if (view.mode === "editor") {
@@ -2782,7 +2804,7 @@ function App({ appId, token }) {
     }
     editorNavOwned.current = await pushEditorNav();
     setView({ mode: "editor", id });
-  }, [ensureAuthoritative, notes, pushEditorNav, view.mode]);
+  }, [ensureAuthoritative, notes, pushEditorNav, view.mode, failedSaveIds]);
   const createNote = useCallback4(() => {
     const meta = newNote({});
     setDraft({ meta, body: "" });
@@ -2803,6 +2825,12 @@ function App({ appId, token }) {
         ({ result } = await collection.update(id, () => ({ meta: m, body })));
       }
       setSaveError((e) => e && e.id === id ? null : e);
+      setFailedSaveIds((s) => {
+        if (!s.has(id)) return s;
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
       if (isDraftCommit) setDraft(null);
       scheduleGc();
       const wordCount = (body || "").trim().split(/\s+/).filter(Boolean).length;
@@ -2814,7 +2842,8 @@ function App({ appId, token }) {
     } catch (err) {
       window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "writeNote" });
       setSaveError({ id, message: "Could not save \u2014 your edit is kept. Retrying when possible." });
-      return m;
+      setFailedSaveIds((s) => s.has(id) ? s : new Set(s).add(id));
+      throw err;
     }
   }, [openId, liveDoc, upsert, collection, scheduleGc]);
   const persist = useCallback4(async (meta, body) => {
@@ -2829,16 +2858,17 @@ function App({ appId, token }) {
     if (prev && prev.placeholder) return;
     const nextHash = await contentHash(meta, body);
     const prevHash = prev ? await contentHash(prev.meta, prev.body) : null;
-    if (prevHash != null && nextHash === prevHash) return;
+    if (!failedSaveIds.has(meta.id) && prevHash != null && nextHash === prevHash) return;
     await writeNote({ ...meta, updated: (/* @__PURE__ */ new Date()).toISOString() }, body);
-  }, [draft, notes, writeNote]);
+  }, [draft, notes, writeNote, failedSaveIds]);
   const togglePin = useCallback4(async (id) => {
     if (draft && draft.meta.id === id) {
       setDraft((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }));
       return;
     }
     const n = await ensureAuthoritative(id);
-    if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body);
+    if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body).catch(() => {
+    });
   }, [draft, ensureAuthoritative, persist]);
   const setColor = useCallback4(async (id, color) => {
     if (draft && draft.meta.id === id) {
@@ -2846,7 +2876,8 @@ function App({ appId, token }) {
       return;
     }
     const n = await ensureAuthoritative(id);
-    if (n) persist({ ...n.meta, color }, n.body);
+    if (n) persist({ ...n.meta, color }, n.body).catch(() => {
+    });
   }, [draft, ensureAuthoritative, persist]);
   const queueDelete = useCallback4(async (id) => {
     await collection.remove(id).catch(() => {
@@ -2921,6 +2952,18 @@ function App({ appId, token }) {
   return /* @__PURE__ */ jsxs6("div", { className: "nt-root", children: [
     /* @__PURE__ */ jsx8("style", { children: CSS }),
     /* @__PURE__ */ jsx8(TopBar, { appId, query, onQuery: setQuery }),
+    !editing && saveError && /* @__PURE__ */ jsxs6("div", { className: "nt-save-err", role: "alert", "aria-live": "assertive", children: [
+      /* @__PURE__ */ jsx8("span", { className: "nt-save-err-msg", children: saveError.message }),
+      /* @__PURE__ */ jsx8(
+        "button",
+        {
+          className: "nt-save-err-btn",
+          onClick: () => setSaveError(null),
+          "aria-label": "Dismiss save error",
+          children: "Dismiss"
+        }
+      )
+    ] }),
     /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsxs6("div", { className: "nt-loading", role: "status", "aria-live": "polite", children: [
       /* @__PURE__ */ jsx8("span", { className: "nt-spinner", "aria-hidden": "true" }),
       /* @__PURE__ */ jsx8("span", { children: "Loading\u2026" })
@@ -2960,7 +3003,8 @@ function App({ appId, token }) {
         resolveAttachment: attachmentURL,
         putAttachment,
         conflict: conflicts.has(editing.meta.id),
-        status
+        status,
+        forceSave: failedSaveIds.has(editing.meta.id)
       }
     ),
     /* @__PURE__ */ jsx8(

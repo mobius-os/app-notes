@@ -7,14 +7,17 @@
 // at startup, BEFORE the first list/load, and is safe to re-run.
 //
 // Conservative order per note (never lose a note mid-migration):
-//   1. Read the legacy notes/<id>.md (getText, offline-capable via the cache).
-//   2. Parse frontmatter → { meta, body }; skip anything without a valid id.
-//   3. If notes/<id>.json already exists, the note is already migrated — only
-//      delete a leftover .md (a prior run wrote the JSON then crashed before the
-//      delete). Never overwrite a JSON doc that may hold newer edits.
-//   4. Otherwise durably write notes/<id>.json. ONLY after that write is durable
-//      (synced or queued) delete the .md. A non-durable/failed JSON write leaves
-//      the .md untouched, so the next run retries — the note is never stranded.
+//   1. If notes/<id>.json already exists, the note is already migrated. Leave it
+//      AND any leftover .md alone — we can't prove the .json is on the server
+//      without a re-put, and a re-put of our stale local copy could clobber a
+//      newer edit from another device. The leftover .md is harmless (never read).
+//   2. Otherwise read the legacy notes/<id>.md (getText), parse frontmatter →
+//      { meta, body }; skip anything without a valid id.
+//   3. durableWrite notes/<id>.json. The .md is deleted ONLY when that write
+//      resolves durability === 'synced' (the server confirmed it). A 'queued'
+//      (offline) write KEEPS the .md (queued is not proof of server arrival); a
+//      dead-lettered write KEEPS the .md and the next startup retries. So the .md
+//      is never removed unless its .json is provably on the server.
 //
 // `list('notes')` returns BOTH .md and .json during the transition; the new
 // collection.list() ignores non-.json entries, so a half-migrated dir still
@@ -29,40 +32,59 @@ const legacyPath = (id) => `notes/${id}.md`
 const idFromMd = (name) => (name.endsWith('.md') ? name.slice(0, -3) : null)
 
 // Migrate one legacy note id. Returns:
-//   'migrated' — JSON written + SYNCED to the server, legacy .md removed.
-//   'queued'   — JSON durably written but only QUEUED (offline). Read-your-writes
-//                shows the note from the queued JSON; the .md is KEPT as the
-//                durable fallback until the JSON syncs (a queued write could in
-//                principle dead-letter on drain — keeping the .md until the
-//                server confirms eliminates that loss window). Cleaned up on the
-//                next startup after reconnect (the 'already' branch).
-//   'already'  — a .json already exists; only clean up a stray .md.
+//   'migrated' — JSON written and the server CONFIRMED it (durability 'synced');
+//                only then is the legacy .md removed.
+//   'queued'   — JSON durably outboxed offline (durability 'queued', guaranteed
+//                retry). The .md is KEPT: 'queued' is NOT proof the .json reached
+//                the server (the queued write can still dead-letter on drain). The
+//                .md stays a dormant, harmless fallback — collection.list() ignores
+//                non-.json entries, so it never double-shows the note.
+//   'already'  — a .json already exists for this id. We do NOT touch the .md here.
+//                Removing it would require re-writing the existing .json to 'confirm'
+//                it is on the server, but durableWrite is last-write-wins with no
+//                CAS/fresh-read: a re-put of our stale local copy could clobber a
+//                newer edit landed from another device. So we leave any leftover
+//                .md in place (still harmless — never authoritative, never listed).
 //   'skipped'  — no readable legacy note (already gone / malformed).
-//   'deferred' — the JSON write was non-durable (storage full) — .md kept, retry.
+//   'deferred' — the JSON write dead-lettered (a fatal 4xx the server refused);
+//                the .md is KEPT and the next startup retries.
 // Never throws.
+//
+// The .md is removed in EXACTLY ONE place — the 'synced' branch below, the single
+// run where this function parsed that .md, wrote its content as the .json, AND the
+// server confirmed the write. It is never removed on a local get() (which overlays
+// un-synced pending writes), never on 'queued', and never by re-confirming a
+// pre-existing .json. That is the invariant: a note's .md fallback disappears only
+// once its .json is provably on the server.
 export async function migrateNote(id) {
   let json
   try { json = await S().get(notePath(id)) } catch { json = undefined }
-  if (json && json.meta && json.meta.id) {
-    // Already migrated — clean up any leftover legacy file, then done.
-    try { await S().remove(legacyPath(id)) } catch {}
+  if (json && json.meta && json.meta.id === id) {
+    // A .json already exists for this exact id. Do not re-write it (clobber risk,
+    // see above) and do not delete the .md (we cannot prove the .json is on the
+    // server without a clobbering re-put). Any leftover .md is a dormant fallback.
     return 'already'
   }
 
+  // No .json yet — this run migrates the note. Parse the legacy .md.
   let text
   try { text = await S().getText(legacyPath(id)) } catch { text = null }
   if (text == null) return 'skipped'
   const { meta, body } = parseFrontmatter(text)
   if (!meta || !meta.id) return 'skipped'
 
+  // durableWrite resolves DURABLE (synced | queued) or REJECTS DurableWriteError on
+  // a dead-letter (a fatal 4xx). set() is NOT used: it falsely reports {synced} for
+  // a dead-lettered write, which would delete the .md while the .json never landed.
   let res
-  try { res = await S().set(notePath(id), { meta, body }) } catch { return 'deferred' }
-  if (res && res.synced === true) {
+  try { res = await S().durableWrite(notePath(id), { meta, body }, { kind: 'json' }) }
+  catch { return 'deferred' } // dead-lettered — keep the .md, retry next startup
+  if (res && res.durability === 'synced') {
+    // Server CONFIRMED the .json. Only now is the .md fallback safe to remove.
     try { await S().remove(legacyPath(id)) } catch {}
     return 'migrated'
   }
-  if (res && res.queued === true) return 'queued' // durable, .md kept until synced
-  return 'deferred' // non-durable resolve — keep the .md, retry next run
+  return 'queued' // durably outboxed but NOT server-confirmed — keep the .md
 }
 
 // Sweep notes/ once: migrate every legacy .md that has no .json yet. Best-effort

@@ -131,6 +131,12 @@ export default function App({ appId, token }) {
   const [pending, setPending] = useState(0)
   const [conflicts, setConflicts] = useState(() => new Set())
   const [saveError, setSaveError] = useState(null)
+  // Ids whose LAST durable write was REFUSED (dead-lettered). The optimistic
+  // upsert leaves such a note's in-memory value equal to its editor buffer, which
+  // would make flushSave()/persist() short-circuit as 'nothing changed' and never
+  // retry — closing the editor as if saved. Membership here forces the next flush
+  // to re-issue the write regardless of buffer equality, until it lands.
+  const [failedSaveIds, setFailedSaveIds] = useState(() => new Set())
   const gcTimer = useRef(null)
   const editorNavOwned = useRef(false)
   const online = store.isOnline()
@@ -181,6 +187,7 @@ export default function App({ appId, token }) {
   useEffect(() => {
     if (openId && liveDoc.lastError) {
       setSaveError({ id: openId, message: 'Could not save — your edit is kept. Retrying when possible.' })
+      setFailedSaveIds((s) => (s.has(openId) ? s : new Set(s).add(openId)))
     }
   }, [openId, liveDoc.lastError])
 
@@ -316,7 +323,7 @@ export default function App({ appId, token }) {
 
   const openEditor = useCallback(async (id) => {
     window.mobius?.signal('note_opened')
-    setSaveError(null)
+    setSaveError((e) => (e && failedSaveIds.has(e.id) ? e : null))
     const cur = notes.find((n) => n.meta.id === id)
     if (cur && cur.placeholder && !(await ensureAuthoritative(id))) return
     if (view.mode === 'editor') {
@@ -325,7 +332,7 @@ export default function App({ appId, token }) {
     }
     editorNavOwned.current = await pushEditorNav()
     setView({ mode: 'editor', id })
-  }, [ensureAuthoritative, notes, pushEditorNav, view.mode])
+  }, [ensureAuthoritative, notes, pushEditorNav, view.mode, failedSaveIds])
 
   const createNote = useCallback(() => {
     const meta = newNote({})
@@ -359,6 +366,7 @@ export default function App({ appId, token }) {
         ;({ result } = await collection.update(id, () => ({ meta: m, body })))
       }
       setSaveError((e) => (e && e.id === id ? null : e))
+      setFailedSaveIds((s) => { if (!s.has(id)) return s; const n = new Set(s); n.delete(id); return n })
       if (isDraftCommit) setDraft(null)
       scheduleGc()
       const wordCount = (body || '').trim().split(/\s+/).filter(Boolean).length
@@ -370,12 +378,17 @@ export default function App({ appId, token }) {
     } catch (err) {
       // Durable write REFUSED by the server (DurableWriteError). Do not claim a
       // save and do not lose the edit: keep the optimistic in-memory note (so the
-      // buffer is preserved and the user can retry) and surface an error. A draft
-      // is kept open so its content isn't dropped. (An OFFLINE write does NOT land
-      // here — it resolves 'queued', which is durable success.)
+      // buffer is preserved and the user can retry) and surface a visible error.
+      // (An OFFLINE write does NOT land here — it resolves 'queued', durable
+      // success.) We RE-THROW so callers learn the save failed: the editor's back
+      // button must stay open (not close as if saved), and a closed-note grid
+      // action must not report success. The saveError we set here drives the
+      // visible 'Save failed' banner — in the editor (status) and, when no editor
+      // is open, the grid-level banner. Same honest surfacing on both paths.
       window.mobius?.signal('error', { message: err?.message ?? 'save failed', source: 'writeNote' })
       setSaveError({ id, message: 'Could not save — your edit is kept. Retrying when possible.' })
-      return m
+      setFailedSaveIds((s) => (s.has(id) ? s : new Set(s).add(id)))
+      throw err
     }
   }, [openId, liveDoc, upsert, collection, scheduleGc])
 
@@ -395,9 +408,12 @@ export default function App({ appId, token }) {
     if (prev && prev.placeholder) return // display-only; never persist a snippet
     const nextHash = await contentHash(meta, body)
     const prevHash = prev ? await contentHash(prev.meta, prev.body) : null
-    if (prevHash != null && nextHash === prevHash) return // nothing changed — don't bump order
+    // Skip a no-op write — UNLESS this id's last write FAILED. The optimistic
+    // upsert makes `prev` equal the buffer, so the hash matches even though the
+    // edit never reached the server; force the retry instead of silently dropping.
+    if (!failedSaveIds.has(meta.id) && prevHash != null && nextHash === prevHash) return
     await writeNote({ ...meta, updated: new Date().toISOString() }, body)
-  }, [draft, notes, writeNote])
+  }, [draft, notes, writeNote, failedSaveIds])
 
   const togglePin = useCallback(async (id) => {
     if (draft && draft.meta.id === id) {
@@ -405,7 +421,7 @@ export default function App({ appId, token }) {
       return
     }
     const n = await ensureAuthoritative(id)
-    if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body)
+    if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body).catch(() => {}) // saveError surfaces via the grid banner
   }, [draft, ensureAuthoritative, persist])
   const setColor = useCallback(async (id, color) => {
     if (draft && draft.meta.id === id) {
@@ -413,7 +429,7 @@ export default function App({ appId, token }) {
       return
     }
     const n = await ensureAuthoritative(id)
-    if (n) persist({ ...n.meta, color }, n.body)
+    if (n) persist({ ...n.meta, color }, n.body).catch(() => {}) // saveError surfaces via the grid banner
   }, [draft, ensureAuthoritative, persist])
 
   // Delete a note: remove its canonical document via the collection (the runtime
@@ -499,6 +515,22 @@ export default function App({ appId, token }) {
     <div className="nt-root">
       <style>{CSS}</style>
       <TopBar appId={appId} query={query} onQuery={setQuery} />
+      {/* Closed-note save failure (a grid pin/color, or a back-out after a refused
+          save) has no editor to show a status banner — surface it here so a
+          dead-lettered write is never silently lost. The edit is kept in memory;
+          re-opening the note lets the user retry. Mirrors the editor's honest
+          'Save failed' status; only shown when no editor is open (the editor's
+          own banner covers the open note). */}
+      {!editing && saveError && (
+        <div className="nt-save-err" role="alert" aria-live="assertive">
+          <span className="nt-save-err-msg">{saveError.message}</span>
+          <button
+            className="nt-save-err-btn"
+            onClick={() => setSaveError(null)}
+            aria-label="Dismiss save error"
+          >Dismiss</button>
+        </div>
+      )}
       <main className="nt-scroll">
         {loading
           ? <div className="nt-loading" role="status" aria-live="polite">
@@ -540,6 +572,7 @@ export default function App({ appId, token }) {
           putAttachment={store.putAttachment}
           conflict={conflicts.has(editing.meta.id)}
           status={status}
+          forceSave={failedSaveIds.has(editing.meta.id)}
         />
       )}
 

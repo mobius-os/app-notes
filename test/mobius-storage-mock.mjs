@@ -1,21 +1,39 @@
 // An in-memory window.mobius.storage that faithfully models the platform
 // runtime contract the Notes app depends on (frontend/public/mobius-runtime.js):
 //
-//   - get(path)/getText(path) -> the stored value (JSON object / string) or null
+//   - get(path)/getText(path) -> the stored value (JSON object / string) or null.
+//     READ-YOUR-WRITES: a local overlay (a queued offline write) shadows the
+//     server value, so an offline write is visible to a later get() even though
+//     the server doesn't have it yet.
 //   - set(path,obj)/setText(path,str) -> { synced:true } online, { queued:true }
-//     offline (both DURABLE)
+//     offline (both DURABLE). This is the LEGACY path: on a path FORCED to a fatal
+//     4xx it still returns { synced:true } (it LIES) but the server is left
+//     unchanged and the optimistic value is rolled back — exactly the runtime
+//     behavior that makes set() unsafe for a write whose success must gate a
+//     destructive follow-up (deleting the legacy .md).
 //   - setBlob(path,blob) -> same durability result; throws over the size cap
-//   - durableWrite(path,val,{kind}) -> { durability:'synced'|'queued', path } on
-//     a durable write; REJECTS DurableWriteError({code}) when the path is forced
-//     to dead-letter (a 4xx the server refuses) or to conflict
+//   - durableWrite(path,val,{kind}) -> { durability:'synced' } when the write
+//     reaches the server (online), { durability:'queued' } when durably outboxed
+//     offline (a LOCAL overlay, NOT yet on the server, guaranteed retry), or
+//     REJECTS DurableWriteError({code}) when the path is FORCED to dead-letter (a
+//     fatal 4xx the server refuses — nothing is persisted).
 //   - remove(path) -> { synced } | { queued }; read-your-writes hides it at once
 //   - list(prefix) -> [{ name, path, type }] of the immediate children
+//   - onDeadLetter(cb) -> fires when an offline-QUEUED write is later refused on
+//     drain (drain() below moves overlays to the server, or dead-letters a forced
+//     path and drops its overlay)
 //   - subscribe / pendingCount / online flag
 //
 // Tests drive online/offline + per-path forced outcomes to exercise the queued =
 // durable-success and dead-letter = error (no false save) paths the migration
 // must honor. This mirrors the runtime's observable behavior without pulling in
 // IndexedDB; the real runtime is unit-tested separately in the platform repo.
+//
+// STATE MODEL: `server` is the canonical (server-confirmed) store; `overlay` is
+// the local read-your-writes layer (queued offline writes + their tombstones).
+// get() reads overlay-then-server, so a queued write is visible locally but is
+// NOT on the server until a drain() promotes it. `raw` is an alias of `server`,
+// so existing tests that assert "durably on the server" via h.raw stay correct.
 
 export class DurableWriteError extends Error {
   constructor(message, fields = {}) {
@@ -29,56 +47,76 @@ export class DurableWriteError extends Error {
   }
 }
 
+const TOMBSTONE = Symbol('overlay-tombstone')
+
 export function makeMockStorage() {
-  const files = new Map() // path -> { kind, value }
+  const server = new Map()  // path -> { kind, value } : server-confirmed canonical
+  const overlay = new Map() // path -> { kind, value } | TOMBSTONE : queued offline layer
   let online = true
-  const forced = new Map() // path -> { status } forces a dead-letter on write
+  const forced = new Map()  // path -> { status } : forces a fatal 4xx on the next write
   const subs = new Map()
   let queued = 0
   const deadLetterCbs = new Set()
 
+  // Read-your-writes: the overlay (a queued offline write or delete) shadows the
+  // server value until a drain promotes/clears it.
+  function effective(path) {
+    if (overlay.has(path)) {
+      const o = overlay.get(path)
+      return o === TOMBSTONE ? null : o
+    }
+    return server.get(path) ?? null
+  }
+
   function notify(path) {
     const set = subs.get(path)
     if (!set) return
-    const rec = files.get(path)
+    const rec = effective(path)
     const v = rec ? rec.value : null
     for (const cb of set) { try { cb(v) } catch {} }
   }
 
-  function durableResult() {
-    if (online) return { durability: 'synced' }
-    queued++
-    return { durability: 'queued' }
-  }
-  function legacyResult() {
-    if (online) return { synced: true }
-    queued++
-    return { queued: true }
+  // The legacy set() path. Online + NOT forced: writes to the server, returns
+  // { synced:true }. Online + FORCED fatal: returns { synced:true } anyway (the
+  // LIE) but leaves the server untouched and the optimistic value not effective —
+  // any prior server value remains the truth. Offline: a durable overlay queue.
+  function legacyWrite(path, rec) {
+    const f = forced.get(path)
+    if (f) {
+      forced.delete(path)
+      // The lie: report success, persist nothing. (No overlay either — the
+      // optimistic value is rolled back on a fatal refusal.)
+      return { synced: true }
+    }
+    if (online) { server.set(path, rec); overlay.delete(path); notify(path); return { synced: true } }
+    overlay.set(path, rec); queued++; notify(path); return { queued: true }
   }
 
   const storage = {
-    // ── reads ────────────────────────────────────────────────────────────
+    // ── reads (read-your-writes: overlay shadows server) ──────────────────
     async get(path) {
-      const rec = files.get(path)
-      if (!rec) return null
-      return rec.value == null ? null : JSON.parse(JSON.stringify(rec.value))
+      const rec = effective(path)
+      if (!rec || rec.value == null) return null
+      return JSON.parse(JSON.stringify(rec.value))
     },
     async getText(path) {
-      const rec = files.get(path)
-      if (!rec) return null
-      return rec.value == null ? null : String(rec.value)
+      const rec = effective(path)
+      if (!rec || rec.value == null) return null
+      return String(rec.value)
     },
     async getBlob(path) {
-      const rec = files.get(path)
+      const rec = effective(path)
       return rec ? rec.value : null
     },
     // ── durable write (the useDocument path) ──────────────────────────────
     async durableWrite(path, value, opts = {}) {
       const f = forced.get(path)
       if (f) {
+        // Fatal 4xx: the server refuses. Nothing is persisted (server + overlay
+        // untouched); we REJECT so the caller never treats it as saved. (This is
+        // the synchronous refusal — onDeadLetter is for the OFFLINE-queued write
+        // that is refused later on drain(); see drain().)
         forced.delete(path)
-        const rejected = { path, status: f.status, refusedValue: value }
-        for (const cb of deadLetterCbs) { try { cb(rejected) } catch {} }
         throw new DurableWriteError(`durableWrite ${path} rejected (${f.status})`, {
           code: f.status === 412 ? 'conflict' : 'dead_letter',
           status: f.status,
@@ -86,34 +124,47 @@ export function makeMockStorage() {
           refusedValue: value,
         })
       }
-      files.set(path, { kind: opts.kind || 'json', value })
-      const res = durableResult()
+      const rec = { kind: opts.kind || 'json', value }
+      if (online) {
+        server.set(path, rec)
+        overlay.delete(path)
+        notify(path)
+        return { durability: 'synced', path }
+      }
+      // Offline: durably outboxed as a local overlay; NOT on the server yet.
+      overlay.set(path, rec)
+      queued++
       notify(path)
-      return { ...res, path }
+      return { durability: 'queued', path }
     },
     // ── legacy writes (store.js set/setText/setBlob) ──────────────────────
     async set(path, obj) {
-      files.set(path, { kind: 'json', value: obj })
-      const r = legacyResult(); notify(path); return r
+      return legacyWrite(path, { kind: 'json', value: obj })
     },
     async setText(path, text) {
-      files.set(path, { kind: 'text', value: text })
-      const r = legacyResult(); notify(path); return r
+      return legacyWrite(path, { kind: 'text', value: text })
     },
     async setBlob(path, blob) {
-      files.set(path, { kind: 'blob', value: blob })
-      return legacyResult()
+      // Blobs skip the lie modeling (no test forces a blob dead-letter); keep the
+      // simple durable-result behavior.
+      if (online) { server.set(path, { kind: 'blob', value: blob }); overlay.delete(path) }
+      else { overlay.set(path, { kind: 'blob', value: blob }); queued++ }
+      return online ? { synced: true } : { queued: true }
     },
     async remove(path) {
-      files.delete(path)
-      const r = legacyResult(); notify(path); return r
+      if (online) { server.delete(path); overlay.delete(path) }
+      else { overlay.set(path, TOMBSTONE); queued++ }
+      notify(path)
+      return online ? { synced: true } : { queued: true }
     },
-    // ── listing ───────────────────────────────────────────────────────────
+    // ── listing (over the effective view: server ∪ overlay, minus tombstones)
     async list(prefix) {
       const norm = (prefix || '').replace(/^\/+|\/+$/g, '')
       const base = norm ? norm + '/' : ''
+      const paths = new Set([...server.keys(), ...overlay.keys()])
       const byName = new Map()
-      for (const path of files.keys()) {
+      for (const path of paths) {
+        if (overlay.get(path) === TOMBSTONE) continue // deleted locally
         if (!path.startsWith(base)) continue
         const rest = path.slice(base.length)
         const slash = rest.indexOf('/')
@@ -130,7 +181,7 @@ export function makeMockStorage() {
       let set = subs.get(path)
       if (!set) { set = new Set(); subs.set(path, set) }
       set.add(cb)
-      Promise.resolve().then(() => { const rec = files.get(path); cb(rec ? rec.value : null) })
+      Promise.resolve().then(() => { const rec = effective(path); cb(rec ? rec.value : null) })
       return () => { const s = subs.get(path); if (s) s.delete(cb) }
     },
     onDeadLetter(cb) { deadLetterCbs.add(cb); return () => deadLetterCbs.delete(cb) },
@@ -141,9 +192,41 @@ export function makeMockStorage() {
   return {
     storage,
     setOnline(v) { online = !!v },
+    // Force the NEXT write to `path` (set or durableWrite) to a fatal 4xx.
     forceDeadLetter(path, status = 413) { forced.set(path, { status }) },
-    seed(path, value, kind = 'json') { files.set(path, { kind, value }) },
-    raw: files,
+    // Seed the SERVER canonical store directly (a pre-existing, server-confirmed
+    // value). Tests that want a local-only overlay seed via seedOverlay/offline.
+    seed(path, value, kind = 'json') { server.set(path, { kind, value }) },
+    // Seed a LOCAL overlay (a queued offline write not on the server).
+    seedOverlay(path, value, kind = 'json') { overlay.set(path, { kind, value }) },
+    // Drain the offline outbox: promote each queued overlay to the server, EXCEPT
+    // a path forced to dead-letter — that overlay is dropped and onDeadLetter
+    // fires (the queued-then-refused-on-drain case).
+    async drain() {
+      online = true
+      for (const [path, rec] of [...overlay.entries()]) {
+        const f = forced.get(path)
+        if (f) {
+          forced.delete(path)
+          overlay.delete(path)
+          const rejected = { path, status: f.status, refusedValue: rec === TOMBSTONE ? undefined : rec.value }
+          for (const cb of deadLetterCbs) { try { cb(rejected) } catch {} }
+          continue
+        }
+        if (rec === TOMBSTONE) server.delete(path)
+        else server.set(path, rec)
+        overlay.delete(path)
+        notify(path)
+      }
+      queued = 0
+    },
+    // Accessors: `server` is the canonical store; `raw` aliases it so existing
+    // "durably on the server" assertions keep working. `overlay` exposes the
+    // local read-your-writes layer for tests that need to tell them apart.
+    get server() { return server },
+    get overlay() { return overlay },
+    raw: server,
+    TOMBSTONE,
   }
 }
 

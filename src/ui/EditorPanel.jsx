@@ -37,7 +37,7 @@ function statusClass(status) {
   return 'is-default'
 }
 
-export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment, conflict, status }) {
+export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment, conflict, status, forceSave }) {
   const [title, setTitle] = useState(note.meta.title || '')
   const [body, setBody] = useState(note.body || '')
   const [showColors, setShowColors] = useState(false)
@@ -66,12 +66,17 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   const flushSave = useCallback(() => {
     const cur = latest.current
     if (!cur?.note) return Promise.resolve()
-    if (cur.title === (cur.note.meta.title || '') && cur.body === (cur.note.body || '')) {
+    // Normally a buffer that equals the note is a no-op. But after a REFUSED save
+    // the optimistic note prop already equals the buffer, so that equality would
+    // make us skip the retry and close as if saved. `forceSave` (the app flagging
+    // this id's last write as failed) overrides the skip so the write is re-issued
+    // until it actually lands.
+    if (!forceSave && cur.title === (cur.note.meta.title || '') && cur.body === (cur.note.body || '')) {
       return Promise.resolve()
     }
     if (timer.current) clearTimeout(timer.current)
     return Promise.resolve(onSave({ ...cur.note.meta, title: cur.title }, cur.body))
-  }, [onSave])
+  }, [onSave, forceSave])
 
   // Switching directly from one note to another in the editor: flush the
   // OUTGOING note's pending edits (held in `latest`, still pointing at the old
@@ -80,7 +85,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   // silently dropped.
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current)
-    flushSave()
+    flushSave().catch(() => {}) // a refused save surfaces via the saveError banner; don't throw on note-swap
     latest.current = { note, title: note.meta.title || '', body: note.body || '' }
     setTitle(note.meta.title || '')
     setBody(note.body || '')
@@ -90,14 +95,14 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   useEffect(() => {
     if (title === (note.meta.title || '') && body === (note.body || '')) return
     if (timer.current) clearTimeout(timer.current)
-    timer.current = setTimeout(() => { flushSave() }, AUTOSAVE_MS)
+    timer.current = setTimeout(() => { flushSave().catch(() => {}) }, AUTOSAVE_MS)
     return () => clearTimeout(timer.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, body, flushSave])
 
   useEffect(() => {
-    const flushOnHide = () => { if (document.visibilityState === 'hidden') flushSave() }
-    const flushOnUnload = () => { flushSave() }
+    const flushOnHide = () => { if (document.visibilityState === 'hidden') flushSave().catch(() => {}) }
+    const flushOnUnload = () => { flushSave().catch(() => {}) }
     document.addEventListener('visibilitychange', flushOnHide)
     window.addEventListener('beforeunload', flushOnUnload)
     return () => {
@@ -118,7 +123,9 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
       nextBody = '- [ ] '
     }
     if (nextBody !== body) setBody(nextBody)
-    onSave({ ...note.meta, title, type: nextType }, nextBody)
+    // A refused save rejects; the saveError banner surfaces it. Swallow here so a
+    // type-toggle doesn't raise an unhandled rejection.
+    Promise.resolve(onSave({ ...note.meta, title, type: nextType }, nextBody)).catch(() => {})
   }, [isChecklist, body, note.meta, title, onSave])
 
   function insertMarkdown(md) {
@@ -180,7 +187,17 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
       <header className="nt-editor-hdr">
         <div className="nt-editor-row1">
           <button
-            onClick={async () => { await flushSave(); onBack() }}
+            onClick={async () => {
+              // Flush pending edits, then leave — but ONLY if the flush succeeded.
+              // A dead-lettered (server-refused) save REJECTS here; we must NOT
+              // close the editor as if saved (that would hide the failure and look
+              // like data loss). Stay open so the 'Save failed' status banner is
+              // visible and the user can retry. A 'queued' offline write resolves
+              // success and closes normally. (No pending change -> flushSave
+              // resolves immediately and we close.)
+              try { await flushSave() } catch { return }
+              onBack()
+            }}
             aria-label="Back"
             className="nt-hdr-btn"
           ><Icon name="back" size={18} /></button>
