@@ -62,6 +62,23 @@ export function reconcile({ base, mine, server }) {
     return buildConflict({ base, mine, server })
   }
 
+  // A brand-new local note that has never been synced (no base ancestor) and is
+  // absent on the server is a clean CREATE, not a conflict: there is no prior
+  // version to diverge from. This is the recovery path for a draft whose direct
+  // canonical write was non-durable — its working copy enters the reconcile queue
+  // with an empty base and the driver creates it as rev 1. (A note that DID have
+  // a base and is now server-null was deleted upstream while we edited — that is
+  // a real divergence, handled below.)
+  if (server === null && base == null) {
+    return {
+      action: 'fast-forward',
+      note: {
+        meta: { ...mine.meta, parent_rev: 0, mobius_rev: 1 },
+        body: mine.body,
+      },
+    }
+  }
+
   // The server deleted while we edited; there is no body to merge, so hand it
   // to the agent resolver.
   if (server === null) {

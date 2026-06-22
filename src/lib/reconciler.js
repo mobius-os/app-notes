@@ -39,7 +39,7 @@ export async function reconcileAll({ onApplied, onConflict, onDeleted } = {}) {
 
         if (decision.action === 'noop') {
           if (rec.working === null) await clearLocal(id)
-          else await promote(id, rec.working)
+          else await promote(id, rec.working, rec.seq)
         } else if (decision.action === 'delete') {
           const res = await store.deleteNote(id)
           if (res && res.synced) {
@@ -52,7 +52,10 @@ export async function reconcileAll({ onApplied, onConflict, onDeleted } = {}) {
           note.meta.updated = note.meta.updated || new Date().toISOString()
           const res = await store.saveNote(note.meta, note.body)
           if (res && res.synced) {
-            await promote(id, { meta: note.meta, body: note.body, hash: note.meta.content_hash })
+            // Settle at the seq of the working we synced; if a fresher edit
+            // landed mid-pass (a higher seq) the guard makes this a no-op and the
+            // next pass reconciles that edit.
+            await promote(id, { meta: note.meta, body: note.body, hash: note.meta.content_hash }, rec.seq)
             if (onApplied) onApplied(id, note)
           }
         } else if (decision.action === 'conflict') {

@@ -14,8 +14,9 @@ import { newNote, contentHash, isBlankNote } from './lib/note.js'
 import { notesFromIndex } from './lib/index-cache.js'
 import { visibleNotes } from './lib/visible.js'
 import * as store from './lib/store.js'
-import { ensureBase, recordWorking, recordDeletion, promote, unsyncedLocals } from './lib/local.js'
+import { ensureBase, recordWorking, recordCreate, recordDeletion, promote, unsyncedLocals } from './lib/local.js'
 import { reconcileAll } from './lib/reconciler.js'
+import { isDurableWrite } from './lib/durable.js'
 import Grid from './ui/Grid.jsx'
 import EditorPanel from './ui/EditorPanel.jsx'
 import ConfirmModal from './ui/ConfirmModal.jsx'
@@ -105,6 +106,40 @@ export default function App({ appId, token }) {
   const gcTimer = useRef(null)
   const editorNavOwned = useRef(false)
   const online = store.isOnline()
+
+  // Per-note save serialization. Without it, two overlapping autosaves of the
+  // SAME note both reach the canonical writer; the storage outbox is
+  // last-write-wins with no ordering guarantee, so the earlier edit's write can
+  // land LAST and overwrite the later edit (the saveNote-resolves-out-of-order
+  // data-loss race). Chaining each note's save behind the previous one keeps a
+  // single write per note in flight at a time, so canonical bytes AND the local
+  // base/working settle in submission (edit) order. Keyed by note id; the tail
+  // is dropped once it drains.
+  const saveLocks = useRef(new Map())
+  const withSaveLock = useCallback((id, fn) => {
+    const locks = saveLocks.current
+    const prev = locks.get(id) || Promise.resolve()
+    const result = prev.then(fn, fn)
+    const tail = result.then(() => {}, () => {})
+    locks.set(id, tail)
+    tail.then(() => { if (locks.get(id) === tail) locks.delete(id) })
+    return result
+  }, [])
+
+  // Inverse of upsert: put a captured pre-write note back (or remove the entry
+  // when there was none, i.e. a brand-new note). Used to roll back the optimistic
+  // upsert when the durable write fails — otherwise the in-memory note keeps the
+  // attempted buffer, the editor's buffer-vs-note guard goes clean, and the
+  // retry is permanently disarmed (a never-saved note silently lost on reload).
+  const restoreNote = useCallback((id, prevNote) => {
+    setNotes((prev) => {
+      const next = prevNote
+        ? prev.map((n) => (n.meta.id === id ? prevNote : n))
+        : prev.filter((n) => n.meta.id !== id)
+      store.writeIndex(next).catch(() => {})
+      return next
+    })
+  }, [])
 
   const upsert = useCallback((meta, body) => {
     setNotes((prev) => {
@@ -289,15 +324,50 @@ export default function App({ appId, token }) {
   const commitDraft = useCallback(async (meta, body) => {
     const m = { ...meta, updated: meta.updated || new Date().toISOString() }
     m.content_hash = await contentHash(m, body)
+    // Capture the pre-write in-memory note (null for a brand-new note) so the
+    // optimistic upsert can be rolled back if the durable write fails. Without
+    // the rollback, the notes entry keeps the attempted buffer; the editor's
+    // buffer-vs-note guard then reads clean and the retry is disarmed — a
+    // never-durably-saved note is lost on reload.
+    const prevNote = notes.find((n) => n.meta.id === m.id) || null
     upsert(m, body)
-    // Keep the draft until the canonical write resolves. Clearing it first would
-    // drop the in-flight buffer the moment saveNote starts: if the write then
-    // rejects, the edit is gone from both the draft and disk. The draft is only
-    // cleared once saveNote has committed the note for real.
-    await store.saveNote(m, body).catch((err) => {
-      window.mobius?.signal('error', { message: err?.message ?? 'save failed', source: 'commitDraft' })
-      throw err
-    })
+    // A brand-new note's first save lands canonical directly (no ancestor yet).
+    // The write is DURABLE only on a synced/queued result. A failure is not just
+    // a rejected promise — a RESOLVED non-durable result ({synced:false} with no
+    // queue, {ok:false}, …) means the bytes never landed either. On EITHER, do
+    // not lose the edit and do not falsely report success: degrade to the same
+    // durable path an offline edit takes — record a working-copy CREATE in
+    // IndexedDB (survives reload via the initial-load merge; the reconcile driver
+    // re-attempts the canonical create) — then clear the draft (its content is
+    // now durably held) and WITHHOLD note_saved (sync is pending, not confirmed).
+    // Only if even that local write fails (storage truly full) do we roll back
+    // the optimistic upsert, keep the draft, and surface a hard retry.
+    const queueCreate = async (reason) => {
+      try {
+        await recordCreate(m.id, { meta: m, body, hash: m.content_hash })
+      } catch (e) {
+        restoreNote(m.id, prevNote)
+        window.mobius?.signal('error', { message: e?.message ?? 'save failed', source: 'commitDraft' })
+        const err = new Error('save not durable')
+        err.nonDurable = true
+        throw err
+      }
+      window.mobius?.signal('error', { message: reason, source: 'commitDraft' })
+      setDraft(null)
+      scheduleReconcile()
+      scheduleGc()
+    }
+    let res
+    try {
+      res = await store.saveNote(m, body)
+    } catch (err) {
+      await queueCreate(err?.message ?? 'save failed')
+      return m
+    }
+    if (!isDurableWrite(res)) {
+      await queueCreate('save not durable — queued locally')
+      return m
+    }
     setDraft(null)
     await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {})
     scheduleReconcile()
@@ -305,48 +375,62 @@ export default function App({ appId, token }) {
     const wordCount = (body || '').trim().split(/\s+/).filter(Boolean).length
     window.mobius?.signal('note_saved', { word_count: wordCount || undefined })
     return m
-  }, [scheduleReconcile, upsert, scheduleGc])
+  }, [notes, scheduleReconcile, upsert, restoreNote, scheduleGc])
 
   // Persist an edit: stamp the working copy + update the UI, then let the
   // reconcile driver (the sole canonical writer) land it / merge / flag conflict.
   // `updated` is stamped ONLY when the content actually changed (hash compare):
   // the grid sorts on it (visible.js), so a real edit bumps the note to the top
   // while opening a note — or a flush that didn't change anything — never does.
-  const persist = useCallback(async (meta, body) => {
-    if (draft && draft.meta.id === meta.id) {
-      const next = { meta: { ...draft.meta, ...meta }, body }
-      setDraft(next)
-      if (isBlankNote(next.meta, next.body)) return
-      await commitDraft(next.meta, next.body)
-      return
-    }
-    const prev = notes.find((n) => n.meta.id === meta.id)
-    if (prev && prev.placeholder) return // display-only; never persist a snippet
-    const nextHash = await contentHash(meta, body)
-    // The authoritative pre-edit note seeds the merge ancestor on a note this
-    // device hasn't tracked yet (the background ensureBase loop may not have run
-    // before this first edit). Without it, recordWorking would set base ===
-    // working and the edit would never enter the reconcile queue (lost update).
-    const baseHint = prev ? { meta: prev.meta, body: prev.body, hash: await contentHash(prev.meta, prev.body) } : null
-    if (baseHint && nextHash === baseHint.hash) return
-    const m = { ...meta, updated: new Date().toISOString(), content_hash: nextHash }
-    upsert(m, body)
-    // recordWorking is the durable write — it stamps the working copy into
-    // IndexedDB for the reconcile driver to pick up. Only signal note_saved and
-    // kick the reconcile/gc drivers if it actually landed: on a rejected write
-    // there IS no working copy to reconcile, so emitting a success signal would
-    // claim a save that never happened.
-    try {
-      await recordWorking(m.id, { meta: m, body, hash: m.content_hash }, baseHint)
-    } catch (err) {
-      window.mobius?.signal('error', { message: err?.message ?? 'save failed', source: 'persist' })
-      return
-    }
-    const wordCount = (body || '').trim().split(/\s+/).filter(Boolean).length
-    window.mobius?.signal('note_saved', { word_count: wordCount || undefined })
-    scheduleReconcile()
-    scheduleGc()
-  }, [commitDraft, draft, notes, upsert, scheduleReconcile, scheduleGc])
+  const persist = useCallback((meta, body) => {
+    // Serialize all saves of a given note id behind one another. Overlapping
+    // autosaves of the same note would otherwise both reach the canonical writer
+    // and, under the last-write-wins outbox, land out of order (the earlier edit
+    // overwriting the later one). One in-flight save per note keeps canonical
+    // bytes and the local base/working in submission (edit) order.
+    return withSaveLock(meta.id, async () => {
+      if (draft && draft.meta.id === meta.id) {
+        const next = { meta: { ...draft.meta, ...meta }, body }
+        setDraft(next)
+        if (isBlankNote(next.meta, next.body)) return
+        await commitDraft(next.meta, next.body)
+        return
+      }
+      const prev = notes.find((n) => n.meta.id === meta.id)
+      if (prev && prev.placeholder) return // display-only; never persist a snippet
+      const nextHash = await contentHash(meta, body)
+      // The authoritative pre-edit note seeds the merge ancestor on a note this
+      // device hasn't tracked yet (the background ensureBase loop may not have run
+      // before this first edit). Without it, recordWorking would set base ===
+      // working and the edit would never enter the reconcile queue (lost update).
+      const baseHint = prev ? { meta: prev.meta, body: prev.body, hash: await contentHash(prev.meta, prev.body) } : null
+      if (baseHint && nextHash === baseHint.hash) return
+      const m = { ...meta, updated: new Date().toISOString(), content_hash: nextHash }
+      // Capture the pre-write note so the optimistic upsert can be rolled back if
+      // the durable write throws — otherwise the in-memory note keeps the edit,
+      // the editor's buffer-vs-note guard goes clean, and recordWorking is never
+      // retried (the edit is dropped, canonical still holds the pre-edit body).
+      const prevNote = prev || null
+      upsert(m, body)
+      // recordWorking is the durable write — it stamps the working copy into
+      // IndexedDB for the reconcile driver to pick up. Only signal note_saved and
+      // kick the reconcile/gc drivers if it actually landed: on a rejected write
+      // there IS no working copy to reconcile, so emitting a success signal would
+      // claim a save that never happened, and the in-memory upsert must be rolled
+      // back so the retry stays armed.
+      try {
+        await recordWorking(m.id, { meta: m, body, hash: m.content_hash }, baseHint)
+      } catch (err) {
+        restoreNote(m.id, prevNote)
+        window.mobius?.signal('error', { message: err?.message ?? 'save failed', source: 'persist' })
+        return
+      }
+      const wordCount = (body || '').trim().split(/\s+/).filter(Boolean).length
+      window.mobius?.signal('note_saved', { word_count: wordCount || undefined })
+      scheduleReconcile()
+      scheduleGc()
+    })
+  }, [commitDraft, draft, notes, upsert, restoreNote, withSaveLock, scheduleReconcile, scheduleGc])
 
   const togglePin = useCallback(async (id) => {
     if (draft && draft.meta.id === id) {

@@ -84,11 +84,13 @@ export const CSS = `
   font-size: 15px; font-family: var(--font);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-/* mouse focus uses the accent border; keyboard focus keeps the shared ring */
-.nt-search:focus:not(:focus-visible) { outline: none; }
+/* One soft focus halo, matching the shell composer pill (.chat__pill:focus-within):
+   suppress the shared 2px focus-visible outline so it can't stack with the halo
+   into a double ring. Accent border + a single accent-dim halo is the focus ring. */
+.nt-search:focus, .nt-search:focus-visible { outline: none; }
 .nt-search:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
 }
 .nt-search::placeholder { color: var(--muted); }
 /* FAB — floating action button, bottom-right, above gesture bar */
@@ -103,7 +105,7 @@ export const CSS = `
   font-size: 28px; line-height: 1;
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; font-family: var(--font);
-  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 55%, transparent),
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 30%, transparent),
               0 1px 4px rgba(0,0,0,0.25);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation; user-select: none;

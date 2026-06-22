@@ -89,7 +89,7 @@ function installFakeIndexedDB() {
 }
 
 installFakeIndexedDB()
-const { recordWorking, ensureBase, unsyncedLocals, getLocal, promote, clearLocal } = await import('../src/lib/local.js')
+const { recordWorking, recordCreate, ensureBase, unsyncedLocals, getLocal, promote, clearLocal } = await import('../src/lib/local.js')
 
 test('first edit with an unseeded base still enqueues (reconcile-base race)', async () => {
   const id = 'race-1'
@@ -144,4 +144,75 @@ test('promote clears the unsynced state (base === working === synced)', async ()
   assert.ok((await unsyncedLocals()).some(([k]) => k === id))
   await promote(id, { meta: { id }, body: 'edit', hash: 'H_E' })
   assert.ok(!(await unsyncedLocals()).some(([k]) => k === id), 'promote settles the note')
+})
+
+test('stale promote (lower seq) is a no-op — newer edit wins regardless of resolve order', async () => {
+  // Finding 1: two overlapping draft commits whose canonical writes resolve out
+  // of order. The seq guard keeps the newer payload even when the stale promote
+  // is submitted LAST.
+  const id = 'seq-1'
+  await clearLocal(id)
+  const applied2 = await promote(id, { meta: { id }, body: 'Hello World', hash: 'H_HW' }, 2)
+  const applied1 = await promote(id, { meta: { id }, body: 'Hello', hash: 'H_HELLO' }, 1)
+  assert.equal(applied2, true, 'the newer (seq 2) settle applies')
+  assert.equal(applied1, false, 'the stale (seq 1) settle is a no-op')
+  const rec = await getLocal(id)
+  assert.equal(rec.working.body, 'Hello World', 'newer edit survives')
+})
+
+test('an equal-seq promote still applies (the legitimate reconcile settle)', async () => {
+  const id = 'seq-2'
+  await clearLocal(id)
+  const seq = await recordWorking(id, { meta: { id }, body: 'e', hash: 'H_E' }, { meta: { id }, body: 'p', hash: 'H_P' })
+  const ok = await promote(id, { meta: { id }, body: 'e', hash: 'H_E' }, seq)
+  assert.equal(ok, true)
+  assert.ok(!(await unsyncedLocals()).some(([k]) => k === id), 'settled at its own seq')
+})
+
+test('recordCreate stores a null-base pending create that unsyncedLocals includes', async () => {
+  // Finding 3: a brand-new draft whose canonical write was non-durable is durably
+  // recoverable and enters the reconcile queue.
+  const id = 'create-1'
+  await clearLocal(id)
+  await recordCreate(id, { meta: { id }, body: 'hello world', hash: 'H_HW' })
+  const rec = await getLocal(id)
+  assert.equal(rec.base, null, 'create has an explicit null base (clean create, not a conflict)')
+  assert.equal(rec.working.body, 'hello world')
+  const work = await unsyncedLocals()
+  assert.ok(work.some(([k]) => k === id), 'a pending create is in the reconcile queue')
+})
+
+test('recordWorking preserves an existing null base (does not turn a create into a conflict)', async () => {
+  const id = 'create-2'
+  await clearLocal(id)
+  await recordCreate(id, { meta: { id }, body: 'v1', hash: 'H_V1' })
+  // A later edit on the still-unsynced create must keep base null.
+  await recordWorking(id, { meta: { id }, body: 'v2', hash: 'H_V2' }, { meta: { id }, body: 'v1', hash: 'H_V1' })
+  const rec = await getLocal(id)
+  assert.equal(rec.base, null, 'the create marker survives a later edit')
+  assert.equal(rec.working.body, 'v2')
+})
+
+test('recordWorking returns a monotonically advancing seq', async () => {
+  const id = 'seq-3'
+  await clearLocal(id)
+  const s1 = await recordWorking(id, { meta: { id }, body: 'a', hash: 'H_A' }, { meta: { id }, body: '0', hash: 'H_0' })
+  const s2 = await recordWorking(id, { meta: { id }, body: 'b', hash: 'H_B' })
+  assert.ok(s2 > s1, 'seq advances on each edit')
+})
+
+test('concurrent recordWorking + promote serialize (no torn read-modify-write)', async () => {
+  // Finding 2: the per-note lock makes the read-modify-write atomic, so a
+  // reconcile promote that advances base is not reverted by a concurrent edit.
+  const id = 'rmw-1'
+  await clearLocal(id)
+  await ensureBase(id, { meta: { id }, body: 'B', hash: 'H_B' })
+  const before = await getLocal(id)
+  const p1 = promote(id, { meta: { id }, body: 'S', hash: 'H_S' }, before.seq)
+  const p2 = recordWorking(id, { meta: { id }, body: 'W', hash: 'H_W' }, { meta: { id }, body: 'B', hash: 'H_B' })
+  await Promise.all([p1, p2])
+  const rec = await getLocal(id)
+  // The advance to S (base) is preserved; the edit sits on top as working.
+  assert.equal(rec.base.body, 'S', 'reconcile base-advance not reverted by the concurrent edit')
+  assert.equal(rec.working.body, 'W')
 })

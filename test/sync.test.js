@@ -164,3 +164,28 @@ test('reconcile: mine deleted but server moved -> conflict', () => {
   assert.equal(r.descriptor.mine, null)
   assert.equal(r.descriptor.mineHash, null)
 })
+
+// ---------------------------------------------------------------------------
+// brand-new note create (no base ancestor, absent on server)
+// ---------------------------------------------------------------------------
+
+test('reconcile: never-synced local note absent on server -> fast-forward CREATE (not conflict)', () => {
+  // A draft whose direct canonical write was non-durable is recorded with a null
+  // base. With no server ancestor it is a clean create as rev 1 — distinct from a
+  // server-DELETED-while-edited divergence, which always carries a real base.
+  const mine = side({ id: NOTE_ID, title: 'New' }, 'hello world', 'H_NEW')
+  const r = reconcile({ base: null, mine, server: null })
+  assert.equal(r.action, 'fast-forward')
+  assert.equal(r.note.body, 'hello world')
+  assert.equal(r.note.meta.mobius_rev, 1)
+  assert.equal(r.note.meta.parent_rev, 0)
+  assert.equal(r.note.meta.id, NOTE_ID)
+})
+
+test('reconcile: a note WITH a base that is server-null is still a conflict (server delete)', () => {
+  // Regression guard: the create branch must gate on base==null only.
+  const base = side({ id: NOTE_ID, mobius_rev: 4 }, 'a', 'H_BASE')
+  const mine = side({ id: NOTE_ID, mobius_rev: 5 }, 'a\nb', 'H_MINE')
+  const r = reconcile({ base, mine, server: null })
+  assert.equal(r.action, 'conflict')
+})

@@ -99,11 +99,13 @@ var CSS = `
   font-size: 15px; font-family: var(--font);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-/* mouse focus uses the accent border; keyboard focus keeps the shared ring */
-.nt-search:focus:not(:focus-visible) { outline: none; }
+/* One soft focus halo, matching the shell composer pill (.chat__pill:focus-within):
+   suppress the shared 2px focus-visible outline so it can't stack with the halo
+   into a double ring. Accent border + a single accent-dim halo is the focus ring. */
+.nt-search:focus, .nt-search:focus-visible { outline: none; }
 .nt-search:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
 }
 .nt-search::placeholder { color: var(--muted); }
 /* FAB \u2014 floating action button, bottom-right, above gesture bar */
@@ -118,7 +120,7 @@ var CSS = `
   font-size: 28px; line-height: 1;
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; font-family: var(--font);
-  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 55%, transparent),
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 30%, transparent),
               0 1px 4px rgba(0,0,0,0.25);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation; user-select: none;
@@ -816,33 +818,79 @@ function idbEntries() {
 
 // src/lib/local.js
 var KEY = (id) => `note:${id}`;
+var _locks = /* @__PURE__ */ new Map();
+function withLock(id, fn) {
+  const prev = _locks.get(id) || Promise.resolve();
+  const result = prev.then(fn, fn);
+  const tail = result.then(() => {
+  }, () => {
+  });
+  _locks.set(id, tail);
+  tail.then(() => {
+    if (_locks.get(id) === tail) _locks.delete(id);
+  });
+  return result;
+}
+function nextSeq(prev) {
+  return (prev && typeof prev.seq === "number" ? prev.seq : 0) + 1;
+}
 async function ensureBase(id, rec) {
-  if (!await idbGet(KEY(id))) await idbSet(KEY(id), { base: rec, working: rec });
+  return withLock(id, async () => {
+    if (!await idbGet(KEY(id))) await idbSet(KEY(id), { base: rec, working: rec, seq: 1 });
+  });
 }
 async function recordWorking(id, working, baseHint = null) {
-  const prev = await idbGet(KEY(id)) || {};
-  const base = prev.base || baseHint || working;
-  await idbSet(KEY(id), { base, working });
+  return withLock(id, async () => {
+    const prev = await idbGet(KEY(id)) || {};
+    const hasRecord = "base" in prev || "working" in prev;
+    const base = hasRecord ? prev.base : baseHint || working;
+    const seq = nextSeq(prev);
+    await idbSet(KEY(id), { base, working, seq });
+    return seq;
+  });
+}
+async function recordCreate(id, working) {
+  return withLock(id, async () => {
+    const prev = await idbGet(KEY(id)) || {};
+    if (prev.base) {
+      const seq2 = nextSeq(prev);
+      await idbSet(KEY(id), { base: prev.base, working, seq: seq2 });
+      return seq2;
+    }
+    const seq = nextSeq(prev);
+    await idbSet(KEY(id), { base: null, working, seq });
+    return seq;
+  });
 }
 async function recordDeletion(id, baseHint = null) {
-  const prev = await idbGet(KEY(id)) || {};
-  const base = prev.base || baseHint;
-  if (!base) return false;
-  await idbSet(KEY(id), { base, working: null });
-  return true;
+  return withLock(id, async () => {
+    const prev = await idbGet(KEY(id)) || {};
+    const base = prev.base || baseHint;
+    if (!base) return false;
+    await idbSet(KEY(id), { base, working: null, seq: nextSeq(prev) });
+    return true;
+  });
 }
-async function promote(id, synced) {
-  await idbSet(KEY(id), { base: synced, working: synced });
+async function promote(id, synced, seq = null) {
+  return withLock(id, async () => {
+    const prev = await idbGet(KEY(id)) || {};
+    const prevSeq = typeof prev.seq === "number" ? prev.seq : 0;
+    if (seq != null && seq < prevSeq) return false;
+    await idbSet(KEY(id), { base: synced, working: synced, seq: seq != null ? seq : prevSeq });
+    return true;
+  });
 }
 async function clearLocal(id) {
-  await idbDel(KEY(id));
+  return withLock(id, () => idbDel(KEY(id)));
 }
 async function unsyncedLocals() {
   const entries = await idbEntries();
   const out = [];
   for (const [k, v] of entries) {
-    if (!k.startsWith("note:") || !v || !v.base || !("working" in v)) continue;
-    if (v.working === null) {
+    if (!k.startsWith("note:") || !v || !("working" in v)) continue;
+    if (v.base == null) {
+      if (v.working != null) out.push([k.slice(5), v]);
+    } else if (v.working === null) {
       out.push([k.slice(5), v]);
     } else if (v.working.hash !== v.base.hash) {
       out.push([k.slice(5), v]);
@@ -1365,6 +1413,15 @@ function reconcile({ base, mine, server }) {
     }
     return buildConflict({ base, mine, server });
   }
+  if (server === null && base == null) {
+    return {
+      action: "fast-forward",
+      note: {
+        meta: { ...mine.meta, parent_rev: 0, mobius_rev: 1 },
+        body: mine.body
+      }
+    };
+  }
   if (server === null) {
     return buildConflict({ base, mine, server });
   }
@@ -1407,7 +1464,7 @@ async function reconcileAll({ onApplied, onConflict, onDeleted } = {}) {
         const decision = reconcile({ base: rec.base, mine: rec.working, server });
         if (decision.action === "noop") {
           if (rec.working === null) await clearLocal(id);
-          else await promote(id, rec.working);
+          else await promote(id, rec.working, rec.seq);
         } else if (decision.action === "delete") {
           const res = await deleteNote(id);
           if (res && res.synced) {
@@ -1420,7 +1477,7 @@ async function reconcileAll({ onApplied, onConflict, onDeleted } = {}) {
           note.meta.updated = note.meta.updated || (/* @__PURE__ */ new Date()).toISOString();
           const res = await saveNote(note.meta, note.body);
           if (res && res.synced) {
-            await promote(id, { meta: note.meta, body: note.body, hash: note.meta.content_hash });
+            await promote(id, { meta: note.meta, body: note.body, hash: note.meta.content_hash }, rec.seq);
             if (onApplied) onApplied(id, note);
           }
         } else if (decision.action === "conflict") {
@@ -1437,6 +1494,11 @@ async function reconcileAll({ onApplied, onConflict, onDeleted } = {}) {
     _running = false;
   }
   return { ran: true, results };
+}
+
+// src/lib/durable.js
+function isDurableWrite(res) {
+  return !!res && (res.synced === true || res.queued === true);
 }
 
 // src/ui/Card.jsx
@@ -2622,6 +2684,28 @@ function App({ appId, token }) {
   const gcTimer = useRef4(null);
   const editorNavOwned = useRef4(false);
   const online = isOnline();
+  const saveLocks = useRef4(/* @__PURE__ */ new Map());
+  const withSaveLock = useCallback3((id, fn) => {
+    const locks = saveLocks.current;
+    const prev = locks.get(id) || Promise.resolve();
+    const result = prev.then(fn, fn);
+    const tail = result.then(() => {
+    }, () => {
+    });
+    locks.set(id, tail);
+    tail.then(() => {
+      if (locks.get(id) === tail) locks.delete(id);
+    });
+    return result;
+  }, []);
+  const restoreNote = useCallback3((id, prevNote) => {
+    setNotes((prev) => {
+      const next = prevNote ? prev.map((n) => n.meta.id === id ? prevNote : n) : prev.filter((n) => n.meta.id !== id);
+      writeIndex(next).catch(() => {
+      });
+      return next;
+    });
+  }, []);
   const upsert = useCallback3((meta, body) => {
     setNotes((prev) => {
       const next = prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { meta, body } : n) : [{ meta, body }, ...prev];
@@ -2799,11 +2883,34 @@ function App({ appId, token }) {
   const commitDraft = useCallback3(async (meta, body) => {
     const m = { ...meta, updated: meta.updated || (/* @__PURE__ */ new Date()).toISOString() };
     m.content_hash = await contentHash(m, body);
+    const prevNote = notes.find((n) => n.meta.id === m.id) || null;
     upsert(m, body);
-    await saveNote(m, body).catch((err) => {
-      window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "commitDraft" });
-      throw err;
-    });
+    const queueCreate = async (reason) => {
+      try {
+        await recordCreate(m.id, { meta: m, body, hash: m.content_hash });
+      } catch (e) {
+        restoreNote(m.id, prevNote);
+        window.mobius?.signal("error", { message: e?.message ?? "save failed", source: "commitDraft" });
+        const err = new Error("save not durable");
+        err.nonDurable = true;
+        throw err;
+      }
+      window.mobius?.signal("error", { message: reason, source: "commitDraft" });
+      setDraft(null);
+      scheduleReconcile();
+      scheduleGc();
+    };
+    let res;
+    try {
+      res = await saveNote(m, body);
+    } catch (err) {
+      await queueCreate(err?.message ?? "save failed");
+      return m;
+    }
+    if (!isDurableWrite(res)) {
+      await queueCreate("save not durable \u2014 queued locally");
+      return m;
+    }
     setDraft(null);
     await promote(m.id, { meta: m, body, hash: m.content_hash }).catch(() => {
     });
@@ -2812,33 +2919,37 @@ function App({ appId, token }) {
     const wordCount = (body || "").trim().split(/\s+/).filter(Boolean).length;
     window.mobius?.signal("note_saved", { word_count: wordCount || void 0 });
     return m;
-  }, [scheduleReconcile, upsert, scheduleGc]);
-  const persist = useCallback3(async (meta, body) => {
-    if (draft && draft.meta.id === meta.id) {
-      const next = { meta: { ...draft.meta, ...meta }, body };
-      setDraft(next);
-      if (isBlankNote(next.meta, next.body)) return;
-      await commitDraft(next.meta, next.body);
-      return;
-    }
-    const prev = notes.find((n) => n.meta.id === meta.id);
-    if (prev && prev.placeholder) return;
-    const nextHash = await contentHash(meta, body);
-    const baseHint = prev ? { meta: prev.meta, body: prev.body, hash: await contentHash(prev.meta, prev.body) } : null;
-    if (baseHint && nextHash === baseHint.hash) return;
-    const m = { ...meta, updated: (/* @__PURE__ */ new Date()).toISOString(), content_hash: nextHash };
-    upsert(m, body);
-    try {
-      await recordWorking(m.id, { meta: m, body, hash: m.content_hash }, baseHint);
-    } catch (err) {
-      window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "persist" });
-      return;
-    }
-    const wordCount = (body || "").trim().split(/\s+/).filter(Boolean).length;
-    window.mobius?.signal("note_saved", { word_count: wordCount || void 0 });
-    scheduleReconcile();
-    scheduleGc();
-  }, [commitDraft, draft, notes, upsert, scheduleReconcile, scheduleGc]);
+  }, [notes, scheduleReconcile, upsert, restoreNote, scheduleGc]);
+  const persist = useCallback3((meta, body) => {
+    return withSaveLock(meta.id, async () => {
+      if (draft && draft.meta.id === meta.id) {
+        const next = { meta: { ...draft.meta, ...meta }, body };
+        setDraft(next);
+        if (isBlankNote(next.meta, next.body)) return;
+        await commitDraft(next.meta, next.body);
+        return;
+      }
+      const prev = notes.find((n) => n.meta.id === meta.id);
+      if (prev && prev.placeholder) return;
+      const nextHash = await contentHash(meta, body);
+      const baseHint = prev ? { meta: prev.meta, body: prev.body, hash: await contentHash(prev.meta, prev.body) } : null;
+      if (baseHint && nextHash === baseHint.hash) return;
+      const m = { ...meta, updated: (/* @__PURE__ */ new Date()).toISOString(), content_hash: nextHash };
+      const prevNote = prev || null;
+      upsert(m, body);
+      try {
+        await recordWorking(m.id, { meta: m, body, hash: m.content_hash }, baseHint);
+      } catch (err) {
+        restoreNote(m.id, prevNote);
+        window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "persist" });
+        return;
+      }
+      const wordCount = (body || "").trim().split(/\s+/).filter(Boolean).length;
+      window.mobius?.signal("note_saved", { word_count: wordCount || void 0 });
+      scheduleReconcile();
+      scheduleGc();
+    });
+  }, [commitDraft, draft, notes, upsert, restoreNote, withSaveLock, scheduleReconcile, scheduleGc]);
   const togglePin = useCallback3(async (id) => {
     if (draft && draft.meta.id === id) {
       setDraft((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }));
