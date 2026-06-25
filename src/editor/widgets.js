@@ -31,7 +31,12 @@ export class ImageWidget extends WidgetType {
     wrap.style.cssText = 'margin:8px 0; max-width:100%;'
     const img = document.createElement('img')
     img.alt = this.alt
-    img.style.cssText = 'max-width:100%; max-height:360px; border-radius:10px; display:block; border:1px solid var(--border);'
+    // dynamic-range-limit:standard constrains an already-stored Ultra HDR
+    // (gain-map) image to SDR so painting it does not promote the display
+    // surface to HDR and tone-shift the surrounding SDR shell+app on Android
+    // (Chrome 136+; ignored elsewhere). New uploads are flattened to SDR at
+    // attach time; this covers images stored before that fix.
+    img.style.cssText = 'max-width:100%; max-height:360px; border-radius:10px; display:block; border:1px solid var(--border); dynamic-range-limit:standard;'
     wrap.appendChild(img)
     if (this.resolve && this.src.startsWith('attachments/')) {
       this.resolve(this.src).then((u) => { if (u) { this.url = u; img.src = u } }).catch(() => {})

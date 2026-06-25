@@ -213,6 +213,13 @@ var CSS = `
   width: 100%; object-fit: cover; display: block; border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--surface2, var(--surface));
+  /* Render an already-stored Ultra HDR image (gain-map JPEG) as SDR. Without
+     this, Chrome on Android promotes the display surface to HDR while the image
+     is painted and tone-shifts the whole shell+app background \u2014 visible to the
+     eye, invisible to screenshots. Supported Chrome 136+/Android; ignored
+     elsewhere. New uploads are already flattened to SDR at attach time; this
+     covers images stored before that fix. */
+  dynamic-range-limit: standard;
 }
 /* /mobius-ui:Card */
 
@@ -483,6 +490,8 @@ var CSS = `
   height: 72px; max-width: 140px; object-fit: cover;
   border-radius: 8px; border: 1px solid var(--border);
   background: var(--surface); flex-shrink: 0;
+  /* Constrain pre-existing Ultra HDR thumbnails to SDR (see .nt-card-thumb). */
+  dynamic-range-limit: standard;
 }
 
 /* \u2500\u2500 Per-note color tones (generated from NOTE_COLORS) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
@@ -1813,6 +1822,102 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
 // src/ui/EditorPanel.jsx
 import { useState as useState3, useEffect as useEffect3, useRef as useRef3, useCallback as useCallback2, useMemo as useMemo2 } from "react";
 
+// src/lib/sdr-image.js
+var MAX_DIMENSION = 2048;
+var ENCODE_QUALITY = 0.9;
+function isBrowserImageEnv() {
+  return typeof document !== "undefined" && typeof HTMLCanvasElement !== "undefined" && typeof createImageBitmap === "function";
+}
+async function decodeImage(file) {
+  try {
+    return await createImageBitmap(file);
+  } catch {
+  }
+  return await new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = async () => {
+      try {
+        if (img.decode) await img.decode();
+      } catch {
+      }
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    img.src = url;
+  });
+}
+function sourceDimensions(source) {
+  const w = source.naturalWidth || source.width || 0;
+  const h = source.naturalHeight || source.height || 0;
+  return { w, h };
+}
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve) => {
+    if (canvas.toBlob) {
+      canvas.toBlob((blob) => resolve(blob), type, quality);
+    } else {
+      resolve(null);
+    }
+  });
+}
+function outputFormat(file) {
+  const t = (file.type || "").toLowerCase();
+  const mayHaveAlpha = t.includes("png") || t.includes("webp");
+  return mayHaveAlpha ? { type: "image/webp", ext: "webp" } : { type: "image/jpeg", ext: "jpeg" };
+}
+function renameForOutput(originalName, ext) {
+  const base = String(originalName || "image").replace(/\.[^./\\]+$/, "");
+  return `${base}.${ext}`;
+}
+async function toSdrImage(file) {
+  if (!file || !(file.type || "").startsWith("image/")) return file;
+  const type = (file.type || "").toLowerCase();
+  if (type.includes("svg")) return file;
+  if (type.includes("gif")) return file;
+  if (!isBrowserImageEnv()) return file;
+  let source = null;
+  try {
+    source = await decodeImage(file);
+    if (!source) return file;
+    const { w, h } = sourceDimensions(source);
+    if (!w || !h) return file;
+    const longest = Math.max(w, h);
+    const scale = longest > MAX_DIMENSION ? MAX_DIMENSION / longest : 1;
+    const outW = Math.max(1, Math.round(w * scale));
+    const outH = Math.max(1, Math.round(h * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(source, 0, 0, outW, outH);
+    const { type: type2, ext } = outputFormat(file);
+    let blob = await canvasToBlob(canvas, type2, ENCODE_QUALITY);
+    if (!blob || !blob.size) return file;
+    const outName = renameForOutput(file.name, ext);
+    try {
+      return new File([blob], outName, { type: blob.type || type2 });
+    } catch {
+      blob.name = outName;
+      return blob;
+    }
+  } catch {
+    return file;
+  } finally {
+    if (source && typeof source.close === "function") {
+      try {
+        source.close();
+      } catch {
+      }
+    }
+  }
+}
+
 // src/editor/Editor.jsx
 import { useRef as useRef2, useEffect as useEffect2 } from "react";
 import { EditorState } from "@codemirror/state";
@@ -1886,7 +1991,7 @@ var ImageWidget = class extends WidgetType {
     wrap2.style.cssText = "margin:8px 0; max-width:100%;";
     const img = document.createElement("img");
     img.alt = this.alt;
-    img.style.cssText = "max-width:100%; max-height:360px; border-radius:10px; display:block; border:1px solid var(--border);";
+    img.style.cssText = "max-width:100%; max-height:360px; border-radius:10px; display:block; border:1px solid var(--border); dynamic-range-limit:standard;";
     wrap2.appendChild(img);
     if (this.resolve && this.src.startsWith("attachments/")) {
       this.resolve(this.src).then((u) => {
@@ -2323,11 +2428,13 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
     e.target.value = "";
     if (!f || !putAttachment2) return;
     try {
-      const res = await putAttachment2(f);
       const isImage = (f.type || "").startsWith("image/");
+      const upload = isImage ? await toSdrImage(f) : f;
+      const res = await putAttachment2(upload);
+      const label = String(res.name || "").replace(/[[\]]/g, "");
       const md = isImage ? `
-![${res.name}](${res.path})
-` : `[${res.name}](${res.path})`;
+![${label}](${res.path})
+` : `[${label}](${res.path})`;
       const nextBody = insertMarkdown(md);
       const attachments = Array.from(/* @__PURE__ */ new Set([...note.meta.attachments || [], res.path]));
       await onSave({ ...note.meta, title, attachments }, nextBody);

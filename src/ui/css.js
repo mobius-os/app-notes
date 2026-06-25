@@ -198,6 +198,13 @@ export const CSS = `
   width: 100%; object-fit: cover; display: block; border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--surface2, var(--surface));
+  /* Render an already-stored Ultra HDR image (gain-map JPEG) as SDR. Without
+     this, Chrome on Android promotes the display surface to HDR while the image
+     is painted and tone-shifts the whole shell+app background — visible to the
+     eye, invisible to screenshots. Supported Chrome 136+/Android; ignored
+     elsewhere. New uploads are already flattened to SDR at attach time; this
+     covers images stored before that fix. */
+  dynamic-range-limit: standard;
 }
 /* /mobius-ui:Card */
 
@@ -468,6 +475,8 @@ export const CSS = `
   height: 72px; max-width: 140px; object-fit: cover;
   border-radius: 8px; border: 1px solid var(--border);
   background: var(--surface); flex-shrink: 0;
+  /* Constrain pre-existing Ultra HDR thumbnails to SDR (see .nt-card-thumb). */
+  dynamic-range-limit: standard;
 }
 
 /* ── Per-note color tones (generated from NOTE_COLORS) ──────────────────── */

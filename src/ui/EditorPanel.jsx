@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { normalizeColorName } from './colors.js'
 import { strandedImageRefs } from '../lib/attachments.js'
+import { toSdrImage } from '../lib/sdr-image.js'
 import ColorPicker from './ColorPicker.jsx'
 import Editor from '../editor/Editor.jsx'
 import { Icon } from './icons.jsx'
@@ -145,9 +146,20 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     e.target.value = ''
     if (!f || !putAttachment) return
     try {
-      const res = await putAttachment(f)
       const isImage = (f.type || '').startsWith('image/')
-      const md = isImage ? `\n![${res.name}](${res.path})\n` : `[${res.name}](${res.path})`
+      // Flatten images to SDR sRGB before storing: an Android "Ultra HDR" capture
+      // would otherwise promote the whole display surface to HDR on render and
+      // tone-shift the surrounding SDR UI (shell + app). toSdrImage drops the gain
+      // map by re-encoding through a 2D canvas; on any decode/encode failure it
+      // returns the original file so the attachment is never lost.
+      const upload = isImage ? await toSdrImage(f) : f
+      const res = await putAttachment(upload)
+      // Escape brackets in the filename before it becomes markdown alt/link text:
+      // a literal `]` would terminate the `![alt]`/`[text]` span early and leave
+      // raw filename characters visible (or break the ref). The URL comes from
+      // res.path (sha-based, bracket-free), so only the display name needs it.
+      const label = String(res.name || '').replace(/[[\]]/g, '')
+      const md = isImage ? `\n![${label}](${res.path})\n` : `[${label}](${res.path})`
       const nextBody = insertMarkdown(md)
       const attachments = Array.from(new Set([...(note.meta.attachments || []), res.path]))
       await onSave({ ...note.meta, title, attachments }, nextBody)
