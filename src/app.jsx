@@ -24,6 +24,7 @@ import { newNote, contentHash, isBlankNote } from './lib/note.js'
 import { notesFromIndex } from './lib/index-cache.js'
 import { visibleNotes } from './lib/visible.js'
 import * as store from './lib/store.js'
+import { bodyAttachmentRefs } from './lib/attachments.js'
 import { makeNoteCollection } from './lib/collection.js'
 import { notePath, makeMergeNote, conflictDescriptorFor } from './lib/note-doc.js'
 import { migrateLegacyNotes } from './lib/migrate.js'
@@ -139,6 +140,12 @@ export default function App({ appId, token }) {
   const [failedSaveIds, setFailedSaveIds] = useState(() => new Set())
   const gcTimer = useRef(null)
   const editorNavOwned = useRef(false)
+  // Mirrors of the open-note id and the notes array for the DEBOUNCED gc callback,
+  // which fires ~1.5s later and must read the CURRENT values, not the ones closed
+  // over when scheduleGc was last created (a stale closure would pin the wrong
+  // note's refs). Kept fresh by the effect below.
+  const openIdRef = useRef(null)
+  const notesRef = useRef([])
   const online = store.isOnline()
 
   // The conflict callback for any merge that detects a genuine overlapping-body
@@ -191,6 +198,9 @@ export default function App({ appId, token }) {
   // mode 'lww' (per-note files avoid same-path clobber; backend CAS isn't live).
   const openId = view.mode === 'editor' ? view.id : null
   const openPath = openId ? notePath(openId) : '__notes_no_open__.json'
+  // Keep the debounced-gc mirrors current (read in scheduleGc's setTimeout body).
+  useEffect(() => { openIdRef.current = openId }, [openId])
+  useEffect(() => { notesRef.current = notes }, [notes])
   const mergeNote = useMemo(() => makeMergeNote(onConflict), [onConflict])
   // Always called (stable hook position); inert when no note is open (the
   // sentinel path is never written) or under the test harness (returns NO_DOC).
@@ -240,11 +250,20 @@ export default function App({ appId, token }) {
 
   // Debounced attachment GC. Deletes and body edits can orphan content-addressed
   // blobs; sweep them after the dust settles (the durable write has landed)
-  // against the current authoritative note set.
+  // against the current authoritative note set. We PIN the open note's current
+  // attachment refs (meta.attachments + every blob its body embeds) as referenced
+  // even if the on-disk note write hasn't settled yet — a just-attached image's
+  // ref can lag the GC's listNotes() read, and freeing the blob the editor is
+  // actively showing is exactly the multi-image broken-link symptom.
   const scheduleGc = useCallback(() => {
     if (gcTimer.current) clearTimeout(gcTimer.current)
     gcTimer.current = setTimeout(() => {
-      store.gcAttachments().catch(() => {})
+      const open = openIdRef.current
+      const cur = open ? notesRef.current.find((n) => n.meta.id === open) : null
+      const pin = cur
+        ? [...(cur.meta.attachments || []), ...bodyAttachmentRefs(cur.body || '')]
+        : []
+      store.gcAttachments(pin).catch(() => {})
     }, 1500)
   }, [])
 

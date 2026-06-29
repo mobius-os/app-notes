@@ -14,6 +14,12 @@
 import { buildIndex } from './index-cache.js'
 import { attachmentPath, extFromType, referencedAttachments } from './attachments.js'
 import { notePath } from './note-doc.js'
+import { leaseAttachment, releaseAttachment, inflightAttachmentPaths } from './attachment-leases.js'
+
+// Re-export so callers that already reach for attachments through the store can
+// release a lease without a second import; the editor imports it directly from
+// attachment-leases.js to avoid pulling the merge stack into its bundle.
+export { releaseAttachment }
 
 const S = () => window.mobius.storage
 
@@ -81,12 +87,24 @@ export async function writeConflict(path, descriptor) {
 // Store a File/Blob as a content-addressed attachment; returns
 // {sha, ext, path, name}. Same bytes -> same sha -> same path (dedupe). The
 // 25 MiB cap is enforced by setBlob (throws); callers surface an in-app message.
+// The returned path is LEASED as in-flight (GC-pinned) from before the blob hits
+// disk; the caller MUST releaseAttachment(path) once a note durably references it
+// (or the blob is otherwise abandoned), or the pin persists until reload.
 export async function putAttachment(file) {
   const buf = await file.arrayBuffer()
   const sha = await sha256Bytes(buf)
   const ext = extFromType(file.type) || extFromName(file.name) || 'bin'
   const path = attachmentPath(sha, ext)
-  await S().setBlob(path, file, { contentType: file.type || 'application/octet-stream' })
+  // Lease BEFORE the write: if setBlob makes the blob visible to list() before its
+  // promise settles, a concurrent GC must already see this path as referenced.
+  leaseAttachment(path)
+  try {
+    await S().setBlob(path, file, { contentType: file.type || 'application/octet-stream' })
+  } catch (err) {
+    // The blob never landed — drop the lease so we don't pin a nonexistent path.
+    releaseAttachment(path)
+    throw err
+  }
   return { sha, ext, path, name: file.name || `${sha}.${ext}` }
 }
 
@@ -102,7 +120,15 @@ export async function putAttachment(file) {
 // union to add: the runtime's read-your-writes means listNotes() already sees an
 // in-flight edit's attachment ref (the queued write overlays the canonical read),
 // so the authoritative note set is the complete referenced set.
-export async function gcAttachments() {
+// `pin` is an extra set/array of attachment paths to treat as referenced even if
+// no on-disk note record names them yet — the OPEN editor's live body refs. A GC
+// can fire (the 1.5s debounce) before a just-attached image's note write has
+// settled to the canonical file; listNotes() then misses that fresh ref and would
+// free the blob the editor is actively showing (a momentary stale revision could
+// also transiently drop a ref). Pinning the open body's refs closes that window —
+// belt-and-suspenders over the merge-based fix in the editor, so a transient stale
+// write can never orphan an in-use blob.
+export async function gcAttachments(pin = []) {
   let entries
   try { entries = await S().list('attachments') } catch { return }
   const live = entries && entries.length ? entries.filter((e) => e.type === 'file' && e.path.startsWith('attachments/')) : []
@@ -110,6 +136,10 @@ export async function gcAttachments() {
   const notes = await listNotes().catch(() => null)
   if (notes == null) return // couldn't read the authoritative set — skip; never free blindly
   const referenced = referencedAttachments(notes)
+  for (const p of pin) if (typeof p === 'string') referenced.add(p)
+  // Pin every in-flight attachment: its blob exists but no note references it YET
+  // (the note write is still in flight). Freeing it here is the multi-image race.
+  for (const p of inflightAttachmentPaths()) referenced.add(p)
   for (const e of live) {
     if (referenced.has(e.path)) continue
     try { await S().remove(e.path) } catch {}

@@ -61,6 +61,15 @@ export function noteAttachmentRefs(meta = {}, body = '') {
   return refs
 }
 
+// Just the attachment paths a BODY embeds (the `](attachments/…)` link/embed
+// targets), ignoring meta.attachments. The editor unions these into every write
+// so a per-write meta.attachments can never drop a ref the body still shows — the
+// root of the multi-image broken-link bug (a stale-snapshot write that carried an
+// older attachments set would orphan a just-inserted image's blob).
+export function bodyAttachmentRefs(body = '') {
+  return [...noteAttachmentRefs({}, body)]
+}
+
 // Image attachments the note still owns (meta.attachments) but whose markdown
 // embed is gone from the body — e.g. a body that was overwritten by a lossy
 // snippet, or an embed the user deleted while the attachment record remained.

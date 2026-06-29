@@ -668,6 +668,9 @@ function noteAttachmentRefs(meta = {}, body = "") {
   while (m = BODY_ATTACHMENT_REF.exec(String(body || ""))) refs.add(m[1]);
   return refs;
 }
+function bodyAttachmentRefs(body = "") {
+  return [...noteAttachmentRefs({}, body)];
+}
 var IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif)$/i;
 function strandedImageRefs(meta = {}, body = "") {
   if (!Array.isArray(meta.attachments)) return [];
@@ -1134,6 +1137,21 @@ async function conflictDescriptorFor(base, mine, theirs, hashOf) {
   });
 }
 
+// src/lib/attachment-leases.js
+var inflight = /* @__PURE__ */ new Map();
+function leaseAttachment(path) {
+  inflight.set(path, (inflight.get(path) || 0) + 1);
+}
+function releaseAttachment(path) {
+  const n = inflight.get(path);
+  if (!n) return;
+  if (n <= 1) inflight.delete(path);
+  else inflight.set(path, n - 1);
+}
+function inflightAttachmentPaths() {
+  return inflight.keys();
+}
+
 // src/lib/store.js
 var S = () => window.mobius.storage;
 async function sha256Bytes(buffer) {
@@ -1182,10 +1200,16 @@ async function putAttachment(file) {
   const sha = await sha256Bytes(buf);
   const ext = extFromType(file.type) || extFromName(file.name) || "bin";
   const path = attachmentPath(sha, ext);
-  await S().setBlob(path, file, { contentType: file.type || "application/octet-stream" });
+  leaseAttachment(path);
+  try {
+    await S().setBlob(path, file, { contentType: file.type || "application/octet-stream" });
+  } catch (err) {
+    releaseAttachment(path);
+    throw err;
+  }
   return { sha, ext, path, name: file.name || `${sha}.${ext}` };
 }
-async function gcAttachments() {
+async function gcAttachments(pin = []) {
   let entries;
   try {
     entries = await S().list("attachments");
@@ -1197,6 +1221,8 @@ async function gcAttachments() {
   const notes = await listNotes().catch(() => null);
   if (notes == null) return;
   const referenced = referencedAttachments(notes);
+  for (const p of pin) if (typeof p === "string") referenced.add(p);
+  for (const p of inflightAttachmentPaths()) referenced.add(p);
   for (const e of live) {
     if (referenced.has(e.path)) continue;
     try {
@@ -2361,11 +2387,16 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
   const flushSave = useCallback2(() => {
     const cur = latest.current;
     if (!cur?.note) return Promise.resolve();
-    if (!forceSave && cur.title === (cur.note.meta.title || "") && cur.body === (cur.note.body || "")) {
+    const liveBody = viewRef.current ? viewRef.current.state.doc.toString() : cur.body;
+    if (!forceSave && cur.title === (cur.note.meta.title || "") && liveBody === (cur.note.body || "")) {
       return Promise.resolve();
     }
     if (timer.current) clearTimeout(timer.current);
-    return Promise.resolve(onSave({ ...cur.note.meta, title: cur.title }, cur.body));
+    const attachments = Array.from(/* @__PURE__ */ new Set([
+      ...cur.note.meta.attachments || [],
+      ...bodyAttachmentRefs(liveBody)
+    ]));
+    return Promise.resolve(onSave({ ...cur.note.meta, title: cur.title, attachments }, liveBody));
   }, [onSave, forceSave]);
   useEffect3(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -2427,6 +2458,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
     const f = e.target.files && e.target.files[0];
     e.target.value = "";
     if (!f || !putAttachment2) return;
+    if (timer.current) clearTimeout(timer.current);
     try {
       const isImage = (f.type || "").startsWith("image/");
       const upload = isImage ? await toSdrImage(f) : f;
@@ -2436,8 +2468,13 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
 ![${label}](${res.path})
 ` : `[${label}](${res.path})`;
       const nextBody = insertMarkdown(md);
-      const attachments = Array.from(/* @__PURE__ */ new Set([...note.meta.attachments || [], res.path]));
+      const attachments = Array.from(/* @__PURE__ */ new Set([
+        ...note.meta.attachments || [],
+        ...bodyAttachmentRefs(nextBody),
+        res.path
+      ]));
       await onSave({ ...note.meta, title, attachments }, nextBody);
+      releaseAttachment(res.path);
       setAttachErr("");
     } catch (err) {
       setAttachErr(String(err && err.message || err).includes("limit") ? "File too large (max 25 MB)." : "Could not attach file.");
@@ -2761,6 +2798,8 @@ function App({ appId, token }) {
   const [failedSaveIds, setFailedSaveIds] = useState4(() => /* @__PURE__ */ new Set());
   const gcTimer = useRef5(null);
   const editorNavOwned = useRef5(false);
+  const openIdRef = useRef5(null);
+  const notesRef = useRef5([]);
   const online = isOnline();
   const onConflict = useCallback4(async (sides) => {
     const id = sides?.mine?.meta?.id ?? sides?.theirs?.meta?.id ?? sides?.base?.meta?.id;
@@ -2784,6 +2823,12 @@ function App({ appId, token }) {
   const collection = useMemo3(() => makeNoteCollection({ onConflict }), [onConflict]);
   const openId = view.mode === "editor" ? view.id : null;
   const openPath = openId ? notePath(openId) : "__notes_no_open__.json";
+  useEffect5(() => {
+    openIdRef.current = openId;
+  }, [openId]);
+  useEffect5(() => {
+    notesRef.current = notes;
+  }, [notes]);
   const mergeNote = useMemo3(() => makeMergeNote(onConflict), [onConflict]);
   const liveDoc = useDocument(openPath, {
     initial: null,
@@ -2817,7 +2862,10 @@ function App({ appId, token }) {
   const scheduleGc = useCallback4(() => {
     if (gcTimer.current) clearTimeout(gcTimer.current);
     gcTimer.current = setTimeout(() => {
-      gcAttachments().catch(() => {
+      const open = openIdRef.current;
+      const cur = open ? notesRef.current.find((n) => n.meta.id === open) : null;
+      const pin = cur ? [...cur.meta.attachments || [], ...bodyAttachmentRefs(cur.body || "")] : [];
+      gcAttachments(pin).catch(() => {
       });
     }, 1500);
   }, []);

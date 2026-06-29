@@ -3,7 +3,8 @@
 // body no longer embeds render in a strip below the editor (see strandedImageRefs).
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { normalizeColorName } from './colors.js'
-import { strandedImageRefs } from '../lib/attachments.js'
+import { strandedImageRefs, bodyAttachmentRefs } from '../lib/attachments.js'
+import { releaseAttachment } from '../lib/attachment-leases.js'
 import { toSdrImage } from '../lib/sdr-image.js'
 import ColorPicker from './ColorPicker.jsx'
 import Editor from '../editor/Editor.jsx'
@@ -67,16 +68,32 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   const flushSave = useCallback(() => {
     const cur = latest.current
     if (!cur?.note) return Promise.resolve()
+    // Source the body from the LIVE CodeMirror doc, not the lagging React `body`
+    // state: an image insert dispatches into the editor and returns the new doc
+    // synchronously, but the React state that the autosave debounce captured may
+    // still be a pre-insert snapshot. Persisting that snapshot would drop a just-
+    // inserted `![](attachments/…)` ref (the multi-image broken-link bug). The CM
+    // doc is the single source of truth for the visible body, so flush it.
+    const liveBody = viewRef.current ? viewRef.current.state.doc.toString() : cur.body
     // Normally a buffer that equals the note is a no-op. But after a REFUSED save
     // the optimistic note prop already equals the buffer, so that equality would
     // make us skip the retry and close as if saved. `forceSave` (the app flagging
     // this id's last write as failed) overrides the skip so the write is re-issued
     // until it actually lands.
-    if (!forceSave && cur.title === (cur.note.meta.title || '') && cur.body === (cur.note.body || '')) {
+    if (!forceSave && cur.title === (cur.note.meta.title || '') && liveBody === (cur.note.body || '')) {
       return Promise.resolve()
     }
     if (timer.current) clearTimeout(timer.current)
-    return Promise.resolve(onSave({ ...cur.note.meta, title: cur.title }, cur.body))
+    // Preserve attachments: persist's merge unions meta.attachments, but a flush
+    // that wrote `{ ...meta, title }` with no attachments key still carried the
+    // note's existing attachments via the prop spread — keep that, and additionally
+    // union any attachment refs the live body embeds, so an autosave can never drop
+    // an image record that the body still references mid-attach.
+    const attachments = Array.from(new Set([
+      ...(cur.note.meta.attachments || []),
+      ...bodyAttachmentRefs(liveBody),
+    ]))
+    return Promise.resolve(onSave({ ...cur.note.meta, title: cur.title, attachments }, liveBody))
   }, [onSave, forceSave])
 
   // Switching directly from one note to another in the editor: flush the
@@ -145,6 +162,13 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     const f = e.target.files && e.target.files[0]
     e.target.value = ''
     if (!f || !putAttachment) return
+    // CANCEL the pending autosave before the (slow) async attach work. The SDR
+    // flatten (toSdrImage) re-encodes through a canvas, which widens the window in
+    // which a debounce armed by a keystroke BEFORE the attach could fire a PRE-
+    // insert snapshot mid-await — a second writer that clobbers the just-inserted
+    // image ref (the multi-image broken-link race). With the timer cleared, the
+    // single write below is the only one in flight for this attach.
+    if (timer.current) clearTimeout(timer.current)
     try {
       const isImage = (f.type || '').startsWith('image/')
       // Flatten images to SDR sRGB before storing: an Android "Ultra HDR" capture
@@ -160,9 +184,27 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
       // res.path (sha-based, bracket-free), so only the display name needs it.
       const label = String(res.name || '').replace(/[[\]]/g, '')
       const md = isImage ? `\n![${label}](${res.path})\n` : `[${label}](${res.path})`
+      // Insert into the LIVE editor and read back the resulting doc — this already
+      // contains EVERY prior image ref plus the one just inserted, so basing the
+      // write on it (not a captured React snapshot) is what makes a second/third
+      // image survive. Union meta.attachments from BOTH the note's existing record
+      // AND every ref the live body now embeds, so no ref is ever dropped and no
+      // in-body blob is left without an attachments record for the GC to reclaim.
       const nextBody = insertMarkdown(md)
-      const attachments = Array.from(new Set([...(note.meta.attachments || []), res.path]))
+      const attachments = Array.from(new Set([
+        ...(note.meta.attachments || []),
+        ...bodyAttachmentRefs(nextBody),
+        res.path,
+      ]))
+      // putAttachment leased res.path as in-flight (GC-pinned) before the blob
+      // hit disk. Hold that lease across onSave so a debounced GC firing in the
+      // pre-write window can't free the brand-new blob, then release ONLY after
+      // onSave resolves — the note now durably references the path, so the
+      // listNotes()-derived referenced set covers it. A rejected save throws past
+      // this line (into the catch), so we deliberately KEEP the lease there: the
+      // image is still in the editor, retrying must not let the blob be GC'd.
       await onSave({ ...note.meta, title, attachments }, nextBody)
+      releaseAttachment(res.path)
       setAttachErr('')
     } catch (err) {
       setAttachErr(String(err && err.message || err).includes('limit') ? 'File too large (max 25 MB).' : 'Could not attach file.')
