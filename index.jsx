@@ -2479,6 +2479,8 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
     } catch (err) {
       setAttachErr(String(err && err.message || err).includes("limit") ? "File too large (max 25 MB)." : "Could not attach file.");
       setTimeout(() => setAttachErr(""), 3500);
+      flushSave().catch(() => {
+      });
     }
   }
   const stranded = useMemo2(() => strandedImageRefs(note.meta, body), [note.meta, body]);

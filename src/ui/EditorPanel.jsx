@@ -209,6 +209,12 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     } catch (err) {
       setAttachErr(String(err && err.message || err).includes('limit') ? 'File too large (max 25 MB).' : 'Could not attach file.')
       setTimeout(() => setAttachErr(''), 3500)
+      // The autosave timer was cleared up-front for the attach. On failure the
+      // image was never inserted, so the live body is still the user's existing
+      // text — but its pending autosave is gone, stranding any unsaved edits in
+      // memory until the next save trigger (a crash before then loses them).
+      // Flush now through the editor's own save path to re-persist that text.
+      flushSave().catch(() => {})
     }
   }
 
