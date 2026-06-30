@@ -22,6 +22,16 @@
 // tainted/odd file, a missing API in a non-browser test env), we return the
 // ORIGINAL File unchanged rather than lose the attachment. A degraded-but-stored
 // image always beats a dropped one.
+//
+// REUSE THIS PATTERN: ANY image-rendering Möbius mini-app is susceptible — the
+// display-promotion is a property of the device display surface, so a single
+// HDR image anywhere on screen shifts EVERY surrounding SDR color, including the
+// shell chrome across the iframe boundary, and it is INVISIBLE to SDR/sRGB
+// screenshots (which is exactly why it evaded weeks of screenshot-based
+// debugging). This module re-encodes new uploads through an SDR canvas to strip
+// the gain map; pair it with `dynamic-range-limit: standard` CSS on the
+// rendered <img> for images that were ALREADY stored before this flatten existed
+// (see src/ui/css.js and src/editor/widgets.js).
 
 // Cap the longest side so a 12-megapixel phone photo doesn't land as a multi-MB
 // blob. 2048 keeps thumbnails and the in-editor preview crisp without bloating
