@@ -146,6 +146,23 @@ export default function App({ appId, token }) {
   // note's refs). Kept fresh by the effect below.
   const openIdRef = useRef(null)
   const notesRef = useRef([])
+  // The BODY of the last document THIS client wrote, keyed by note id. The
+  // open-note subscribe below uses it to tell an EXTERNAL resolution (the agent /
+  // another device rewriting the body) apart from MINE's own save AND from a
+  // self-raised conflict — and to clear the "Resolving…" indicator ONLY for the
+  // external case.
+  //
+  // It is the BODY ALONE, not a content hash over body+display-meta. A self-raised
+  // body conflict lands {body: mine.body, meta: mergeMeta(...)} (see
+  // mergeNoteDocs): the body stays MINE, but mergeMeta takes title/color/pinned/
+  // type/archived/tags from the LATER side, so if THEIRS is the later write and
+  // changed a display field, a content hash would differ from mine and the
+  // indicator would clear early even though MINE's body is still the conflict's
+  // unresolved content. Gating on the body alone keeps the indicator up until an
+  // external writer actually rewrites the body off mine — the true signal that the
+  // conflict was resolved. A Map, not a single value, so switching between
+  // conflicted notes keeps each note's marker.
+  const lastWrittenBodyRef = useRef(new Map())
   const online = store.isOnline()
 
   // The conflict callback for any merge that detects a genuine overlapping-body
@@ -237,6 +254,53 @@ export default function App({ appId, token }) {
       return prev.map((n) => (n.meta.id === openId ? { meta: v.meta, body: v.body } : n))
     })
   }, [openId, liveDoc.value])
+
+  // Clear the "Resolving…/merging…" indicator when an EXTERNAL writer (the agent
+  // resolver, or another device) rewrites the OPEN note's BODY off mine — an
+  // agent-resolved merge should repaint the editor and drop the conflict flag.
+  // We subscribe to notes/<id>.json directly. The liveDoc/useDocument hook already
+  // repaints the editor + grid via liveDoc.value, so we do NOT mirror into setNotes
+  // here — that manual mirror was redundant and part of the original bug. The only
+  // thing this subscribe owns is the conflict flag.
+  //
+  // We gate the clear on the BODY changing off MINE's last-written body, NOT on a
+  // content hash over body+display-meta. The three cases:
+  //   - body === mine.body → MINE's own save echo, the subscribe replay of the
+  //              on-disk doc, OR a SELF-RAISED conflict. mergeNoteDocs lands
+  //              {body: mine.body, meta: mergeMeta(...)} on a body conflict, so
+  //              even when THEIRS is the later write and changed the title/color
+  //              (mergeMeta picks display fields from the later side) the body is
+  //              still mine → do NOTHING. The indicator MINE just raised stays up.
+  //              (A content hash would differ here and clear early — the exact bug
+  //              Codex caught.)
+  //   - body !== mine.body → an external writer rewrote the body → the conflict is
+  //              resolved → adopt the new body as baseline (so its own echo doesn't
+  //              re-fire) and clear the flag; liveDoc repaints.
+  //   - no baseline yet (a conflict raised by onConflict before any local
+  //              writeNote, or the subscribe's immediate replay) → adopt this body
+  //              and do NOT clear — the on-disk body is still MINE.
+  // A stale-closure-safe callback: openId is captured per-effect (re-bound when the
+  // open note changes), and we re-read the body map by ref at fire time.
+  useEffect(() => {
+    if (!openId) return
+    const id = openId
+    const path = notePath(id)
+    const unsub = window.mobius?.storage?.subscribe?.(path, (doc) => {
+      if (!doc || !doc.meta || doc.meta.id !== id) return
+      const body = doc.body ?? ''
+      const known = lastWrittenBodyRef.current.get(id)
+      // No recorded baseline yet: adopt this body and do NOT clear.
+      if (known === undefined) { lastWrittenBodyRef.current.set(id, body); return }
+      // Body still equals MINE's last write (local save echo, replay, or a
+      // self-raised conflict whose body stayed mine): leave the indicator alone.
+      if (known === body) return
+      // External resolution rewrote the body off mine: adopt it as the new
+      // baseline and clear the conflict flag.
+      lastWrittenBodyRef.current.set(id, body)
+      setConflicts((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n })
+    })
+    return () => { if (typeof unsub === 'function') unsub() }
+  }, [openId])
 
   const upsert = useCallback((meta, body) => {
     setNotes((prev) => {
@@ -396,6 +460,9 @@ export default function App({ appId, token }) {
     const id = meta.id
     const m = { ...meta, updated: meta.updated || new Date().toISOString() }
     m.content_hash = await contentHash(m, body)
+    // Mark this body as MINE so the open-note subscribe treats the resulting
+    // notify (and any echo of it) as a local save, not an external resolution.
+    lastWrittenBodyRef.current.set(id, body ?? '')
     upsert(m, body)
     const writeThroughHook = HAS_RUNTIME_DOC && openId === id
     try {

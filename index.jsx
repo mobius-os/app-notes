@@ -686,7 +686,7 @@ function referencedAttachments(notes = []) {
   return refs;
 }
 
-// node_modules/node-diff3/dist/diff3.mjs
+// ../../node_modules/node-diff3/dist/diff3.mjs
 function LCS(buffer1, buffer2) {
   let equivalenceClasses = {};
   for (let j = 0; j < buffer2.length; j++) {
@@ -2802,6 +2802,7 @@ function App({ appId, token }) {
   const editorNavOwned = useRef5(false);
   const openIdRef = useRef5(null);
   const notesRef = useRef5([]);
+  const lastWrittenBodyRef = useRef5(/* @__PURE__ */ new Map());
   const online = isOnline();
   const onConflict = useCallback4(async (sides) => {
     const id = sides?.mine?.meta?.id ?? sides?.theirs?.meta?.id ?? sides?.base?.meta?.id;
@@ -2853,6 +2854,31 @@ function App({ appId, token }) {
       return prev.map((n) => n.meta.id === openId ? { meta: v.meta, body: v.body } : n);
     });
   }, [openId, liveDoc.value]);
+  useEffect5(() => {
+    if (!openId) return;
+    const id = openId;
+    const path = notePath(id);
+    const unsub = window.mobius?.storage?.subscribe?.(path, (doc) => {
+      if (!doc || !doc.meta || doc.meta.id !== id) return;
+      const body = doc.body ?? "";
+      const known = lastWrittenBodyRef.current.get(id);
+      if (known === void 0) {
+        lastWrittenBodyRef.current.set(id, body);
+        return;
+      }
+      if (known === body) return;
+      lastWrittenBodyRef.current.set(id, body);
+      setConflicts((prev) => {
+        if (!prev.has(id)) return prev;
+        const n = new Set(prev);
+        n.delete(id);
+        return n;
+      });
+    });
+    return () => {
+      if (typeof unsub === "function") unsub();
+    };
+  }, [openId]);
   const upsert = useCallback4((meta, body) => {
     setNotes((prev) => {
       const next = prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { meta, body } : n) : [{ meta, body }, ...prev];
@@ -2975,6 +3001,7 @@ function App({ appId, token }) {
     const id = meta.id;
     const m = { ...meta, updated: meta.updated || (/* @__PURE__ */ new Date()).toISOString() };
     m.content_hash = await contentHash(m, body);
+    lastWrittenBodyRef.current.set(id, body ?? "");
     upsert(m, body);
     const writeThroughHook = HAS_RUNTIME_DOC && openId === id;
     try {

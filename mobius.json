@@ -1,7 +1,7 @@
 {
   "id": "notes",
   "name": "Notes",
-  "version": "1.2.14",
+  "version": "1.2.15",
   "description": "Markdown notes that render as you type, with checklists, pins, colors, search, and images.",
   "author": "mobius-os",
   "license": "MIT",
