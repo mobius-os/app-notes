@@ -60,7 +60,7 @@ function TopBar({ appId, query, onQuery }) {
       <img
         src={`/api/apps/${appId}/icon?size=128`}
         alt=""
-        width={44} height={44}
+        width={34} height={34}
         className="nt-brand-icon"
         onError={(e) => {
           e.currentTarget.style.display = 'none'
