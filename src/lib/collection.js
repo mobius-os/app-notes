@@ -19,7 +19,7 @@
 // (the new edit) and theirs (whatever the server holds now), mirroring the
 // hook's baseRef. We seed base from the value loaded at first sight of a note.
 
-import { notePath, docId, mergeNoteDocs } from './note-doc.js'
+import { notePath, legacyPath, docId, mergeNoteDocs } from './note-doc.js'
 
 const S = () => window.mobius.storage
 
@@ -133,6 +133,9 @@ export function makeNoteCollection({ onConflict } = {}) {
     const path = notePath(id)
     return withChain(path, async () => {
       const res = await S().remove(path)
+      // Also drop the dormant legacy .md, if any: the startup migration would
+      // otherwise re-create (resurrect) this just-deleted note from it.
+      try { await S().remove(legacyPath(id)) } catch {}
       bases.delete(id)
       return res
     })

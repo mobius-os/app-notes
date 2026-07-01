@@ -686,7 +686,7 @@ function referencedAttachments(notes = []) {
   return refs;
 }
 
-// ../../node_modules/node-diff3/dist/diff3.mjs
+// node_modules/node-diff3/dist/diff3.mjs
 function LCS(buffer1, buffer2) {
   let equivalenceClasses = {};
   for (let j = 0; j < buffer2.length; j++) {
@@ -1066,6 +1066,7 @@ function mergeMeta(base, mine, theirs) {
 
 // src/lib/note-doc.js
 var notePath = (id) => `notes/${id}.json`;
+var legacyPath = (id) => `notes/${id}.md`;
 function sameContent(a, b) {
   if (a == null || b == null) return a == null && b == null;
   const am = a.meta ?? {};
@@ -1326,6 +1327,10 @@ function makeNoteCollection({ onConflict } = {}) {
     const path = notePath(id);
     return withChain(path, async () => {
       const res = await S2().remove(path);
+      try {
+        await S2().remove(legacyPath(id));
+      } catch {
+      }
       bases.delete(id);
       return res;
     });
@@ -1388,7 +1393,6 @@ function parseFrontmatter(md) {
 
 // src/lib/migrate.js
 var S3 = () => window.mobius.storage;
-var legacyPath = (id) => `notes/${id}.md`;
 var idFromMd = (name) => name.endsWith(".md") ? name.slice(0, -3) : null;
 async function migrateNote(id) {
   let json;

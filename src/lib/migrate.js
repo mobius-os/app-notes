@@ -24,11 +24,10 @@
 // renders every already-converted note.
 
 import { parseFrontmatter } from './frontmatter.js'
-import { notePath } from './note-doc.js'
+import { notePath, legacyPath } from './note-doc.js'
 
 const S = () => window.mobius.storage
 
-const legacyPath = (id) => `notes/${id}.md`
 const idFromMd = (name) => (name.endsWith('.md') ? name.slice(0, -3) : null)
 
 // Migrate one legacy note id. Returns:

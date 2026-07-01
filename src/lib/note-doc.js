@@ -18,6 +18,9 @@
 import { merge3, mergeMeta } from './merge.js'
 
 export const notePath = (id) => `notes/${id}.json`
+// The pre-JSON legacy path. remove() must delete this too, else the startup
+// migration resurrects a just-deleted note from it on the next load.
+export const legacyPath = (id) => `notes/${id}.md`
 
 // Synchronous content-identity equality of two note documents — the same fields
 // note.js' contentHash digests (title, body, pinned, color, tags, type,
