@@ -67,7 +67,21 @@ export const Fragment = Symbol('Fragment')
 export function jsx(type, props) { return makeEl(type, props) }
 export function jsxs(type, props) { return makeEl(type, props) }
 
-const React = { useState, useRef, useCallback, useMemo, useEffect, Fragment }
+// A minimal base class so a component that does `class X extends React.Component`
+// (e.g. an error boundary) can be DEFINED without throwing at module load. The shim
+// never instantiates or renders class components — it only records their element in
+// the tree (children are searchable via the recorded `children` field) — so these
+// methods are inert; they exist only to satisfy the class-definition and any
+// incidental construction.
+export class Component {
+  constructor(props) { this.props = props || {}; this.state = {} }
+  setState(next) {
+    this.state = { ...this.state, ...(typeof next === 'function' ? next(this.state) : next) }
+  }
+  render() { return null }
+}
+
+const React = { useState, useRef, useCallback, useMemo, useEffect, Fragment, Component }
 export default React
 
 let dirty = false

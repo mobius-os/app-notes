@@ -81,7 +81,8 @@ export const CSS = `
   padding: 9px 16px; border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface2, var(--surface)); color: var(--text);
-  font-size: 15px; font-family: var(--font);
+  /* 16px stops iOS Safari zoom-on-focus (don't drop below on a focusable field) */
+  font-size: 16px; font-family: var(--font);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 /* One soft focus halo, matching the shell composer pill (.chat__pill:focus-within):
@@ -101,7 +102,9 @@ export const CSS = `
   z-index: 20;
   width: 56px; height: 56px;
   border-radius: 50%;
-  border: none; background: var(--accent); color: #ffffff;
+  /* --accent-fg is the one legal foreground on an accent fill — a custom light
+     accent theme sets it dark; a hardcoded #fff would break that. No fallback hex. */
+  border: none; background: var(--accent); color: var(--accent-fg);
   font-size: 28px; line-height: 1;
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; font-family: var(--font);
@@ -211,7 +214,9 @@ export const CSS = `
 /* ── Card pin button (top-right) ────────────────────────────────────────── */
 .nt-card-pin {
   position: absolute; top: 6px; right: 6px;
-  width: 32px; height: 32px;
+  /* 44px touch floor (icon stays 14px, centered) — a corner icon button still
+     needs a full tap target on phones. */
+  width: 44px; height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
   border: none; border-radius: 8px;
   background: transparent; cursor: pointer;
@@ -329,6 +334,8 @@ export const CSS = `
 }
 .nt-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .nt-modal-btn {
+  min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
   padding: 9px 16px; border-radius: 10px;
   font-size: 14px; cursor: pointer; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
@@ -339,9 +346,10 @@ export const CSS = `
   border: 1px solid var(--border); background: transparent; color: var(--text);
 }
 .nt-modal-confirm {
-  border: none; color: #ffffff; font-weight: 600;
-  /* on-accent/on-danger text matches the + New button (shell standardizes white) */
-  /* background set via inline style: var(--danger) or var(--accent) */
+  border: none; color: var(--accent-fg); font-weight: 600;
+  /* --accent-fg is the only legal foreground on an accent/danger FILL (no hex
+     fallback — a custom light theme sets it dark). Background is set via inline
+     style: var(--danger) or var(--accent). */
 }
 /* /mobius-ui:Sheet */
 
@@ -353,7 +361,10 @@ export const CSS = `
 }
 /* mobius-ui:Header v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-editor-hdr {
-  padding: 8px 10px 9px;
+  /* The full-screen editor covers the viewport (position:absolute inset:0), so —
+     unlike the grid, which the sticky .nt-topbar insets — the editor header sits
+     at the top edge and must clear the notch/status bar itself. */
+  padding: max(8px, env(safe-area-inset-top)) 10px 9px;
   border-bottom: 1px solid var(--border);
   display: flex; flex-direction: column; gap: 7px; flex: 0 0 auto;
 }
@@ -431,9 +442,11 @@ export const CSS = `
 }
 .nt-conflict-msg { flex: 1; }
 .nt-conflict-btn {
+  min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--accent); background: transparent; color: var(--accent);
-  border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
-  font-family: var(--font);
+  border-radius: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer;
+  flex-shrink: 0; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
 .nt-attach-err {
@@ -452,12 +465,29 @@ export const CSS = `
 }
 .nt-save-err-msg { flex: 1; }
 .nt-save-err-btn {
+  min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--danger); background: transparent; color: var(--danger);
-  border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
-  font-family: var(--font);
+  border-radius: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer;
+  flex-shrink: 0; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
 .nt-editor-body { flex: 1; overflow: hidden; }
+
+/* ── Grid offline pill (mobius-ui:SyncPill v2) ──────────────────────────── */
+/* SILENT WHEN HEALTHY: mounted ONLY while offline (never "Saving"/pending
+   counts), plain "Offline" copy. Positioned bottom-LEFT so it never collides
+   with the bottom-right FAB. Absolute to .nt-root (which is position:relative),
+   never fixed — a fixed overlay could paint over the shell chrome. */
+.nt-sync-pill {
+  position: absolute; left: 12px; bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 15;
+  display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+  font-size: 11px; font-weight: 600; font-family: var(--font);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+.nt-sync-pill.is-error { border-color: var(--danger); color: var(--danger); }
 
 /* ── Stranded-attachment strip (editor) ─────────────────────────────────── */
 /* Images attached to the note (meta.attachments) whose markdown ref is no

@@ -45,6 +45,9 @@ before(async () => {
       b.onResolve({ filter: /(Editor|ColorPicker)\.jsx$/ }, () => ({ path: 'stub', namespace: 'stub' }))
       b.onResolve({ filter: /.*/ }, (a) => {
         if (a.kind === 'entry-point') return null
+        // node-diff3 backs merge3 (EditorPanel's external-rewrite reconcile) — let it
+        // resolve for real; only the render-heavy libs are stubbed.
+        if (a.path === 'node-diff3') return null
         if (!a.path.startsWith('.') && !a.path.startsWith('/')) return { path: 'noop', namespace: 'stub' }
         return null
       })
@@ -142,6 +145,26 @@ test('attach failure does not strand pre-existing unsaved text — it is flushed
   const last = saves[saves.length - 1]
   assert.equal(last.body, 'orig body PLUS unsaved edit', 'the rescue save persists the EXISTING unsaved body; the failed image was never inserted')
   assert.ok(!/attachments\//.test(last.body), 'the failed image must NOT appear in the persisted body')
+  shim.unmount()
+})
+
+test('a save rejection AFTER a successful attach shows only the save failure, not a misleading attach error', async () => {
+  const saves = []
+  // The attach + insert succeed; the durable SAVE is refused (dead-letter).
+  const onSave = (meta, body) => { saves.push({ meta, body }); return Promise.reject(Object.assign(new Error('server refused'), { name: 'DurableWriteError' })) }
+  const putAttachment = async (f) => ({ name: f.name, path: 'attachments/abc123' })
+  const p = props({ onSave, putAttachment })
+  shim.mount(() => EditorPanel(p))
+
+  await fireAttach({ name: 'doc.pdf', type: 'application/pdf' })
+  await new Promise((r) => setTimeout(r, 0))
+
+  // The image IS in the editor and its ref reached onSave — the failure was the
+  // SAVE, which the app surfaces via its own banner. The editor must NOT mislabel it
+  // "Could not attach file" (the attach worked).
+  const attachErrEl = findEl((n) => n.props && n.props.className === 'nt-attach-err')
+  assert.equal(attachErrEl, null, 'no misleading "Could not attach file" banner on a save rejection')
+  assert.ok(saves.some((s) => /attachments\/abc123/.test(s.body)), 'the inserted attachment ref reached onSave (the attach itself succeeded)')
   shim.unmount()
 })
 

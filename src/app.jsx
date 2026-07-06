@@ -90,6 +90,35 @@ function EmptyState({ filtered }) {
   )
 }
 
+// A render error boundary around the app content: a crash in the grid/editor/preview
+// subtree emits a `error {source:'boundary'}` signal (so Reflection sees render
+// crashes, not just caught ones) and shows a plain recover-by-reopening message
+// instead of a blank frame. It can only catch errors thrown by its CHILDREN, which
+// is where the heavy render work (CodeMirror, markdown preview) lives.
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { crashed: false }
+  }
+  static getDerivedStateFromError() {
+    return { crashed: true }
+  }
+  componentDidCatch(err) {
+    window.mobius?.signal?.('error', { message: err?.message ?? 'render crash', source: 'boundary' })
+  }
+  render() {
+    if (this.state.crashed) {
+      return (
+        <div className="nt-empty" role="alert">
+          <div className="nt-empty-msg">Something went wrong</div>
+          <div className="nt-empty-hint">Close and reopen Notes to recover. Your notes are safe.</div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function App({ appId, token }) {
   // KaTeX's renderToString output (used by the live-preview editor for $…$ and
   // $$…$$ math) needs katex.min.css for its fraction/sizing/positioning rules;
@@ -129,7 +158,6 @@ export default function App({ appId, token }) {
   const [view, setView] = useState({ mode: 'grid', id: null })
   const [draft, setDraft] = useState(null)
   const [confirmId, setConfirmId] = useState(null)
-  const [pending, setPending] = useState(0)
   const [conflicts, setConflicts] = useState(() => new Set())
   const [saveError, setSaveError] = useState(null)
   // Ids whose LAST durable write was REFUSED (dead-lettered). The optimistic
@@ -163,7 +191,16 @@ export default function App({ appId, token }) {
   // conflict was resolved. A Map, not a single value, so switching between
   // conflicted notes keeps each note's marker.
   const lastWrittenBodyRef = useRef(new Map())
-  const online = store.isOnline()
+  // Connectivity as REACTIVE state (not a render-time store.isOnline() read, which
+  // never updated until an unrelated re-render). Driven by the window online/offline
+  // events; going online also re-lists the canonical notes (see the effect below),
+  // because list() has no offline mirror so a cold offline load can't enumerate.
+  const [online, setOnline] = useState(() => store.isOnline())
+  // A ref mirror of the conflicts set, so the open-note subscribe (which is keyed on
+  // openId only) can tell whether the note it just saw resolved was actually flagged
+  // — gating the conflict_resolved signal to real resolutions, not routine edits.
+  const conflictsRef = useRef(conflicts)
+  useEffect(() => { conflictsRef.current = conflicts }, [conflicts])
 
   // The conflict callback for any merge that detects a genuine overlapping-body
   // conflict. BOTH writers (the open-editor liveDoc via makeMergeNote, and the
@@ -184,7 +221,11 @@ export default function App({ appId, token }) {
     }
     try {
       const d = await conflictDescriptorFor(sides.base, sides.mine, sides.theirs, contentHash)
-      if (d) await store.writeConflict(d.path, d)
+      if (d) {
+        await store.writeConflict(d.path, d)
+        // The descriptor is durably persisted — a real conflict is now on record.
+        window.mobius?.signal?.('conflict_raised', { note_count: 1 })
+      }
     } catch (err) {
       // The descriptor write fatally dead-lettered (or the descriptor could not be
       // built). The losing side's body lives ONLY in this descriptor, so a swallowed
@@ -227,6 +268,13 @@ export default function App({ appId, token }) {
     merge: mergeNote,
     mode: 'lww',
   })
+  // useDocument returns a FRESH handle object every render, so depending on the whole
+  // `liveDoc` in writeNote would rebuild writeNote → persist → the editor's flushSave
+  // → its autosave effect on every unrelated parent re-render, churning the debounce
+  // timer. Read the stable pieces through a ref instead; writeNote depends only on
+  // openId, not the handle identity.
+  const liveDocRef = useRef(liveDoc)
+  liveDocRef.current = liveDoc
 
   // Surface the open note's durable-write failure as an actionable error (never a
   // silent loss, never a false save). A 'queued' result is durable success and
@@ -297,19 +345,24 @@ export default function App({ appId, token }) {
       // External resolution rewrote the body off mine: adopt it as the new
       // baseline and clear the conflict flag.
       lastWrittenBodyRef.current.set(id, body)
+      // Only a note that WAS flagged conflicted counts as a resolution — a normal
+      // cross-device edit of a non-conflicted note must not emit this signal.
+      if (conflictsRef.current.has(id)) {
+        window.mobius?.signal?.('conflict_resolved', { resolved_by: 'external' })
+      }
       setConflicts((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n })
     })
     return () => { if (typeof unsub === 'function') unsub() }
   }, [openId])
 
+  // Pure state updater — no IO. The derived index.json cache is (re)written by the
+  // committed-notes effect below, NOT inside this updater: a side effect inside a
+  // setNotes(prev => …) runs on React's StrictMode double-invoke too, which would
+  // persist an index for state that gets discarded.
   const upsert = useCallback((meta, body) => {
-    setNotes((prev) => {
-      const next = prev.some((n) => n.meta.id === meta.id)
-        ? prev.map((n) => (n.meta.id === meta.id ? { meta, body } : n))
-        : [{ meta, body }, ...prev]
-      store.writeIndex(next).catch(() => {})
-      return next
-    })
+    setNotes((prev) => (prev.some((n) => n.meta.id === meta.id)
+      ? prev.map((n) => (n.meta.id === meta.id ? { meta, body } : n))
+      : [{ meta, body }, ...prev]))
   }, [])
 
   // Debounced attachment GC. Deletes and body edits can orphan content-addressed
@@ -351,21 +404,49 @@ export default function App({ appId, token }) {
           }
         })
         .catch(() => {})
-      const canonical = await collection.list().catch(() => [])
+      const canonical = await collection.list().catch(() => null)
       if (!live) return
-      setNotes(canonical)
       setLoading(false)
-      window.mobius?.signal('app_ready', { item_count: canonical.length })
+      if (canonical == null) {
+        // Enumeration is UNAVAILABLE (offline cold load — list() has no offline
+        // mirror). Do NOT wipe to empty: keep whatever the index.json cache already
+        // painted, and report app_ready as offline with the currently-visible count.
+        // The online event re-lists the moment we reconnect (effect below).
+        window.mobius?.signal?.('app_ready', { item_count: notesRef.current.length, offline: true })
+      } else {
+        setNotes(canonical)
+        window.mobius?.signal?.('app_ready', { item_count: canonical.length, offline: false })
+      }
     })()
     return () => { live = false }
   }, [collection])
 
+  // Connectivity: keep `online` reactive to window events, and re-enumerate on
+  // reconnect (a cold offline load couldn't list()). A successful re-list replaces
+  // the index placeholders with the authoritative records.
   useEffect(() => {
-    let live = true
-    const tick = () => store.pendingCount().then((n) => { if (live) setPending(n) }).catch(() => {})
-    tick(); const h = setInterval(tick, 1500)
-    return () => { live = false; clearInterval(h) }
-  }, [])
+    const goOnline = () => {
+      setOnline(true)
+      collection.list().then((canonical) => {
+        if (canonical != null) { setNotes(canonical); setLoading(false) }
+      }).catch(() => {})
+    }
+    const goOffline = () => setOnline(false)
+    window.addEventListener('online', goOnline)
+    window.addEventListener('offline', goOffline)
+    return () => {
+      window.removeEventListener('online', goOnline)
+      window.removeEventListener('offline', goOffline)
+    }
+  }, [collection])
+
+  // Persist the derived index cache as a PURE effect on committed notes — never as a
+  // side effect inside a setNotes updater (see upsert). Skip the pre-load paint so
+  // we don't rewrite the index from a transient empty state.
+  useEffect(() => {
+    if (loading) return
+    store.writeIndex(notes).catch(() => {})
+  }, [notes, loading])
 
   // Clear pending debounce timers on unmount.
   useEffect(() => () => {
@@ -426,10 +507,16 @@ export default function App({ appId, token }) {
   }, [notes, collection])
 
   const openEditor = useCallback(async (id) => {
-    window.mobius?.signal('note_opened')
-    setSaveError((e) => (e && failedSaveIds.has(e.id) ? e : null))
     const cur = notes.find((n) => n.meta.id === id)
-    if (cur && cur.placeholder && !(await ensureAuthoritative(id))) return
+    window.mobius?.signal?.('item_opened', { type: cur?.meta?.type || 'note' })
+    setSaveError((e) => (e && failedSaveIds.has(e.id) ? e : null))
+    if (cur && cur.placeholder && !(await ensureAuthoritative(id))) {
+      // The authoritative note isn't cached and we're offline, so it can't be
+      // opened without clobbering the display-only placeholder. Tell the user
+      // instead of silently no-op'ing; the grid stays put.
+      setSaveError({ id, message: 'This note is not cached yet. Reconnect to open it.' })
+      return
+    }
     if (view.mode === 'editor') {
       setView({ mode: 'editor', id })
       return
@@ -468,19 +555,23 @@ export default function App({ appId, token }) {
     try {
       let result
       if (writeThroughHook) {
-        result = await liveDoc.update(() => ({ meta: m, body }))
+        // Read the live document through a ref — the handle identity changes every
+        // render, so depending on it would churn this callback (and the editor's
+        // autosave debounce) on every unrelated re-render.
+        result = await liveDocRef.current.update(() => ({ meta: m, body }))
       } else {
         ;({ result } = await collection.update(id, () => ({ meta: m, body })))
       }
       setSaveError((e) => (e && e.id === id ? null : e))
       setFailedSaveIds((s) => { if (!s.has(id)) return s; const n = new Set(s); n.delete(id); return n })
-      if (isDraftCommit) setDraft(null)
+      if (isDraftCommit) {
+        setDraft(null)
+        // First durable save of a draft == a real creation (distinct from autosaves).
+        window.mobius?.signal?.('item_created', { type: m.type || 'note' })
+      } else {
+        window.mobius?.signal?.('item_updated', { type: m.type || 'note', durability: result?.durability })
+      }
       scheduleGc()
-      const wordCount = (body || '').trim().split(/\s+/).filter(Boolean).length
-      window.mobius?.signal('note_saved', {
-        word_count: wordCount || undefined,
-        durability: result?.durability,
-      })
       return m
     } catch (err) {
       // Durable write REFUSED by the server (DurableWriteError). Do not claim a
@@ -497,7 +588,7 @@ export default function App({ appId, token }) {
       setFailedSaveIds((s) => (s.has(id) ? s : new Set(s).add(id)))
       throw err
     }
-  }, [openId, liveDoc, upsert, collection, scheduleGc])
+  }, [openId, upsert, collection, scheduleGc])
 
   // Persist an edit from the editor or a draft. `updated` is stamped only when
   // the content actually changed (hash compare): the grid sorts on it, so a real
@@ -549,8 +640,9 @@ export default function App({ appId, token }) {
   }, [collection, scheduleGc])
 
   const doDelete = useCallback((id) => {
-    window.mobius?.signal('item_deleted')
     if (draft && draft.meta.id === id) {
+      // An uncommitted draft (never durably saved) — discarding it is not a
+      // deletion of a persisted item, so it emits no item_deleted signal.
       if (view.mode === 'editor' && view.id === id) popEditorNav()
       setDraft(null)
       setConfirmId(null)
@@ -558,12 +650,12 @@ export default function App({ appId, token }) {
       return
     }
     const n = notes.find((x) => x.meta.id === id)
-    if (n) queueDelete(id).catch(() => {})
-    setNotes((prev) => {
-      const next = prev.filter((note) => note.meta.id !== id)
-      store.writeIndex(next).catch(() => {})
-      return next
-    })
+    if (n) {
+      window.mobius?.signal?.('item_deleted', { type: n.meta.type || 'note' })
+      queueDelete(id).catch(() => {})
+    }
+    // index.json is rewritten by the committed-notes effect; no write inside the updater.
+    setNotes((prev) => prev.filter((note) => note.meta.id !== id))
     setConfirmId(null)
     setView((v) => {
       if (v.mode === 'editor' && v.id === id) {
@@ -585,11 +677,8 @@ export default function App({ appId, token }) {
     const n = notes.find((x) => x.meta.id === view.id)
     if (n && !n.placeholder && isBlankNote(n.meta, n.body)) {
       queueDelete(n.meta.id).catch(() => {})
-      setNotes((prev) => {
-        const next = prev.filter((x) => x.meta.id !== n.meta.id)
-        store.writeIndex(next).catch(() => {})
-        return next
-      })
+      // index.json is rewritten by the committed-notes effect; no write inside the updater.
+      setNotes((prev) => prev.filter((x) => x.meta.id !== n.meta.id))
     }
     setView({ mode: 'grid' })
   }, [draft, notes, popEditorNav, view.id, queueDelete])
@@ -604,6 +693,18 @@ export default function App({ appId, token }) {
   }, [back])
 
   const visible = useMemo(() => visibleNotes(notes, query), [notes, query])
+
+  // A search that lands on zero results, debounced so we emit once per STABLE query
+  // (not per keystroke). Only the query LENGTH is sent — never the query text (no
+  // PII). Reflection can propose tags/fuzzy search from real failed retrievals.
+  useEffect(() => {
+    const q = query.trim()
+    if (loading || !q || visible.length > 0) return undefined
+    const h = setTimeout(() => {
+      window.mobius?.signal?.('search_no_results', { query_len: q.length })
+    }, 700)
+    return () => clearTimeout(h)
+  }, [query, visible.length, loading])
 
   // The editor only ever mounts an authoritative note (or an in-memory draft) —
   // never a cold-load placeholder; openEditor swaps placeholders out first.
@@ -621,6 +722,7 @@ export default function App({ appId, token }) {
   return (
     <div className="nt-root">
       <style>{CSS}</style>
+      <ErrorBoundary>
       <TopBar appId={appId} query={query} onQuery={setQuery} />
       {/* Closed-note save failure (a grid pin/color, or a back-out after a refused
           save) has no editor to show a status banner — surface it here so a
@@ -692,6 +794,14 @@ export default function App({ appId, token }) {
         onConfirm={() => doDelete(confirmId)}
         onCancel={() => setConfirmId(null)}
       />
+
+      {/* Silent when healthy: the pill mounts ONLY when offline, and not over the
+          full-screen editor (which shows its own 'Offline' status). Plain copy, no
+          counts/timestamps. */}
+      {!online && view.mode !== 'editor' && (
+        <div className="nt-sync-pill" role="status">Offline</div>
+      )}
+      </ErrorBoundary>
     </div>
   )
 }

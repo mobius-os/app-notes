@@ -57,13 +57,19 @@ export function makeNoteCollection({ onConflict } = {}) {
   // base[id] = our last-confirmed document for that note (the 3-way ancestor).
   const bases = new Map()
 
-  // Enumerate notes/ and parse each JSON document. Offline-capable (list + get
-  // both read through the runtime's cache). Skips anything without a valid id.
+  // Enumerate notes/ and parse each JSON document. `storage.list()` has NO offline
+  // mirror (unlike get()): it returns `null` on a network failure and throws on a
+  // hard error, and `[]` ONLY for a genuinely-empty successful enumeration. We must
+  // preserve that distinction — collapsing "enumeration unavailable" to `[]` is what
+  // let an offline cold-load wipe the cached grid to "No notes yet". So: return
+  // `null` when enumeration is unavailable (offline / error) and `[]` only for a
+  // confirmed-empty list. Callers keep the cached placeholders on `null`.
   async function list() {
     let entries
-    try { entries = await S().list('notes') } catch { entries = [] }
+    try { entries = await S().list('notes') } catch { return null }
+    if (entries == null) return null
     const out = []
-    for (const e of entries || []) {
+    for (const e of entries) {
       if (e.type !== 'file' || !e.name.endsWith('.json')) continue
       let doc
       try { doc = await S().get(e.path) } catch { doc = null }

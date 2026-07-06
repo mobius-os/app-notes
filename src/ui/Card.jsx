@@ -27,6 +27,10 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
   const colorBtnRef = useRef(null)
   const longPressTimer = useRef(null)
   const cardRef = useRef(null)
+  // Set true the instant a long-press opens the tools, so the finger-up click that
+  // fires next (the pointerup → click sequence a touch always produces) is consumed
+  // by the body handler instead of opening the editor over the just-revealed tools.
+  const suppressNextClick = useRef(false)
 
   useEffect(() => {
     let live = true
@@ -85,12 +89,19 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
   const empty = !meta.title && !(body || '').trim()
   const isChecklist = meta.type === 'checklist'
 
-  // Long-press detection (~300ms) for touch devices
-  const onTouchStart = useCallback((e) => {
+  // Long-press detection (~300ms) via pointer events. Touch/pen only — a mouse
+  // reveals the tools on hover, so arming a long-press for it would wrongly suppress
+  // a slow desktop click. pointerdown arms the timer; pointerup/move/cancel/leave
+  // clear it. When the timer fires it opens the tools AND flags suppressNextClick,
+  // so the click the OS synthesizes on finger release doesn't also open the editor.
+  // (The old touch-timing version called e.preventDefault() inside the timer, after
+  // the original touch event had already dispatched — too late to stop the click.)
+  const onPointerDown = useCallback((e) => {
+    if (e.pointerType === 'mouse') return
     longPressTimer.current = setTimeout(() => {
+      longPressTimer.current = null
       setToolsOpen(true)
-      // Prevent the tap-to-open from firing after a long press
-      e.preventDefault()
+      suppressNextClick.current = true
     }, 300)
   }, [])
   const cancelLongPress = useCallback(() => {
@@ -105,10 +116,11 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
       <div
         ref={cardRef}
         className={`nt-card${tone ? ` nt-card--${tone}` : ''}${toolsOpen ? ' nt-card--tools' : ''}`}
-        onTouchStart={onTouchStart}
-        onTouchEnd={cancelLongPress}
-        onTouchMove={cancelLongPress}
-        onTouchCancel={cancelLongPress}
+        onPointerDown={onPointerDown}
+        onPointerUp={cancelLongPress}
+        onPointerMove={cancelLongPress}
+        onPointerCancel={cancelLongPress}
+        onPointerLeave={cancelLongPress}
       >
         {/* Pin button — top-right corner */}
         <button
@@ -133,7 +145,12 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
           role="button"
           tabIndex={0}
           aria-label={meta.title ? `Open note: ${meta.title}` : 'Open untitled note'}
-          onClick={() => onOpen(meta.id)}
+          onClick={() => {
+            // A long-press just opened the tools; swallow the release-click so it
+            // doesn't open the editor over them. One-shot: clear and bail.
+            if (suppressNextClick.current) { suppressNextClick.current = false; return }
+            onOpen(meta.id)
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault()

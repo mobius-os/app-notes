@@ -2,9 +2,9 @@
 // drives window.mobius.createUseDocument(React)'s actual useDocument hook with
 // THIS app's mergeNote (merge3 + mergeMeta), proving the migration target works
 // end-to-end — not just against the in-repo storage mock. The runtime source is
-// resolved from the data-layer worktree where it lives; if that path is absent
-// (a checkout without the worktree) the suite skips rather than fails, so the
-// app's own CI (which has no platform checkout) stays green.
+// NOT in this repo; set `MOBIUS_FRONTEND` to a current Möbius `frontend/` checkout
+// to run these tests. With it unset (a fresh clone / the app's own CI) the suite
+// SKIPS rather than fails, so `npm test` stays green.
 //
 // We reuse the platform's headless harness (fake-indexeddb + a controlled
 // fetch/online flag) and its hand-rolled React shim — the same way the runtime's
@@ -20,16 +20,18 @@ import { makeMergeNote, notePath } from '../src/lib/note-doc.js'
 
 if (!globalThis.crypto || !globalThis.crypto.subtle) globalThis.crypto = webcrypto
 
-// The platform runtime lives in the data-layer worktree of the mobius checkout.
-// MOBIUS_FRONTEND can override the frontend dir; otherwise try the known host
-// path. Absent (the app's own CI) → the suite skips, so app CI stays green.
+// This suite runs against the REAL platform runtime, which lives in a Möbius
+// frontend checkout — NOT in this repo. Point `MOBIUS_FRONTEND` at a current
+// checkout's `frontend/` dir to run it; with the env var UNSET (a fresh clone,
+// the app's own CI) the suite SKIPS so `npm test` stays green. We deliberately do
+// NOT fall back to any contributor's absolute host path: a stale/drifted local
+// runtime would make these tests fail on an unrelated clone.
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FRONTEND = process.env.MOBIUS_FRONTEND
-  || '/home/hmzmrzx/projects/mobius/.claude/worktrees/data-layer/frontend'
-const RUNTIME = resolve(FRONTEND, 'public/mobius-runtime.js')
-const HARNESS = resolve(FRONTEND, 'src/lib/__tests__/mobiusRuntimeHarness.mjs')
+const RUNTIME = FRONTEND ? resolve(FRONTEND, 'public/mobius-runtime.js') : null
+const HARNESS = FRONTEND ? resolve(FRONTEND, 'src/lib/__tests__/mobiusRuntimeHarness.mjs') : null
 
-const HAVE_RUNTIME = existsSync(RUNTIME) && existsSync(HARNESS)
+const HAVE_RUNTIME = !!(FRONTEND && existsSync(RUNTIME) && existsSync(HARNESS))
 
 // A minimal React shim that runs a single hook instance and re-renders on
 // setState, mirroring the platform's own useDocument test driver. Effects run

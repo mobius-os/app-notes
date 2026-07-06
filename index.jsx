@@ -96,7 +96,8 @@ var CSS = `
   padding: 9px 16px; border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface2, var(--surface)); color: var(--text);
-  font-size: 15px; font-family: var(--font);
+  /* 16px stops iOS Safari zoom-on-focus (don't drop below on a focusable field) */
+  font-size: 16px; font-family: var(--font);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 /* One soft focus halo, matching the shell composer pill (.chat__pill:focus-within):
@@ -116,7 +117,9 @@ var CSS = `
   z-index: 20;
   width: 56px; height: 56px;
   border-radius: 50%;
-  border: none; background: var(--accent); color: #ffffff;
+  /* --accent-fg is the one legal foreground on an accent fill \u2014 a custom light
+     accent theme sets it dark; a hardcoded #fff would break that. No fallback hex. */
+  border: none; background: var(--accent); color: var(--accent-fg);
   font-size: 28px; line-height: 1;
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; font-family: var(--font);
@@ -226,7 +229,9 @@ var CSS = `
 /* \u2500\u2500 Card pin button (top-right) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 .nt-card-pin {
   position: absolute; top: 6px; right: 6px;
-  width: 32px; height: 32px;
+  /* 44px touch floor (icon stays 14px, centered) \u2014 a corner icon button still
+     needs a full tap target on phones. */
+  width: 44px; height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
   border: none; border-radius: 8px;
   background: transparent; cursor: pointer;
@@ -344,6 +349,8 @@ var CSS = `
 }
 .nt-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
 .nt-modal-btn {
+  min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
   padding: 9px 16px; border-radius: 10px;
   font-size: 14px; cursor: pointer; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
@@ -354,9 +361,10 @@ var CSS = `
   border: 1px solid var(--border); background: transparent; color: var(--text);
 }
 .nt-modal-confirm {
-  border: none; color: #ffffff; font-weight: 600;
-  /* on-accent/on-danger text matches the + New button (shell standardizes white) */
-  /* background set via inline style: var(--danger) or var(--accent) */
+  border: none; color: var(--accent-fg); font-weight: 600;
+  /* --accent-fg is the only legal foreground on an accent/danger FILL (no hex
+     fallback \u2014 a custom light theme sets it dark). Background is set via inline
+     style: var(--danger) or var(--accent). */
 }
 /* /mobius-ui:Sheet */
 
@@ -368,7 +376,10 @@ var CSS = `
 }
 /* mobius-ui:Header v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
 .nt-editor-hdr {
-  padding: 8px 10px 9px;
+  /* The full-screen editor covers the viewport (position:absolute inset:0), so \u2014
+     unlike the grid, which the sticky .nt-topbar insets \u2014 the editor header sits
+     at the top edge and must clear the notch/status bar itself. */
+  padding: max(8px, env(safe-area-inset-top)) 10px 9px;
   border-bottom: 1px solid var(--border);
   display: flex; flex-direction: column; gap: 7px; flex: 0 0 auto;
 }
@@ -446,9 +457,11 @@ var CSS = `
 }
 .nt-conflict-msg { flex: 1; }
 .nt-conflict-btn {
+  min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--accent); background: transparent; color: var(--accent);
-  border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
-  font-family: var(--font);
+  border-radius: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer;
+  flex-shrink: 0; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
 .nt-attach-err {
@@ -467,12 +480,29 @@ var CSS = `
 }
 .nt-save-err-msg { flex: 1; }
 .nt-save-err-btn {
+  min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--danger); background: transparent; color: var(--danger);
-  border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
-  font-family: var(--font);
+  border-radius: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer;
+  flex-shrink: 0; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
 .nt-editor-body { flex: 1; overflow: hidden; }
+
+/* \u2500\u2500 Grid offline pill (mobius-ui:SyncPill v2) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+/* SILENT WHEN HEALTHY: mounted ONLY while offline (never "Saving"/pending
+   counts), plain "Offline" copy. Positioned bottom-LEFT so it never collides
+   with the bottom-right FAB. Absolute to .nt-root (which is position:relative),
+   never fixed \u2014 a fixed overlay could paint over the shell chrome. */
+.nt-sync-pill {
+  position: absolute; left: 12px; bottom: max(12px, env(safe-area-inset-bottom));
+  z-index: 15;
+  display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border); color: var(--muted);
+  font-size: 11px; font-weight: 600; font-family: var(--font);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+.nt-sync-pill.is-error { border-color: var(--danger); color: var(--danger); }
 
 /* \u2500\u2500 Stranded-attachment strip (editor) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 /* Images attached to the note (meta.attachments) whose markdown ref is no
@@ -1241,7 +1271,6 @@ async function attachmentURL(path) {
   }
   return blob ? URL.createObjectURL(blob) : null;
 }
-var pendingCount = () => S().pendingCount();
 var isOnline = () => window.mobius ? window.mobius.online : true;
 
 // src/lib/collection.js
@@ -1269,10 +1298,11 @@ function makeNoteCollection({ onConflict } = {}) {
     try {
       entries = await S2().list("notes");
     } catch {
-      entries = [];
+      return null;
     }
+    if (entries == null) return null;
     const out = [];
-    for (const e of entries || []) {
+    for (const e of entries) {
       if (e.type !== "file" || !e.name.endsWith(".json")) continue;
       let doc;
       try {
@@ -1660,6 +1690,7 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const colorBtnRef = useRef(null);
   const longPressTimer = useRef(null);
   const cardRef = useRef(null);
+  const suppressNextClick = useRef(false);
   useEffect(() => {
     let live = true;
     renderPreviewHTML((body || "").slice(0, 700)).then((h) => {
@@ -1696,21 +1727,23 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   }, [imageRefsKey, resolveAttachment]);
   useEffect(() => {
     if (!toolsOpen) return void 0;
-    const onPointerDown = (e) => {
+    const onPointerDown2 = (e) => {
       if (cardRef.current && !cardRef.current.contains(e.target)) {
         setToolsOpen(false);
       }
     };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
+    document.addEventListener("pointerdown", onPointerDown2);
+    return () => document.removeEventListener("pointerdown", onPointerDown2);
   }, [toolsOpen]);
   const tone = normalizeColorName(meta.color);
   const empty = !meta.title && !(body || "").trim();
   const isChecklist = meta.type === "checklist";
-  const onTouchStart = useCallback((e) => {
+  const onPointerDown = useCallback((e) => {
+    if (e.pointerType === "mouse") return;
     longPressTimer.current = setTimeout(() => {
+      longPressTimer.current = null;
       setToolsOpen(true);
-      e.preventDefault();
+      suppressNextClick.current = true;
     }, 300);
   }, []);
   const cancelLongPress = useCallback(() => {
@@ -1724,10 +1757,11 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
     {
       ref: cardRef,
       className: `nt-card${tone ? ` nt-card--${tone}` : ""}${toolsOpen ? " nt-card--tools" : ""}`,
-      onTouchStart,
-      onTouchEnd: cancelLongPress,
-      onTouchMove: cancelLongPress,
-      onTouchCancel: cancelLongPress,
+      onPointerDown,
+      onPointerUp: cancelLongPress,
+      onPointerMove: cancelLongPress,
+      onPointerCancel: cancelLongPress,
+      onPointerLeave: cancelLongPress,
       children: [
         /* @__PURE__ */ jsx3(
           "button",
@@ -1750,7 +1784,13 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
             role: "button",
             tabIndex: 0,
             "aria-label": meta.title ? `Open note: ${meta.title}` : "Open untitled note",
-            onClick: () => onOpen(meta.id),
+            onClick: () => {
+              if (suppressNextClick.current) {
+                suppressNextClick.current = false;
+                return;
+              }
+              onOpen(meta.id);
+            },
             onKeyDown: (e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
@@ -2271,7 +2311,9 @@ var theme = EditorView2.theme({
   // scroller overscroll-bouncy and Android's overscroll-stretch reveals the
   // (transparent) iframe <html> behind the transparent editor as a warm
   // color-scheme tint over the cards. Matches the .nt-scroll containment.
-  ".cm-scroller": { overflow: "auto", overscrollBehavior: "contain", fontFamily: "var(--font)", lineHeight: "1.65", fontSize: "15px" },
+  // 16px (not 15px): a focusable text surface below 16px triggers iOS Safari
+  // zoom-on-focus, which then leaves the whole app frame zoomed. Matches .nt-search.
+  ".cm-scroller": { overflow: "auto", overscrollBehavior: "contain", fontFamily: "var(--font)", lineHeight: "1.65", fontSize: "16px" },
   ".cm-content": { padding: "16px 18px 40vh", caretColor: "var(--accent)", maxWidth: "760px", margin: "0 auto", width: "100%" },
   "&.cm-focused": { outline: "none" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
@@ -2382,6 +2424,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
   const fileRef = useRef3(null);
   const colorBtnRef = useRef3(null);
   const latest = useRef3({ note, title: note.meta.title || "", body: note.body || "" });
+  const reconciledBody = useRef3(note.body || "");
   const isChecklist = note.meta.type === "checklist";
   useEffect3(() => {
     if (latest.current.note.meta.id === note.meta.id) {
@@ -2407,9 +2450,34 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
     flushSave().catch(() => {
     });
     latest.current = { note, title: note.meta.title || "", body: note.body || "" };
+    reconciledBody.current = note.body || "";
     setTitle(note.meta.title || "");
     setBody(note.body || "");
   }, [note.meta.id]);
+  useEffect3(() => {
+    if (latest.current.note.meta.id !== note.meta.id) return;
+    const incoming = note.body || "";
+    const base = reconciledBody.current;
+    if (incoming === base) return;
+    const v = viewRef.current;
+    const mineBuf = v ? v.state.doc.toString() : body;
+    const merged = mineBuf === base ? incoming : merge3(base, mineBuf, incoming).text;
+    reconciledBody.current = incoming;
+    if (v) {
+      const cur = v.state.doc.toString();
+      if (cur !== merged) {
+        const head = v.state.selection.main.head;
+        v.dispatch({
+          changes: { from: 0, to: cur.length, insert: merged },
+          selection: { anchor: Math.min(head, merged.length) }
+        });
+      } else {
+        setBody(merged);
+      }
+    } else {
+      setBody(merged);
+    }
+  }, [note.body]);
   useEffect3(() => {
     if (title === (note.meta.title || "") && body === (note.body || "")) return;
     if (timer.current) clearTimeout(timer.current);
@@ -2463,28 +2531,35 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
     e.target.value = "";
     if (!f || !putAttachment2) return;
     if (timer.current) clearTimeout(timer.current);
+    const isImage = (f.type || "").startsWith("image/");
+    let res;
+    let nextBody;
     try {
-      const isImage = (f.type || "").startsWith("image/");
       const upload = isImage ? await toSdrImage(f) : f;
-      const res = await putAttachment2(upload);
+      res = await putAttachment2(upload);
       const label = String(res.name || "").replace(/[[\]]/g, "");
       const md = isImage ? `
 ![${label}](${res.path})
 ` : `[${label}](${res.path})`;
-      const nextBody = insertMarkdown(md);
-      const attachments = Array.from(/* @__PURE__ */ new Set([
-        ...note.meta.attachments || [],
-        ...bodyAttachmentRefs(nextBody),
-        res.path
-      ]));
-      await onSave({ ...note.meta, title, attachments }, nextBody);
-      releaseAttachment(res.path);
-      setAttachErr("");
+      nextBody = insertMarkdown(md);
     } catch (err) {
       setAttachErr(String(err && err.message || err).includes("limit") ? "File too large (max 25 MB)." : "Could not attach file.");
       setTimeout(() => setAttachErr(""), 3500);
       flushSave().catch(() => {
       });
+      return;
+    }
+    const attachments = Array.from(/* @__PURE__ */ new Set([
+      ...note.meta.attachments || [],
+      ...bodyAttachmentRefs(nextBody),
+      res.path
+    ]));
+    try {
+      await onSave({ ...note.meta, title, attachments }, nextBody);
+      releaseAttachment(res.path);
+      setAttachErr("");
+      window.mobius?.signal?.("attachment_added", { kind: isImage ? "image" : "file", bytes: f.size || 0, flattened: isImage });
+    } catch (err) {
     }
   }
   const stranded = useMemo2(() => strandedImageRefs(note.meta, body), [note.meta, body]);
@@ -2770,6 +2845,27 @@ function EmptyState({ filtered }) {
     !filtered && /* @__PURE__ */ jsx8("div", { className: "nt-empty-hint", children: "Tap + to write your first note." })
   ] });
 }
+var ErrorBoundary = class extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { crashed: false };
+  }
+  static getDerivedStateFromError() {
+    return { crashed: true };
+  }
+  componentDidCatch(err) {
+    window.mobius?.signal?.("error", { message: err?.message ?? "render crash", source: "boundary" });
+  }
+  render() {
+    if (this.state.crashed) {
+      return /* @__PURE__ */ jsxs6("div", { className: "nt-empty", role: "alert", children: [
+        /* @__PURE__ */ jsx8("div", { className: "nt-empty-msg", children: "Something went wrong" }),
+        /* @__PURE__ */ jsx8("div", { className: "nt-empty-hint", children: "Close and reopen Notes to recover. Your notes are safe." })
+      ] });
+    }
+    return this.props.children;
+  }
+};
 function App({ appId, token }) {
   useEffect5(() => {
     if (document.querySelector("style[data-nt-katex]")) return void 0;
@@ -2798,7 +2894,6 @@ function App({ appId, token }) {
   const [view, setView] = useState4({ mode: "grid", id: null });
   const [draft, setDraft] = useState4(null);
   const [confirmId, setConfirmId] = useState4(null);
-  const [pending, setPending] = useState4(0);
   const [conflicts, setConflicts] = useState4(() => /* @__PURE__ */ new Set());
   const [saveError, setSaveError] = useState4(null);
   const [failedSaveIds, setFailedSaveIds] = useState4(() => /* @__PURE__ */ new Set());
@@ -2807,7 +2902,11 @@ function App({ appId, token }) {
   const openIdRef = useRef5(null);
   const notesRef = useRef5([]);
   const lastWrittenBodyRef = useRef5(/* @__PURE__ */ new Map());
-  const online = isOnline();
+  const [online, setOnline] = useState4(() => isOnline());
+  const conflictsRef = useRef5(conflicts);
+  useEffect5(() => {
+    conflictsRef.current = conflicts;
+  }, [conflicts]);
   const onConflict = useCallback4(async (sides) => {
     const id = sides?.mine?.meta?.id ?? sides?.theirs?.meta?.id ?? sides?.base?.meta?.id;
     if (id != null) {
@@ -2815,7 +2914,10 @@ function App({ appId, token }) {
     }
     try {
       const d = await conflictDescriptorFor(sides.base, sides.mine, sides.theirs, contentHash);
-      if (d) await writeConflict(d.path, d);
+      if (d) {
+        await writeConflict(d.path, d);
+        window.mobius?.signal?.("conflict_raised", { note_count: 1 });
+      }
     } catch (err) {
       window.mobius?.signal("error", { message: err?.message ?? "conflict save failed", source: "onConflict" });
       if (id != null) {
@@ -2843,6 +2945,8 @@ function App({ appId, token }) {
     merge: mergeNote,
     mode: "lww"
   });
+  const liveDocRef = useRef5(liveDoc);
+  liveDocRef.current = liveDoc;
   useEffect5(() => {
     if (openId && liveDoc.lastError) {
       setSaveError({ id: openId, message: "Could not save \u2014 your edit is kept. Retrying when possible." });
@@ -2872,6 +2976,9 @@ function App({ appId, token }) {
       }
       if (known === body) return;
       lastWrittenBodyRef.current.set(id, body);
+      if (conflictsRef.current.has(id)) {
+        window.mobius?.signal?.("conflict_resolved", { resolved_by: "external" });
+      }
       setConflicts((prev) => {
         if (!prev.has(id)) return prev;
         const n = new Set(prev);
@@ -2884,12 +2991,7 @@ function App({ appId, token }) {
     };
   }, [openId]);
   const upsert = useCallback4((meta, body) => {
-    setNotes((prev) => {
-      const next = prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { meta, body } : n) : [{ meta, body }, ...prev];
-      writeIndex(next).catch(() => {
-      });
-      return next;
-    });
+    setNotes((prev) => prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { meta, body } : n) : [{ meta, body }, ...prev]);
   }, []);
   const scheduleGc = useCallback4(() => {
     if (gcTimer.current) clearTimeout(gcTimer.current);
@@ -2914,29 +3016,44 @@ function App({ appId, token }) {
         }
       }).catch(() => {
       });
-      const canonical = await collection.list().catch(() => []);
+      const canonical = await collection.list().catch(() => null);
       if (!live) return;
-      setNotes(canonical);
       setLoading(false);
-      window.mobius?.signal("app_ready", { item_count: canonical.length });
+      if (canonical == null) {
+        window.mobius?.signal?.("app_ready", { item_count: notesRef.current.length, offline: true });
+      } else {
+        setNotes(canonical);
+        window.mobius?.signal?.("app_ready", { item_count: canonical.length, offline: false });
+      }
     })();
     return () => {
       live = false;
     };
   }, [collection]);
   useEffect5(() => {
-    let live = true;
-    const tick = () => pendingCount().then((n) => {
-      if (live) setPending(n);
-    }).catch(() => {
-    });
-    tick();
-    const h = setInterval(tick, 1500);
-    return () => {
-      live = false;
-      clearInterval(h);
+    const goOnline = () => {
+      setOnline(true);
+      collection.list().then((canonical) => {
+        if (canonical != null) {
+          setNotes(canonical);
+          setLoading(false);
+        }
+      }).catch(() => {
+      });
     };
-  }, []);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, [collection]);
+  useEffect5(() => {
+    if (loading) return;
+    writeIndex(notes).catch(() => {
+    });
+  }, [notes, loading]);
   useEffect5(() => () => {
     if (gcTimer.current) clearTimeout(gcTimer.current);
   }, []);
@@ -2985,10 +3102,13 @@ function App({ appId, token }) {
     return loaded;
   }, [notes, collection]);
   const openEditor = useCallback4(async (id) => {
-    window.mobius?.signal("note_opened");
-    setSaveError((e) => e && failedSaveIds.has(e.id) ? e : null);
     const cur = notes.find((n) => n.meta.id === id);
-    if (cur && cur.placeholder && !await ensureAuthoritative(id)) return;
+    window.mobius?.signal?.("item_opened", { type: cur?.meta?.type || "note" });
+    setSaveError((e) => e && failedSaveIds.has(e.id) ? e : null);
+    if (cur && cur.placeholder && !await ensureAuthoritative(id)) {
+      setSaveError({ id, message: "This note is not cached yet. Reconnect to open it." });
+      return;
+    }
     if (view.mode === "editor") {
       setView({ mode: "editor", id });
       return;
@@ -3011,7 +3131,7 @@ function App({ appId, token }) {
     try {
       let result;
       if (writeThroughHook) {
-        result = await liveDoc.update(() => ({ meta: m, body }));
+        result = await liveDocRef.current.update(() => ({ meta: m, body }));
       } else {
         ;
         ({ result } = await collection.update(id, () => ({ meta: m, body })));
@@ -3023,13 +3143,13 @@ function App({ appId, token }) {
         n.delete(id);
         return n;
       });
-      if (isDraftCommit) setDraft(null);
+      if (isDraftCommit) {
+        setDraft(null);
+        window.mobius?.signal?.("item_created", { type: m.type || "note" });
+      } else {
+        window.mobius?.signal?.("item_updated", { type: m.type || "note", durability: result?.durability });
+      }
       scheduleGc();
-      const wordCount = (body || "").trim().split(/\s+/).filter(Boolean).length;
-      window.mobius?.signal("note_saved", {
-        word_count: wordCount || void 0,
-        durability: result?.durability
-      });
       return m;
     } catch (err) {
       window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "writeNote" });
@@ -3037,7 +3157,7 @@ function App({ appId, token }) {
       setFailedSaveIds((s) => s.has(id) ? s : new Set(s).add(id));
       throw err;
     }
-  }, [openId, liveDoc, upsert, collection, scheduleGc]);
+  }, [openId, upsert, collection, scheduleGc]);
   const persist = useCallback4(async (meta, body) => {
     if (draft && draft.meta.id === meta.id) {
       const next = { meta: { ...draft.meta, ...meta }, body };
@@ -3083,7 +3203,6 @@ function App({ appId, token }) {
     scheduleGc();
   }, [collection, scheduleGc]);
   const doDelete = useCallback4((id) => {
-    window.mobius?.signal("item_deleted");
     if (draft && draft.meta.id === id) {
       if (view.mode === "editor" && view.id === id) popEditorNav();
       setDraft(null);
@@ -3092,14 +3211,12 @@ function App({ appId, token }) {
       return;
     }
     const n = notes.find((x) => x.meta.id === id);
-    if (n) queueDelete(id).catch(() => {
-    });
-    setNotes((prev) => {
-      const next = prev.filter((note) => note.meta.id !== id);
-      writeIndex(next).catch(() => {
+    if (n) {
+      window.mobius?.signal?.("item_deleted", { type: n.meta.type || "note" });
+      queueDelete(id).catch(() => {
       });
-      return next;
-    });
+    }
+    setNotes((prev) => prev.filter((note) => note.meta.id !== id));
     setConfirmId(null);
     setView((v) => {
       if (v.mode === "editor" && v.id === id) {
@@ -3121,12 +3238,7 @@ function App({ appId, token }) {
     if (n && !n.placeholder && isBlankNote(n.meta, n.body)) {
       queueDelete(n.meta.id).catch(() => {
       });
-      setNotes((prev) => {
-        const next = prev.filter((x) => x.meta.id !== n.meta.id);
-        writeIndex(next).catch(() => {
-        });
-        return next;
-      });
+      setNotes((prev) => prev.filter((x) => x.meta.id !== n.meta.id));
     }
     setView({ mode: "grid" });
   }, [draft, notes, popEditorNav, view.id, queueDelete]);
@@ -3139,78 +3251,89 @@ function App({ appId, token }) {
     return () => window.removeEventListener("message", onMessage);
   }, [back]);
   const visible = useMemo3(() => visibleNotes(notes, query), [notes, query]);
+  useEffect5(() => {
+    const q = query.trim();
+    if (loading || !q || visible.length > 0) return void 0;
+    const h = setTimeout(() => {
+      window.mobius?.signal?.("search_no_results", { query_len: q.length });
+    }, 700);
+    return () => clearTimeout(h);
+  }, [query, visible.length, loading]);
   const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id && !n.placeholder) || (draft && draft.meta.id === view.id ? draft : null) : null;
   const status = saveError && editing && saveError.id === editing.meta.id ? "Save failed" : !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : null;
   return /* @__PURE__ */ jsxs6("div", { className: "nt-root", children: [
     /* @__PURE__ */ jsx8("style", { children: CSS }),
-    /* @__PURE__ */ jsx8(TopBar, { appId, query, onQuery: setQuery }),
-    !editing && saveError && /* @__PURE__ */ jsxs6("div", { className: "nt-save-err", role: "alert", "aria-live": "assertive", children: [
-      /* @__PURE__ */ jsx8("span", { className: "nt-save-err-msg", children: saveError.message }),
-      /* @__PURE__ */ jsx8(
+    /* @__PURE__ */ jsxs6(ErrorBoundary, { children: [
+      /* @__PURE__ */ jsx8(TopBar, { appId, query, onQuery: setQuery }),
+      !editing && saveError && /* @__PURE__ */ jsxs6("div", { className: "nt-save-err", role: "alert", "aria-live": "assertive", children: [
+        /* @__PURE__ */ jsx8("span", { className: "nt-save-err-msg", children: saveError.message }),
+        /* @__PURE__ */ jsx8(
+          "button",
+          {
+            className: "nt-save-err-btn",
+            onClick: () => setSaveError(null),
+            "aria-label": "Dismiss save error",
+            children: "Dismiss"
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsxs6("div", { className: "nt-loading", role: "status", "aria-live": "polite", children: [
+        /* @__PURE__ */ jsx8("span", { className: "nt-spinner", "aria-hidden": "true" }),
+        /* @__PURE__ */ jsx8("span", { children: "Loading\u2026" })
+      ] }) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(
+        Grid,
+        {
+          notes: visible,
+          onOpen: (id) => {
+            openEditor(id).catch(() => setView({ mode: "editor", id }));
+          },
+          onPin: togglePin,
+          onColor: setColor,
+          onDelete: setConfirmId,
+          resolveAttachment: attachmentURL
+        }
+      ) }),
+      view.mode !== "editor" && /* @__PURE__ */ jsx8(
         "button",
         {
-          className: "nt-save-err-btn",
-          onClick: () => setSaveError(null),
-          "aria-label": "Dismiss save error",
-          children: "Dismiss"
+          className: "nt-fab",
+          onClick: createNote,
+          "aria-label": "New note",
+          title: "New note",
+          children: "+"
         }
-      )
-    ] }),
-    /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsxs6("div", { className: "nt-loading", role: "status", "aria-live": "polite", children: [
-      /* @__PURE__ */ jsx8("span", { className: "nt-spinner", "aria-hidden": "true" }),
-      /* @__PURE__ */ jsx8("span", { children: "Loading\u2026" })
-    ] }) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(
-      Grid,
-      {
-        notes: visible,
-        onOpen: (id) => {
-          openEditor(id).catch(() => setView({ mode: "editor", id }));
-        },
-        onPin: togglePin,
-        onColor: setColor,
-        onDelete: setConfirmId,
-        resolveAttachment: attachmentURL
-      }
-    ) }),
-    view.mode !== "editor" && /* @__PURE__ */ jsx8(
-      "button",
-      {
-        className: "nt-fab",
-        onClick: createNote,
-        "aria-label": "New note",
-        title: "New note",
-        children: "+"
-      }
-    ),
-    editing && /* @__PURE__ */ jsx8(
-      EditorPanel,
-      {
-        appId,
-        note: editing,
-        onSave: persist,
-        onBack: back,
-        onPin: togglePin,
-        onColor: setColor,
-        onDelete: setConfirmId,
-        resolveAttachment: attachmentURL,
-        putAttachment,
-        conflict: conflicts.has(editing.meta.id),
-        status,
-        forceSave: failedSaveIds.has(editing.meta.id)
-      }
-    ),
-    /* @__PURE__ */ jsx8(
-      ConfirmModal,
-      {
-        open: !!confirmId,
-        title: "Delete note?",
-        message: "This note will be permanently deleted.",
-        confirmLabel: "Delete",
-        danger: true,
-        onConfirm: () => doDelete(confirmId),
-        onCancel: () => setConfirmId(null)
-      }
-    )
+      ),
+      editing && /* @__PURE__ */ jsx8(
+        EditorPanel,
+        {
+          appId,
+          note: editing,
+          onSave: persist,
+          onBack: back,
+          onPin: togglePin,
+          onColor: setColor,
+          onDelete: setConfirmId,
+          resolveAttachment: attachmentURL,
+          putAttachment,
+          conflict: conflicts.has(editing.meta.id),
+          status,
+          forceSave: failedSaveIds.has(editing.meta.id)
+        }
+      ),
+      /* @__PURE__ */ jsx8(
+        ConfirmModal,
+        {
+          open: !!confirmId,
+          title: "Delete note?",
+          message: "This note will be permanently deleted.",
+          confirmLabel: "Delete",
+          danger: true,
+          onConfirm: () => doDelete(confirmId),
+          onCancel: () => setConfirmId(null)
+        }
+      ),
+      !online && view.mode !== "editor" && /* @__PURE__ */ jsx8("div", { className: "nt-sync-pill", role: "status", children: "Offline" })
+    ] })
   ] });
 }
 export default App;

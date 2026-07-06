@@ -6,6 +6,7 @@ import { normalizeColorName } from './colors.js'
 import { strandedImageRefs, bodyAttachmentRefs } from '../lib/attachments.js'
 import { releaseAttachment } from '../lib/attachment-leases.js'
 import { toSdrImage } from '../lib/sdr-image.js'
+import { merge3 } from '../lib/merge.js'
 import ColorPicker from './ColorPicker.jsx'
 import Editor from '../editor/Editor.jsx'
 import { Icon } from './icons.jsx'
@@ -54,6 +55,13 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   // flushed (see the id-change effect), so a debounced flush never writes the
   // outgoing buffer under the incoming note's meta.
   const latest = useRef({ note, title: note.meta.title || '', body: note.body || '' })
+  // The `note.body` prop value the editor buffer was last reconciled against — the
+  // 3-way merge BASE for an EXTERNAL rewrite of the SAME note (agent conflict
+  // resolve, cron resolver, or another device). When `note.body` changes while the
+  // id is unchanged, the reconcile effect merges the live buffer (mine) with the
+  // incoming body (theirs) against this base and repoints it. Seeded to the first
+  // note body; reset on every note-swap and every reconcile.
+  const reconciledBody = useRef(note.body || '')
 
   const isChecklist = note.meta.type === 'checklist'
 
@@ -105,10 +113,55 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     if (timer.current) clearTimeout(timer.current)
     flushSave().catch(() => {}) // a refused save surfaces via the saveError banner; don't throw on note-swap
     latest.current = { note, title: note.meta.title || '', body: note.body || '' }
+    reconciledBody.current = note.body || ''
     setTitle(note.meta.title || '')
     setBody(note.body || '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.meta.id])
+
+  // Reconcile the live buffer with an EXTERNAL rewrite of the OPEN note. When the
+  // agent conflict-resolver, the cron resolver, or another device writes
+  // notes/<id>.json, the app mirrors the new value into the grid and re-passes it as
+  // `note` (same id, new `note.body`). Without this effect the buffer keeps the OLD
+  // body: the editor never repaints AND the ~600ms autosave then writes the stale
+  // buffer back over the external body (the data-loss bug). Here we 3-way merge the
+  // incoming body (theirs) with the live buffer (mine) against the last-reconciled
+  // body (base) and push the result into CodeMirror, so the editor repaints and the
+  // autosave no-op check sees buffer == note.body (no stale clobber). A same-id
+  // note.body change is the only trigger; the note-swap effect above owns id changes
+  // (it resets reconciledBody first, so a swap short-circuits on incoming === base).
+  useEffect(() => {
+    if (latest.current.note.meta.id !== note.meta.id) return // a swap; handled above
+    const incoming = note.body || ''
+    const base = reconciledBody.current
+    if (incoming === base) return // no external change (our own save echo, or a no-op)
+    const v = viewRef.current
+    const mineBuf = v ? v.state.doc.toString() : body
+    // No local unsaved edits → adopt theirs verbatim; otherwise 3-way merge so the
+    // user's in-flight edits are preserved alongside the external change.
+    const merged = mineBuf === base ? incoming : merge3(base, mineBuf, incoming).text
+    reconciledBody.current = incoming
+    if (v) {
+      const cur = v.state.doc.toString()
+      if (cur !== merged) {
+        // Preserve the caret as best we can across a full-doc replace (clamped to
+        // the new length). The updateListener turns this dispatch into onChange →
+        // setBody, keeping React state in sync; guard so this isn't retreated as a
+        // fresh local edit (merged === note.body when there were no local edits → the
+        // autosave effect sees a no-op; otherwise autosave persists the merged buffer).
+        const head = v.state.selection.main.head
+        v.dispatch({
+          changes: { from: 0, to: cur.length, insert: merged },
+          selection: { anchor: Math.min(head, merged.length) },
+        })
+      } else {
+        setBody(merged)
+      }
+    } else {
+      setBody(merged)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.body])
 
   useEffect(() => {
     if (title === (note.meta.title || '') && body === (note.body || '')) return
@@ -169,15 +222,17 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     // image ref (the multi-image broken-link race). With the timer cleared, the
     // single write below is the only one in flight for this attach.
     if (timer.current) clearTimeout(timer.current)
+    const isImage = (f.type || '').startsWith('image/')
+    let res
+    let nextBody
     try {
-      const isImage = (f.type || '').startsWith('image/')
       // Flatten images to SDR sRGB before storing: an Android "Ultra HDR" capture
       // would otherwise promote the whole display surface to HDR on render and
       // tone-shift the surrounding SDR UI (shell + app). toSdrImage drops the gain
       // map by re-encoding through a 2D canvas; on any decode/encode failure it
       // returns the original file so the attachment is never lost.
       const upload = isImage ? await toSdrImage(f) : f
-      const res = await putAttachment(upload)
+      res = await putAttachment(upload)
       // Escape brackets in the filename before it becomes markdown alt/link text:
       // a literal `]` would terminate the `![alt]`/`[text]` span early and leave
       // raw filename characters visible (or break the ref). The URL comes from
@@ -187,34 +242,43 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
       // Insert into the LIVE editor and read back the resulting doc — this already
       // contains EVERY prior image ref plus the one just inserted, so basing the
       // write on it (not a captured React snapshot) is what makes a second/third
-      // image survive. Union meta.attachments from BOTH the note's existing record
-      // AND every ref the live body now embeds, so no ref is ever dropped and no
-      // in-body blob is left without an attachments record for the GC to reclaim.
-      const nextBody = insertMarkdown(md)
-      const attachments = Array.from(new Set([
-        ...(note.meta.attachments || []),
-        ...bodyAttachmentRefs(nextBody),
-        res.path,
-      ]))
-      // putAttachment leased res.path as in-flight (GC-pinned) before the blob
-      // hit disk. Hold that lease across onSave so a debounced GC firing in the
-      // pre-write window can't free the brand-new blob, then release ONLY after
-      // onSave resolves — the note now durably references the path, so the
-      // listNotes()-derived referenced set covers it. A rejected save throws past
-      // this line (into the catch), so we deliberately KEEP the lease there: the
-      // image is still in the editor, retrying must not let the blob be GC'd.
+      // image survive.
+      nextBody = insertMarkdown(md)
+    } catch (err) {
+      // The ATTACH itself failed (SDR flatten, putAttachment, or the 25 MB cap):
+      // the image was never inserted, so the live body is unchanged. Show the
+      // attach error and rescue the pre-existing unsaved text (its autosave was
+      // cancelled up-front, so a crash before the next trigger would lose it).
+      setAttachErr(String(err && err.message || err).includes('limit') ? 'File too large (max 25 MB).' : 'Could not attach file.')
+      setTimeout(() => setAttachErr(''), 3500)
+      flushSave().catch(() => {})
+      return
+    }
+    // The blob landed and the ref is in the body; now persist. Union meta.attachments
+    // from the note's existing record AND every ref the live body now embeds, so no
+    // ref is ever dropped and no in-body blob is left without an attachments record
+    // for the GC to reclaim.
+    const attachments = Array.from(new Set([
+      ...(note.meta.attachments || []),
+      ...bodyAttachmentRefs(nextBody),
+      res.path,
+    ]))
+    // putAttachment leased res.path as in-flight (GC-pinned) before the blob hit
+    // disk. Hold that lease across onSave so a debounced GC firing in the pre-write
+    // window can't free the brand-new blob, then release ONLY after onSave resolves
+    // — the note now durably references the path, so the listNotes()-derived
+    // referenced set covers it.
+    try {
       await onSave({ ...note.meta, title, attachments }, nextBody)
       releaseAttachment(res.path)
       setAttachErr('')
+      window.mobius?.signal?.('attachment_added', { kind: isImage ? 'image' : 'file', bytes: f.size || 0, flattened: isImage })
     } catch (err) {
-      setAttachErr(String(err && err.message || err).includes('limit') ? 'File too large (max 25 MB).' : 'Could not attach file.')
-      setTimeout(() => setAttachErr(''), 3500)
-      // The autosave timer was cleared up-front for the attach. On failure the
-      // image was never inserted, so the live body is still the user's existing
-      // text — but its pending autosave is gone, stranding any unsaved edits in
-      // memory until the next save trigger (a crash before then loses them).
-      // Flush now through the editor's own save path to re-persist that text.
-      flushSave().catch(() => {})
+      // The SAVE was refused (durable-write dead-letter), NOT the attach. The app
+      // surfaces this via its own 'Save failed' banner (writeNote sets saveError) —
+      // do NOT mislabel it "Could not attach file" (the attach succeeded and the
+      // image IS in the editor). KEEP the in-flight lease so a retry can't let the
+      // GC free the still-referenced blob.
     }
   }
 
