@@ -231,7 +231,7 @@ export default function App({ appId, token }) {
       // built). The losing side's body lives ONLY in this descriptor, so a swallowed
       // failure is silent data loss. Keep the note flagged conflicted and raise a
       // visible, actionable error so the user/agent can re-capture it on reconnect.
-      window.mobius?.signal('error', { message: err?.message ?? 'conflict save failed', source: 'onConflict' })
+      window.mobius?.signal?.('error', { message: err?.message ?? 'conflict save failed', source: 'onConflict' })
       if (id != null) {
         setConflicts((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
         setSaveError({
@@ -583,7 +583,7 @@ export default function App({ appId, token }) {
       // action must not report success. The saveError we set here drives the
       // visible 'Save failed' banner — in the editor (status) and, when no editor
       // is open, the grid-level banner. Same honest surfacing on both paths.
-      window.mobius?.signal('error', { message: err?.message ?? 'save failed', source: 'writeNote' })
+      window.mobius?.signal?.('error', { message: err?.message ?? 'save failed', source: 'writeNote' })
       setSaveError({ id, message: 'Could not save — your edit is kept. Retrying when possible.' })
       setFailedSaveIds((s) => (s.has(id) ? s : new Set(s).add(id)))
       throw err

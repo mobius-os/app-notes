@@ -30,12 +30,12 @@ emit_cron_summary() { # $1 status  $2 conflicts_open  $3 conflicts_resolved  $4 
   line=$(printf '{"ts":"%s","name":"cron_summary","status":"%s","conflicts_open":%s,"conflicts_resolved":%s,"message":"%s"}' \
     "$ts" "$1" "$2" "$3" "$4")
   url="$API_BASE_URL/api/storage/apps/$ID/signals.jsonl"
-  # The runtime always writes signals.jsonl with a trailing newline (or it's absent →
-  # GET 404 → empty), so appending our line + '\n' stays valid JSONL. The tail-cap
-  # bounds growth between app opens (the runtime re-seeds tail-400 and overwrites on
-  # its next open).
+  # Command substitution strips the file's trailing newline, so re-add one
+  # between the existing content and our line or the two JSON objects would
+  # concatenate into one unparseable row. The tail-cap bounds growth between
+  # app opens (the runtime re-seeds tail-400 and overwrites on its next open).
   cur=$(curl -fsS -H "Authorization: Bearer $tok" "$url" 2>/dev/null || true)
-  printf '%s%s\n' "$cur" "$line" | tail -n 500 | curl -fsS -X PUT \
+  { [ -n "$cur" ] && printf '%s\n' "$cur"; printf '%s\n' "$line"; } | tail -n 500 | curl -fsS -X PUT \
     -H "Authorization: Bearer $tok" -H "Content-Type: text/plain" \
     --data-binary @- "$url" >/dev/null 2>&1 || true
 }

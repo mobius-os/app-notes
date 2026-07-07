@@ -2919,7 +2919,7 @@ function App({ appId, token }) {
         window.mobius?.signal?.("conflict_raised", { note_count: 1 });
       }
     } catch (err) {
-      window.mobius?.signal("error", { message: err?.message ?? "conflict save failed", source: "onConflict" });
+      window.mobius?.signal?.("error", { message: err?.message ?? "conflict save failed", source: "onConflict" });
       if (id != null) {
         setConflicts((prev) => prev.has(id) ? prev : new Set(prev).add(id));
         setSaveError({
@@ -3152,7 +3152,7 @@ function App({ appId, token }) {
       scheduleGc();
       return m;
     } catch (err) {
-      window.mobius?.signal("error", { message: err?.message ?? "save failed", source: "writeNote" });
+      window.mobius?.signal?.("error", { message: err?.message ?? "save failed", source: "writeNote" });
       setSaveError({ id, message: "Could not save \u2014 your edit is kept. Retrying when possible." });
       setFailedSaveIds((s) => s.has(id) ? s : new Set(s).add(id));
       throw err;
