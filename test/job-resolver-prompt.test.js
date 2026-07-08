@@ -1,4 +1,4 @@
-// P0-High regression: the autonomous cron resolver (tick.sh) must verify the
+// P0-High regression: the manual resolver job must verify the
 // current canonical note body against the descriptor's `mine.body`, NOT `server.body`.
 // When the app raises a genuine body conflict it persists `mine.body` to the note
 // file (the descriptor holds the only surviving copy of `server.body`), so a
@@ -20,13 +20,13 @@ if (!globalThis.crypto || !globalThis.crypto.subtle) globalThis.crypto = webcryp
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')
-const TICK = readFileSync(resolve(ROOT, 'tick.sh'), 'utf8')
+const JOB = readFileSync(resolve(ROOT, 'job.sh'), 'utf8')
 
-test('tick.sh resolver verifies the current note body against mine.body, not server.body', () => {
-  assert.match(TICK, /should equal the descriptor's[\s\S]{0,4}mine\.body/i, 'the verify anchor is mine.body')
-  assert.match(TICK, /NO LONGER matches[\s\S]{0,12}mine\.body[\s\S]{0,90}ABANDON/i, 'abandon fires only when the current body diverges from mine.body')
+test('resolver job verifies the current note body against mine.body, not server.body', () => {
+  assert.match(JOB, /should equal the descriptor's[\s\S]{0,4}mine\.body/i, 'the verify anchor is mine.body')
+  assert.match(JOB, /NO LONGER matches[\s\S]{0,12}mine\.body[\s\S]{0,90}ABANDON/i, 'abandon fires only when the current body diverges from mine.body')
   // The refuted rule must never return: abandoning on a server.body mismatch.
-  assert.doesNotMatch(TICK, /no longer matches the descriptor's[\s\S]{0,4}server\.body/i, 'the resolver no longer abandons on a server.body mismatch')
+  assert.doesNotMatch(JOB, /no longer matches the descriptor's[\s\S]{0,4}server\.body/i, 'the resolver no longer abandons on a server.body mismatch')
 })
 
 test('a genuine body conflict lands mine.body on the note and preserves server.body in the descriptor', async () => {
@@ -36,7 +36,7 @@ test('a genuine body conflict lands mine.body on the note and preserves server.b
 
   const { value, conflict } = mergeNoteDocs(base, mine, theirs)
   assert.equal(conflict, true, 'overlapping single-line edits are a genuine conflict')
-  assert.equal(value.body, 'MINE line', 'the note file gets mine.body — the invariant tick.sh verifies against')
+  assert.equal(value.body, 'MINE line', 'the note file gets mine.body — the invariant job verifies against')
 
   const d = await conflictDescriptorFor(base, mine, theirs, contentHash)
   assert.equal(d.mine.body, 'MINE line', 'the descriptor keeps mine.body')

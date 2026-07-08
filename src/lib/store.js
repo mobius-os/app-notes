@@ -71,8 +71,8 @@ export async function readIndex() {
 }
 
 // Persist a conflict descriptor (a JSON object) at its
-// conflicts/<id>/<hashes>.json path so tick.sh's resolver and the in-app
-// "Resolve now" agent can find it. This descriptor is the SOLE surviving copy of
+// conflicts/<id>/<hashes>.json path so the in-app "Resolve now" agent can find
+// it. This descriptor is the SOLE surviving copy of
 // the losing side's body in a real two-device conflict (the note file keeps only
 // MINE's body), so its write must be durable-or-loud: durableWrite resolves
 // 'synced'|'queued' (queued offline is durable success, drains on reconnect) and

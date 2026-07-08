@@ -55,10 +55,10 @@ export const docId = (doc) => (doc && doc.meta ? doc.meta.id : undefined)
 // The conflict descriptor is immutable and content-addressed by the three
 // hashes, so two distinct conflicts on the same note never collide and the same
 // conflict is idempotent to re-emit. It carries full base/mine/server for the
-// agent resolver (tick.sh + the in-app "Resolve now"), which reasons about
+// in-app agent resolver, which reasons about
 // semantics rather than diff hunks. This mirrors the old reconciler's
-// buildConflict EXACTLY — same shape, same path — so the cron resolver and the
-// "Resolve now" prompt keep working unchanged.
+// buildConflict EXACTLY — same shape, same path — so the "Resolve now" prompt
+// keeps working unchanged.
 export function buildConflictDescriptor({ noteId, base, mine, server, hashes }) {
   const { baseHash, mineHash, serverHash } = hashes
   return {

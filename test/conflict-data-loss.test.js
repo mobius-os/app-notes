@@ -2,7 +2,7 @@
 // drops THEIRS's body from the note file (mergeNoteDocs keeps only MINE's body)
 // — the losing side survives ONLY in the conflict descriptor at
 // conflicts/<id>/<hashes>.json, which is the sole input to the "Resolve now" /
-// cron resolver. So the descriptor write must be durable-or-loud:
+// manual resolver. So the descriptor write must be durable-or-loud:
 //
 //   1. store.writeConflict uses durableWrite (REJECTS on a fatal dead-letter),
 //      NOT the legacy set() that LIES ({synced:true} while persisting nothing).

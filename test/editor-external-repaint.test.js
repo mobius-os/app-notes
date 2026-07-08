@@ -1,5 +1,5 @@
 // P0-High regression: an EXTERNAL rewrite of the OPEN note (agent conflict
-// resolver, cron resolver, or another device writing notes/<id>.json) must repaint
+// resolver or another device writing notes/<id>.json) must repaint
 // the editor buffer AND must never let the ~600ms autosave write the stale buffer
 // back over the external body. Before the fix, EditorPanel only reset its buffer on
 // a note-IDENTITY change, so a same-id `note.body` change never reached CodeMirror

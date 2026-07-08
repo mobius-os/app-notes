@@ -1,33 +1,33 @@
 #!/bin/bash
-# Notes cron tick (installed by init-cron-scaffold; runs every 10 min). $1 is
-# the numeric app id, i.e. the storage dir /data/apps/<id>. Two jobs:
+# Notes resolver job. $1 is the numeric app id, i.e. the storage dir
+# /data/apps/<id>. It does two things when run manually:
 #   1. git-snapshot the canonical notes for history/audit + dreaming time-travel
-#   2. resolve any merge-conflict descriptors via an agent — leased so the cron
+#   2. resolve any merge-conflict descriptors via an agent — leased so this job
 #      and the in-app "Resolve now" can't double-resolve, and verify-before-write
 #      so a newer edit that landed since the conflict is never clobbered.
 # Cheap no-op when nothing is dirty / no conflicts are open.
 set -uo pipefail
 
-ID="${1:?usage: tick.sh <app-id>}"
+ID="${1:?usage: job.sh <app-id>}"
 DATA="/data/apps/$ID"
 LOG=/data/cron-logs/notes.log
 mkdir -p "$(dirname "$LOG")"
 [ -d "$DATA" ] || { echo "$(date -u +%FT%TZ) tick: no data dir $DATA" >> "$LOG"; exit 0; }
 
-# Emit ONE cron_summary signal per run to the app's signals.jsonl through the raw
+# Emit ONE resolver_summary signal per run to the app's signals.jsonl through the raw
 # storage API, so Reflection can see the resolver ran (and whether it failed). The
 # line schema mirrors the runtime makeSignal(): {ts, name, ...flat payload}. Strictly
-# best-effort — a signal write must NEVER fail or block the tick. (Only verifiable
+# best-effort — a signal write must NEVER fail or block the job. (Only verifiable
 # against a live container: it needs the service token + a running API.)
 API_BASE_URL="${API_BASE_URL:-http://localhost:8000}"
 SERVICE_TOKEN_FILE="${SERVICE_TOKEN_FILE:-/data/service-token.txt}"
-emit_cron_summary() { # $1 status  $2 conflicts_open  $3 conflicts_resolved  $4 message
+emit_resolver_summary() { # $1 status  $2 conflicts_open  $3 conflicts_resolved  $4 message
   [ -r "$SERVICE_TOKEN_FILE" ] || return 0
   local tok ts line url cur
   tok=$(cat "$SERVICE_TOKEN_FILE" 2>/dev/null) || return 0
   [ -n "$tok" ] || return 0
   ts=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-  line=$(printf '{"ts":"%s","name":"cron_summary","status":"%s","conflicts_open":%s,"conflicts_resolved":%s,"message":"%s"}' \
+  line=$(printf '{"ts":"%s","name":"resolver_summary","status":"%s","conflicts_open":%s,"conflicts_resolved":%s,"message":"%s"}' \
     "$ts" "$1" "$2" "$3" "$4")
   url="$API_BASE_URL/api/storage/apps/$ID/signals.jsonl"
   # Command substitution strips the file's trailing newline, so re-add one
@@ -60,10 +60,10 @@ fi
 # ---- 2. resolve conflict descriptors via agent (leased + verify) ----
 CONF="$DATA/conflicts"
 LEASES="$DATA/leases"
-[ -d "$CONF" ] || { emit_cron_summary ok 0 0 "snapshot ok; no conflicts"; exit 0; }
+[ -d "$CONF" ] || { emit_resolver_summary ok 0 0 "snapshot ok; no conflicts"; exit 0; }
 mkdir -p "$LEASES"
 now=$(date +%s)
-RID="cron-$$-$now"
+RID="job-$$-$now"
 TTL=900
 resolver_err=0
 
@@ -88,7 +88,7 @@ Procedure (follow exactly):
    file (the descriptor is the only surviving copy of `server.body`), so the current
    canonical body should equal the descriptor's `mine.body`. If it NO LONGER matches
    `mine.body` (a newer edit landed since the conflict was raised), ABANDON — do NOT
-   write the note, leave the descriptor as-is, and stop. A later tick retries against
+   write the note, leave the descriptor as-is, and stop. A later run retries against
    the new state. (Do NOT compare against `server.body`: by construction the note
    file already holds `mine.body`, not `server.body`, so a `server.body` check would
    wrongly abandon every real conflict.)
@@ -138,4 +138,4 @@ for desc in "$CONF"/*/*.json; do
 done
 summary_status=ok
 [ "$resolver_err" -eq 1 ] && summary_status=error
-emit_cron_summary "$summary_status" "$open_count" "$resolved_count" "resolved=$resolved_count open=$open_count"
+emit_resolver_summary "$summary_status" "$open_count" "$resolved_count" "resolved=$resolved_count open=$open_count"

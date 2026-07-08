@@ -14,12 +14,10 @@ import { Icon } from './icons.jsx'
 const AUTOSAVE_MS = 600
 const EDITOR_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
 
-// Ask the owner shell to spawn an agent chat to resolve a note's merge conflict
-// (the autonomous cron resolver also handles it; this is the on-demand path).
+// Ask the owner shell to spawn an agent chat to resolve a note's merge conflict.
 // The on-disk data dir is keyed by the app's NUMERIC storage id, not the slug:
-// the cron resolver (tick.sh) derives DATA="/data/apps/$ID" from the same id the
-// frame hands the app as `appId`. Building the draft's paths from `appId` keeps
-// the on-demand chat pointed at the dir that actually exists; a hard-coded slug
+// the frame hands the app as `appId`. Building the draft's paths from `appId`
+// keeps the on-demand chat pointed at the dir that actually exists; a hard-coded slug
 // path (`/data/apps/notes/`) does not exist, so the agent's reads always fail.
 // Notes are JSON documents ({ meta, body }) at notes/<id>.json now (post the
 // useDocument migration); the body field holds the markdown.
@@ -78,7 +76,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   const latest = useRef({ note, title: note.meta.title || '', body: note.body || '' })
   // The `note.body` prop value the editor buffer was last reconciled against — the
   // 3-way merge BASE for an EXTERNAL rewrite of the SAME note (agent conflict
-  // resolve, cron resolver, or another device). When `note.body` changes while the
+  // resolve or another device). When `note.body` changes while the
   // id is unchanged, the reconcile effect merges the live buffer (mine) with the
   // incoming body (theirs) against this base and repoints it. Seeded to the first
   // note body; reset on every note-swap and every reconcile.
@@ -178,7 +176,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   }, [note.meta.id])
 
   // Reconcile the live buffer with an EXTERNAL rewrite of the OPEN note. When the
-  // agent conflict-resolver, the cron resolver, or another device writes
+  // agent conflict-resolver or another device writes
   // notes/<id>.json, the app mirrors the new value into the grid and re-passes it as
   // `note` (same id, new `note.body`). Without this effect the buffer keeps the OLD
   // body: the editor never repaints AND the ~600ms autosave then writes the stale

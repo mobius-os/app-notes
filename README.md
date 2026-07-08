@@ -53,7 +53,7 @@ conflicts/, leases/          conflict descriptors + resolver leases (git-ignored
 index.json                   derived grid cache (rebuildable; never authoritative)
 notes-meta.json              self-describing contract for the dreaming agent
 signals.jsonl                app analytics for Reflection (see "Signals" below)
-.git/                        history snapshot (tick.sh cron)
+.git/                        local history for note snapshots
 ```
 
 Each note is a JSON document whose `body` field is plain markdown — still grep-,
@@ -70,13 +70,12 @@ Durability rides the platform runtime: a note write goes through
 so a failed save is a visible error, never a false "saved". Concurrent same-note
 edits 3-way-merge via `merge3`; a genuine overlapping-body conflict lands MINE's
 body on the note file and emits an immutable descriptor under `conflicts/`, the
-only surviving copy of the losing side's body. The agent resolves it —
-autonomously via `tick.sh` (leased + verify-before-write against `mine.body`, the
-body the app persisted) or on demand via the in-app "Resolve now" button. When
-an external writer (the resolver or another device) rewrites an OPEN note, the
-editor 3-way-merges the incoming body into the live buffer and repaints, so a
-resolution is never clobbered by a stale autosave. `tick.sh` also git-snapshots
-the notes each tick.
+only surviving copy of the losing side's body. The in-app "Resolve now" button
+asks an agent to resolve it with a lease + verify-before-write against
+`mine.body`, the body the app persisted. When an external writer (the resolver or
+another device) rewrites an OPEN note, the editor 3-way-merges the incoming body
+into the live buffer and repaints, so a resolution is never clobbered by a stale
+autosave.
 
 Reads stay offline-first: `storage.get()` overlays queued writes (read-your-
 writes), and a cold offline load paints the `index.json` cache. `storage.list()`
@@ -90,15 +89,12 @@ nightly digest (buffered, flushed to `signals.jsonl`; flat-primitive payloads,
 no note text or filenames): `app_ready {item_count, offline}`,
 `item_created`/`item_updated`/`item_opened`/`item_deleted {type}`,
 `attachment_added {kind, bytes, flattened}`, `search_no_results {query_len}`,
-`conflict_raised`/`conflict_resolved`, `error {message, source}`, and a
-`cron_summary {status, conflicts_open, conflicts_resolved}` appended once per run
-by `tick.sh`.
+`conflict_raised`/`conflict_resolved`, and `error {message, source}`.
 
 ## Maintenance
 
-`tick.sh` runs on a fixed **every-10-minutes** cron (`mobius.json` → `schedule`,
-not user-editable): it git-snapshots the notes and resolves any open merge
-conflicts. To change the cadence, ask the Möbius agent to reschedule it.
+Notes does not install a recurring cron job. Conflict resolution is on-demand via
+the in-app "Resolve now" action.
 
 See `DESIGN.md` for the full design and `docs/superpowers/plans/` for the build
 plan.

@@ -15,7 +15,7 @@ history**, and when offline edits collide on reconnect it **auto-merges**, or
 markdown so the **dreaming agent** can read them cleanly.
 
 Ships as an **app-store app** (`mobius-os/app-notes`): one `index.jsx`, one
-`mobius.json`, a generated `icon.png`, and bundled cron jobs — **plus a small,
+`mobius.json`, a generated `icon.png`, and no recurring cron jobs — **plus a small,
 well-precedented platform change** that vendors the editor foundation
 (CodeMirror 6 + KaTeX) under `/vendor`, exactly as three.js and React are
 vendored today (see §4, §13). Sizing justifies it: CM6 is smaller than the
@@ -31,7 +31,7 @@ We do not reference or imitate the Google Keep brand. The name is **Notes**
 - Multi-device *branch* sync. We do per-note reconcile, not per-device git
   branches.
 - A server endpoint for atomic conditional writes. We work entirely within the
-  existing storage API + cron + agent primitives.
+  existing storage API + owner-agent primitives.
 - Sharing notes between apps or users.
 
 ## 2. Platform facts this design is built on
@@ -55,11 +55,10 @@ We do not reference or imitate the Google Keep brand. The name is **Notes**
   `alert/confirm/prompt`; build in-app modals. Same-origin → `fetch('/api/…')`
   works with the owner JWT. CSP `connect-src 'self' https://esm.sh`.
 - User-rendered HTML must pass **DOMPurify**.
-- Cron: apps ship `job.sh` / `fetch.sh`; `init-cron-scaffold.sh <slug> "<sched>"
-  <job> [app-id]` installs a restart-surviving entry. Cron jobs run `claude -p`
-  with tools + the service token at `/data/service-token.txt`.
+- Jobs: apps may ship `job.sh` / `fetch.sh`. A recurring cron is optional, but
+  Notes does not install one.
 - App→agent with tools: an **app token cannot** call `/api/ai` with tools.
-  Tool-capable agents come from (a) a **cron CLI** job, or (b) the owner shell
+  Tool-capable agents come from the owner shell
   via `window.parent.postMessage({type:'moebius:new-chat', draft})`.
 - The **dreaming** agent runs nightly with full Bash/Read over `/data`; it
   discovers app data by inspecting `/data/apps/<id>/…` (no advertised contract
@@ -174,8 +173,8 @@ exactly "renders as markdown as you type."
 > per-path writer + offline outbox now own durability, and `merge3`/`mergeMeta`
 > (unchanged) are the `useDocument` merge for concurrent same-note edits. A
 > one-time idempotent startup pass migrates any legacy `notes/<id>.md` →
-> `notes/<id>.json`. The `conflicts/` descriptor contract is unchanged; the cron
-> + "Resolve now" resolvers now read/write the `.json` document. The rest of this
+> `notes/<id>.json`. The `conflicts/` descriptor contract is unchanged; the
+> "Resolve now" resolver now reads/writes the `.json` document. The rest of this
 > section describes the original model; the per-note merge/conflict SEMANTICS it
 > documents still hold, only the file format and the durability mechanism moved.
 
@@ -186,7 +185,7 @@ conflicts/<noteId>/<conflictId>.json   immutable, versioned conflict descriptors
 leases/<noteId>.json               resolver lease (resolverId, leaseUntil, descriptorHash)
 index.json                         DERIVED cache (rebuildable); never authoritative
 notes-meta.json                    self-describing data contract for dreaming
-.git/                              server-side history (cron snapshot)
+.git/                              optional server-side history
 ```
 (Pre-v1.2.9: `notes/<noteId>.md` frontmatter-markdown + a `drafts/` working-copy
 tree — both retired by the migration above.)
@@ -268,8 +267,8 @@ conflicts/<noteId>/<baseHash>.<mineHash>.<serverHash>.json
 
 ## 7. Git history
 
-A cron **snapshot** job (`snapshot.sh`, e.g. every 10 min + on a `claude`-less
-shell) runs over `notes/` only:
+Notes no longer installs a recurring snapshot cron. If a manual maintenance job
+is run, it should operate over `notes/` only:
 
 - `.git` initialized on first run; `git add notes/ && git commit` when dirty.
 - **Ignores** `drafts/`, `conflicts/`, `leases/`, `index.json`, and any
@@ -281,19 +280,15 @@ shell) runs over `notes/` only:
 
 ## 8. Agent conflict resolver
 
-When a descriptor exists, a tool-capable agent resolves it. Two triggers, one
-safe protocol:
+When a descriptor exists, a tool-capable agent resolves it on demand:
 
-- **Autonomous:** a cron **CLI** job (`resolve.sh`, `claude -p` with
-  `Read,Write,Edit,Bash` + service token) scans `conflicts/*/**.json` with
-  `status:"open"`.
-- **On demand:** a **"Resolve now"** button posts
+- A **"Resolve now"** button posts
   `moebius:new-chat` with a draft pointing the owner agent at the descriptor.
 
 **Safe resolution (lease + verify, idempotent):**
 1. **Lease**: atomically claim `leases/<noteId>.json`
    (`{resolverId, leaseUntil, descriptorHash}`); if a live lease exists, skip
-   (prevents cron + "Resolve now" double-resolving).
+   (prevents two resolver agents from double-resolving).
 2. **Re-verify**: read canonical; require `content_hash ==
    descriptor.serverHash`. If it changed, **abandon** (write a superseding
    conflict), don't clobber.
@@ -350,13 +345,12 @@ Mirrors gym/news conventions:
   "offline_capable": true,
   "permissions": { "cross_app_access": "none", "share_with_apps": "none" },
   "runtime": { "imports": ["react", "react-dom", "codemirror", "katex"], "esm_deps": ["marked", "dompurify"] },
-  "storage_seeds": { "notes-meta.json": { "app": "notes", "data_type": "notes", "format": "markdown+frontmatter", "dir": "notes/", "index": "index.json", "attachments": "attachments/" } },
-  "schedule": { "default": "*/10 * * * *", "user_configurable": false, "job": "tick.sh" }
+  "storage_seeds": { "notes-meta.json": { "app": "notes", "data_type": "notes", "format": "markdown+frontmatter", "dir": "notes/", "index": "index.json", "attachments": "attachments/" } }
 }
 ```
 
-`tick.sh` runs both the git snapshot and the conflict-resolver scan (one cron
-entry; cheap no-op when nothing's dirty/open).
+Notes does not install a recurring cron job. Merge conflicts are resolved
+on-demand through the in-app "Resolve now" agent handoff.
 
 ## 12. Security & sandbox compliance
 
@@ -379,7 +373,7 @@ entry; cheap no-op when nothing's dirty/open).
   resolve same-origin and work offline, *then* build the app against them.
 - New repo `mobius-os/app-notes` (local: `/home/hmzmrzx/projects/mobius-os/app-notes/`),
   matching the other app-* repos: `index.jsx`, `mobius.json`, `icon.png`,
-  `README.md`, `LICENSE`, `tick.sh` (+ `snapshot`/`resolve` helpers).
+  `README.md`, `LICENSE`.
 - **Verify in `mobius-test` (port 8001)** end-to-end (never prod): install,
   drive with agent-browser, exercise offline + a forced conflict + the agent
   resolver, screenshot.
@@ -399,7 +393,7 @@ entry; cheap no-op when nothing's dirty/open).
 4. Grid + card + pin + color + search + ConfirmModal.
 5. Live-inline editor (CM6 + decorations + inline image/file widgets).
 6. Offline drafts + reconcile + diff3 + immutable conflict descriptors.
-7. `tick.sh`: git snapshot + leased, verify-before-write resolver; "Resolve now".
+7. Leased, verify-before-write "Resolve now" agent handoff.
 8. `notes-meta.json` + dreaming layout; optional dreaming-skill line.
 9. Test-container e2e (incl. forced-conflict + resolver); screenshots.
 10. App-store registration; gated prod ship.
@@ -430,7 +424,8 @@ entry; cheap no-op when nothing's dirty/open).
   conflict. Acceptable.
 - **App-store registration mechanics** — confirm how an app enters the store
   catalog (curated registry vs manifest URL) during delivery.
-- **Cron cadence vs snapshot noise** — 10-min tick is a starting point; tune.
+- **Manual resolver ergonomics** — keep "Resolve now" clear and recoverable
+  when a descriptor exists.
 
 ## 17. Out of scope
 
@@ -456,7 +451,7 @@ min+gzip):
 complete client-side git + POSIX-ish filesystem in ~83 KB gz — and the natural
 foundation for the **LaTeX app** (multi-file projects + versioning) and future
 file/code/wiki apps. **This Notes app deliberately does NOT use it:** its
-per-file drafts + diff3 + cron-git design is simpler and correct for
+per-file drafts + diff3 design is simpler and correct for
 cross-device quick-capture, and isomorphic-git would not ease the
 sync-through-a-blob-store problem (you would still build a storage-backed
 remote). Recommendation: vendor these **on first real use** (e.g. a

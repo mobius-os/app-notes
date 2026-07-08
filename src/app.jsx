@@ -16,7 +16,7 @@
 // surfaces as an error (never a false "saved"). Concurrent same-note edits
 // 3-way-merge via merge3 (note-doc.js → merge.js, conflict semantics preserved
 // exactly); a real conflict still emits the immutable conflicts/<id>/…json
-// descriptor the cron/agent resolver reads. See DESIGN.md for the model.
+// descriptor the in-app agent resolver reads. See DESIGN.md for the model.
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { CSS } from './ui/css.js'
@@ -217,7 +217,7 @@ export default function App({ appId, token }) {
   // collection's update for closed notes) call this with the SAME { base, mine,
   // theirs } sides — one shape, one builder here. The descriptor is the ONLY
   // surviving copy of THEIRS's body (the note file keeps just MINE's), and it is
-  // the sole input to the "Resolve now" / cron resolver, so its write must be
+  // the sole input to the "Resolve now" resolver, so its write must be
   // durable-or-loud: store.writeConflict now uses durableWrite, which resolves on
   // 'synced'/'queued' (queued offline drains on reconnect) and REJECTS on a fatal
   // dead-letter. On rejection we KEEP the note flagged conflicted and surface a
