@@ -41,6 +41,19 @@ function makeChains() {
   }
 }
 
+async function writeJson(path, value) {
+  const storage = S()
+  if (typeof storage.durableWrite === 'function') {
+    return storage.durableWrite(path, value, { kind: 'json' })
+  }
+  const result = await storage.set(path, value)
+  return {
+    durability: result?.queued ? 'queued' : 'synced',
+    path,
+    legacy: true,
+  }
+}
+
 // makeNoteCollection({ onConflict }) → the imperative note-document store.
 // `onConflict({ base, mine, theirs })` is invoked when a merge produces a genuine
 // overlapping-body conflict — the SAME sides shape makeMergeNote (the open-editor
@@ -165,7 +178,7 @@ export function makeNoteCollection({ onConflict } = {}) {
       // on a dead-letter; we let the rejection propagate so the caller surfaces it
       // (no false "saved"). `base` only advances on a durable write — so a refused
       // write leaves the ancestor intact for the next attempt.
-      const result = await S().durableWrite(path, merged, { kind: 'json' })
+      const result = await writeJson(path, merged)
       bases.set(id, merged)
       rememberPath(id, path)
       // Surface a genuine conflict AFTER the durable note write landed, so the
@@ -187,8 +200,15 @@ export function makeNoteCollection({ onConflict } = {}) {
   // Drop the local base so a re-created note with the same id starts fresh.
   function remove(id) {
     return withChain(`remove:${id}`, async () => {
-      const candidates = new Set([notePath(id), ...knownPaths(id)])
-      for (const p of await findPathsForId(id)) candidates.add(p)
+      const remembered = knownPaths(id)
+      const candidates = new Set([notePath(id), ...remembered])
+      // Normal notes are known from list()/load() and live at notes/<id>.json, so
+      // delete is O(1). Only scan as a compatibility fallback for the rare legacy
+      // corruption where a document filename and meta.id diverged and this session
+      // has not listed/loaded that path yet.
+      if (remembered.length === 0) {
+        for (const p of await findPathsForId(id)) candidates.add(p)
+      }
       let res = null
       let firstError = null
       for (const path of candidates) {

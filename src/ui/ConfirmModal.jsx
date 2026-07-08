@@ -78,8 +78,7 @@ export default function ConfirmModal({ open, title, message, confirmLabel = 'Con
           <button ref={cancelRef} onClick={onCancel} className="nt-modal-btn nt-modal-cancel">Cancel</button>
           <button
             onClick={onConfirm}
-            className="nt-modal-btn nt-modal-confirm"
-            style={{ background: danger ? 'var(--danger)' : 'var(--accent)' }}
+            className={`nt-modal-btn nt-modal-confirm${danger ? ' is-danger' : ''}`}
           >{confirmLabel}</button>
         </div>
       </div>

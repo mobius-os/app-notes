@@ -32,6 +32,20 @@ test('(a) an edit persists as a JSON document at notes/<id>.json', async () => {
   })
 })
 
+test('(a2) an edit persists on runtimes that expose set() but not durableWrite()', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    const original = h.storage.durableWrite
+    delete h.storage.durableWrite
+    const c = makeNoteCollection({})
+    const { result } = await c.update('legacy-runtime', () => note('legacy-runtime', 'hello old runtime'))
+    assert.equal(result.durability, 'synced')
+    assert.equal(result.legacy, true)
+    assert.equal(h.raw.get(notePath('legacy-runtime')).value.body, 'hello old runtime')
+    h.storage.durableWrite = original
+  })
+})
+
 test('(b) a dead-lettered durable write REJECTS (error, not a false save)', async () => {
   const h = makeMockStorage()
   await withWindow(h, async () => {
@@ -196,6 +210,31 @@ test('remove deletes the canonical document', async () => {
     await c.load('d1')
     await c.remove('d1')
     assert.equal(h.raw.has(notePath('d1')), false)
+  })
+})
+
+test('remove of a known canonical note is O(1), with no directory scan or per-note reads', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    let listCalls = 0
+    let getCalls = 0
+    const originalList = h.storage.list
+    const originalGet = h.storage.get
+    h.storage.list = async (...args) => { listCalls++; return originalList.apply(h.storage, args) }
+    h.storage.get = async (...args) => { getCalls++; return originalGet.apply(h.storage, args) }
+
+    const c = makeNoteCollection({})
+    h.seed(notePath('fast'), note('fast', 'delete me'))
+    for (let i = 0; i < 50; i++) h.seed(notePath(`other-${i}`), note(`other-${i}`, 'keep'))
+    await c.load('fast') // remembers the exact storage path
+    listCalls = 0
+    getCalls = 0
+
+    await c.remove('fast')
+
+    assert.equal(h.raw.has(notePath('fast')), false)
+    assert.equal(listCalls, 0, 'delete did not list notes/')
+    assert.equal(getCalls, 0, 'delete did not read every note document')
   })
 })
 

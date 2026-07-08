@@ -182,6 +182,8 @@ export default function App({ appId, token }) {
   // note's refs). Kept fresh by the effect below.
   const openIdRef = useRef(null)
   const notesRef = useRef([])
+  const draftRef = useRef(null)
+  const failedSaveIdsRef = useRef(new Set())
   // The BODY of the last document THIS client wrote, keyed by note id. The
   // open-note subscribe below uses it to tell an EXTERNAL resolution (the agent /
   // another device rewriting the body) apart from MINE's own save AND from a
@@ -268,6 +270,8 @@ export default function App({ appId, token }) {
   // Keep the debounced-gc mirrors current (read in scheduleGc's setTimeout body).
   useEffect(() => { openIdRef.current = openId }, [openId])
   useEffect(() => { notesRef.current = notes }, [notes])
+  useEffect(() => { draftRef.current = draft }, [draft])
+  useEffect(() => { failedSaveIdsRef.current = failedSaveIds }, [failedSaveIds])
   const mergeNote = useMemo(() => makeMergeNote(onConflict), [onConflict])
   // Always called (stable hook position); inert when no note is open (the
   // sentinel path is never written) or under the test harness (returns NO_DOC).
@@ -370,7 +374,7 @@ export default function App({ appId, token }) {
   // persist an index for state that gets discarded.
   const upsert = useCallback((meta, body) => {
     setNotes((prev) => (prev.some((n) => n.meta.id === meta.id)
-      ? prev.map((n) => (n.meta.id === meta.id ? { ...n, meta, body } : n))
+      ? prev.map((n) => (n.meta.id === meta.id ? { ...n, meta, body, storagePath: n.storagePath } : n))
       : [{ meta, body }, ...prev]))
   }, [])
 
@@ -506,19 +510,19 @@ export default function App({ appId, token }) {
   // (`![alt](attachments/…)` collapsed to bare alt text) in real notes.
   // Returns the authoritative record, or null when it can't be loaded yet.
   const ensureAuthoritative = useCallback(async (id) => {
-    const cur = notes.find((n) => n.meta.id === id)
+    const cur = notesRef.current.find((n) => n.meta.id === id)
     if (!cur) return null
     if (!cur.placeholder) return cur
     const loaded = await collection.load(id).catch(() => null)
     if (!loaded || !loaded.meta || !loaded.meta.id) return null
     setNotes((prev) => prev.map((n) => (n.meta.id === id ? loaded : n)))
     return loaded
-  }, [notes, collection])
+  }, [collection])
 
   const openEditor = useCallback(async (id) => {
-    const cur = notes.find((n) => n.meta.id === id)
+    const cur = notesRef.current.find((n) => n.meta.id === id)
     window.mobius?.signal?.('item_opened', { type: cur?.meta?.type || 'note' })
-    setSaveError((e) => (e && failedSaveIds.has(e.id) ? e : null))
+    setSaveError((e) => (e && failedSaveIdsRef.current.has(e.id) ? e : null))
     if (cur && cur.placeholder && !(await ensureAuthoritative(id))) {
       // The authoritative note isn't cached and we're offline, so it can't be
       // opened without clobbering the display-only placeholder. Tell the user
@@ -532,7 +536,7 @@ export default function App({ appId, token }) {
     }
     editorNavOwned.current = await pushEditorNav()
     setView({ mode: 'editor', id })
-  }, [ensureAuthoritative, notes, pushEditorNav, view.mode, failedSaveIds])
+  }, [ensureAuthoritative, pushEditorNav, view.mode])
 
   const createNote = useCallback(() => {
     const meta = newNote({})
@@ -604,23 +608,24 @@ export default function App({ appId, token }) {
   // edit bumps the note to the top while opening a note — or a flush that didn't
   // change anything — never does.
   const persist = useCallback(async (meta, body) => {
-    if (draft && draft.meta.id === meta.id) {
-      const next = { meta: { ...draft.meta, ...meta }, body }
+    const currentDraft = draftRef.current
+    if (currentDraft && currentDraft.meta.id === meta.id) {
+      const next = { meta: { ...currentDraft.meta, ...meta }, body }
       setDraft(next)
       if (isBlankNote(next.meta, next.body)) return
       await writeNote(next.meta, next.body, { isDraftCommit: true })
       return
     }
-    const prev = notes.find((n) => n.meta.id === meta.id)
+    const prev = notesRef.current.find((n) => n.meta.id === meta.id)
     if (prev && prev.placeholder) return // display-only; never persist a snippet
     const nextHash = await contentHash(meta, body)
     const prevHash = prev ? await contentHash(prev.meta, prev.body) : null
     // Skip a no-op write — UNLESS this id's last write FAILED. The optimistic
     // upsert makes `prev` equal the buffer, so the hash matches even though the
     // edit never reached the server; force the retry instead of silently dropping.
-    if (!failedSaveIds.has(meta.id) && prevHash != null && nextHash === prevHash) return
+    if (!failedSaveIdsRef.current.has(meta.id) && prevHash != null && nextHash === prevHash) return
     await writeNote({ ...meta, updated: new Date().toISOString() }, body)
-  }, [draft, notes, writeNote, failedSaveIds])
+  }, [writeNote])
 
   const togglePin = useCallback(async (id) => {
     if (draft && draft.meta.id === id) {
@@ -649,12 +654,12 @@ export default function App({ appId, token }) {
   }, [collection, scheduleGc])
 
   const doDelete = useCallback(async (id) => {
+    setConfirmId(null)
     if (draft && draft.meta.id === id) {
       // An uncommitted draft (never durably saved) — discarding it is not a
       // deletion of a persisted item, so it emits no item_deleted signal.
       if (view.mode === 'editor' && view.id === id) popEditorNav()
       setDraft(null)
-      setConfirmId(null)
       setView({ mode: 'grid' })
       return
     }
@@ -666,13 +671,11 @@ export default function App({ appId, token }) {
       } catch (err) {
         window.mobius?.signal?.('error', { message: err?.message ?? 'delete failed', source: 'deleteNote' })
         setSaveError({ id, kind: 'delete', message: 'Could not delete — the note is still here. Try again.' })
-        setConfirmId(null)
         return
       }
     }
     // index.json is rewritten by the committed-notes effect; no write inside the updater.
     setNotes((prev) => prev.filter((note) => note.meta.id !== id))
-    setConfirmId(null)
     setView((v) => {
       if (v.mode === 'editor' && v.id === id) {
         popEditorNav()

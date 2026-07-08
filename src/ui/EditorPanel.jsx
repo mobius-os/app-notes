@@ -83,6 +83,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   // incoming body (theirs) against this base and repoints it. Seeded to the first
   // note body; reset on every note-swap and every reconcile.
   const reconciledBody = useRef(note.body || '')
+  const localSaveBodies = useRef(new Set())
 
   const isChecklist = note.meta.type === 'checklist'
 
@@ -93,6 +94,11 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
       latest.current = { note, title, body }
     }
   }, [note, title, body])
+
+  const saveCurrentNote = useCallback((meta, nextBody) => {
+    localSaveBodies.current.add(nextBody ?? '')
+    return Promise.resolve(onSave(meta, nextBody))
+  }, [onSave])
 
   const flushSave = useCallback(() => {
     const cur = latest.current
@@ -122,8 +128,8 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
       ...(cur.note.meta.attachments || []),
       ...bodyAttachmentRefs(liveBody),
     ]))
-    return Promise.resolve(onSave({ ...cur.note.meta, title: cur.title, attachments }, liveBody))
-  }, [onSave, forceSave])
+    return saveCurrentNote({ ...cur.note.meta, title: cur.title, attachments }, liveBody)
+  }, [saveCurrentNote, forceSave])
 
   // Switching directly from one note to another in the editor: flush the
   // OUTGOING note's pending edits (held in `latest`, still pointing at the old
@@ -135,6 +141,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     flushSave().catch(() => {}) // a refused save surfaces via the saveError banner; don't throw on note-swap
     latest.current = { note, title: note.meta.title || '', body: note.body || '' }
     reconciledBody.current = note.body || ''
+    localSaveBodies.current.clear()
     setTitle(note.meta.title || '')
     setBody(note.body || '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -158,6 +165,16 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     if (incoming === base) return // no external change (our own save echo, or a no-op)
     const v = viewRef.current
     const mineBuf = v ? v.state.doc.toString() : body
+    // A local save echo is not an external rewrite. It may be older than the live
+    // editor if the user kept typing after autosave started; pushing it back into
+    // CodeMirror is the random-letter/duplication bug. Advance the merge base so
+    // future real external edits merge against the acknowledged snapshot, but do
+    // not touch the live buffer.
+    if (localSaveBodies.current.has(incoming)) {
+      localSaveBodies.current.delete(incoming)
+      reconciledBody.current = incoming
+      return
+    }
     // No local unsaved edits → adopt theirs verbatim; otherwise 3-way merge so the
     // user's in-flight edits are preserved alongside the external change.
     const merged = mineBuf === base ? incoming : merge3(base, mineBuf, incoming).text
@@ -217,8 +234,8 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     if (nextBody !== body) setBody(nextBody)
     // A refused save rejects; the saveError banner surfaces it. Swallow here so a
     // type-toggle doesn't raise an unhandled rejection.
-    Promise.resolve(onSave({ ...note.meta, title, type: nextType }, nextBody)).catch(() => {})
-  }, [isChecklist, body, note.meta, title, onSave])
+    saveCurrentNote({ ...note.meta, title, type: nextType }, nextBody).catch(() => {})
+  }, [isChecklist, body, note.meta, title, saveCurrentNote])
 
   function insertMarkdown(md) {
     const v = viewRef.current
@@ -290,7 +307,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     // — the note now durably references the path, so the listNotes()-derived
     // referenced set covers it.
     try {
-      await onSave({ ...note.meta, title, attachments }, nextBody)
+      await saveCurrentNote({ ...note.meta, title, attachments }, nextBody)
       releaseAttachment(res.path)
       setAttachErr('')
       window.mobius?.signal?.('attachment_added', { kind: isImage ? 'image' : 'file', bytes: f.size || 0, flattened: isImage })
@@ -433,7 +450,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
       </div>
 
       <div className="nt-editor-body">
-        <Editor value={body} onChange={setBody} resolveAttachment={resolveAttachment} viewRef={viewRef} />
+        <Editor value={body} onChange={setBody} resolveAttachment={resolveAttachment} viewRef={viewRef} syncKey={note.meta.id} />
       </div>
 
       <footer className="nt-editor-foot" aria-label="Note metadata">

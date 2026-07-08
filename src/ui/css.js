@@ -413,11 +413,11 @@ export const CSS = `
   border: 1px solid var(--border); background: transparent; color: var(--text);
 }
 .nt-modal-confirm {
-  border: none; color: var(--accent-fg); font-weight: 600;
-  /* --accent-fg is the only legal foreground on an accent/danger FILL (no hex
-     fallback — a custom light theme sets it dark). Background is set via inline
-     style: var(--danger) or var(--accent). */
+  border: none; color: var(--accent-fg); background: var(--accent); font-weight: 600;
+  /* --accent-fg is the legal foreground on the platform's filled action tokens
+     (no hex fallback — a custom light theme may set it dark). */
 }
+.nt-modal-confirm.is-danger { background: var(--danger); }
 /* /mobius-ui:Sheet */
 
 /* ── EditorPanel ────────────────────────────────────────────────────────── */
@@ -431,6 +431,7 @@ export const CSS = `
   /* The full-screen editor covers the viewport (position:absolute inset:0), so —
      unlike the grid, which the sticky .nt-topbar insets — the editor header sits
      at the top edge and must clear the notch/status bar itself. */
+  position: relative; z-index: 3;
   padding: max(12px, env(safe-area-inset-top)) 14px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto;
@@ -476,6 +477,7 @@ export const CSS = `
   font-size: 15px; font-weight: 650; line-height: 1;
 }
 .nt-editor-title-band {
+  position: relative; z-index: 1;
   flex: 0 0 auto;
   padding: 26px clamp(18px, 6vw, 40px) 6px;
 }
@@ -552,8 +554,9 @@ export const CSS = `
   flex-shrink: 0; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
-.nt-editor-body { flex: 1; min-height: 0; overflow: hidden; }
+.nt-editor-body { position: relative; z-index: 1; flex: 1; min-height: 0; overflow: hidden; }
 .nt-editor-foot {
+  position: relative; z-index: 3;
   flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
   gap: 8px 14px;

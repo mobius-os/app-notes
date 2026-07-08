@@ -428,11 +428,11 @@ var CSS = `
   border: 1px solid var(--border); background: transparent; color: var(--text);
 }
 .nt-modal-confirm {
-  border: none; color: var(--accent-fg); font-weight: 600;
-  /* --accent-fg is the only legal foreground on an accent/danger FILL (no hex
-     fallback \u2014 a custom light theme sets it dark). Background is set via inline
-     style: var(--danger) or var(--accent). */
+  border: none; color: var(--accent-fg); background: var(--accent); font-weight: 600;
+  /* --accent-fg is the legal foreground on the platform's filled action tokens
+     (no hex fallback \u2014 a custom light theme may set it dark). */
 }
+.nt-modal-confirm.is-danger { background: var(--danger); }
 /* /mobius-ui:Sheet */
 
 /* \u2500\u2500 EditorPanel \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
@@ -446,6 +446,7 @@ var CSS = `
   /* The full-screen editor covers the viewport (position:absolute inset:0), so \u2014
      unlike the grid, which the sticky .nt-topbar insets \u2014 the editor header sits
      at the top edge and must clear the notch/status bar itself. */
+  position: relative; z-index: 3;
   padding: max(12px, env(safe-area-inset-top)) 14px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto;
@@ -491,6 +492,7 @@ var CSS = `
   font-size: 15px; font-weight: 650; line-height: 1;
 }
 .nt-editor-title-band {
+  position: relative; z-index: 1;
   flex: 0 0 auto;
   padding: 26px clamp(18px, 6vw, 40px) 6px;
 }
@@ -567,8 +569,9 @@ var CSS = `
   flex-shrink: 0; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
-.nt-editor-body { flex: 1; min-height: 0; overflow: hidden; }
+.nt-editor-body { position: relative; z-index: 1; flex: 1; min-height: 0; overflow: hidden; }
 .nt-editor-foot {
+  position: relative; z-index: 3;
   flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
   gap: 8px 14px;
@@ -1380,6 +1383,18 @@ function makeChains() {
     return result;
   };
 }
+async function writeJson(path, value) {
+  const storage = S2();
+  if (typeof storage.durableWrite === "function") {
+    return storage.durableWrite(path, value, { kind: "json" });
+  }
+  const result = await storage.set(path, value);
+  return {
+    durability: result?.queued ? "queued" : "synced",
+    path,
+    legacy: true
+  };
+}
 function makeNoteCollection({ onConflict } = {}) {
   const withChain = makeChains();
   const bases = /* @__PURE__ */ new Map();
@@ -1487,7 +1502,7 @@ function makeNoteCollection({ onConflict } = {}) {
       } catch (e) {
       }
       const { value: merged, conflict } = mergeNoteDocs(base, mine, theirs);
-      const result = await S2().durableWrite(path, merged, { kind: "json" });
+      const result = await writeJson(path, merged);
       bases.set(id, merged);
       rememberPath(id, path);
       if (conflict && typeof onConflict === "function") {
@@ -1501,8 +1516,11 @@ function makeNoteCollection({ onConflict } = {}) {
   }
   function remove(id) {
     return withChain(`remove:${id}`, async () => {
-      const candidates = /* @__PURE__ */ new Set([notePath(id), ...knownPaths(id)]);
-      for (const p of await findPathsForId(id)) candidates.add(p);
+      const remembered = knownPaths(id);
+      const candidates = /* @__PURE__ */ new Set([notePath(id), ...remembered]);
+      if (remembered.length === 0) {
+        for (const p of await findPathsForId(id)) candidates.add(p);
+      }
       let res = null;
       let firstError = null;
       for (const path of candidates) {
@@ -2558,7 +2576,7 @@ function buildExtensions({ onDocChange, resolveAttachment }) {
 
 // src/editor/Editor.jsx
 import { jsx as jsx5 } from "react/jsx-runtime";
-function Editor({ value, onChange, resolveAttachment, viewRef }) {
+function Editor({ value, onChange, resolveAttachment, viewRef, syncKey }) {
   const host = useRef2(null);
   const view = useRef2(null);
   const onChangeRef = useRef2(onChange);
@@ -2591,7 +2609,7 @@ function Editor({ value, onChange, resolveAttachment, viewRef }) {
     if (value != null && value !== cur) {
       v.dispatch({ changes: { from: 0, to: cur.length, insert: value } });
     }
-  }, [value]);
+  }, [syncKey]);
   return /* @__PURE__ */ jsx5("div", { ref: host, style: { height: "100%" } });
 }
 
@@ -2642,12 +2660,17 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
   const colorBtnRef = useRef3(null);
   const latest = useRef3({ note, title: note.meta.title || "", body: note.body || "" });
   const reconciledBody = useRef3(note.body || "");
+  const localSaveBodies = useRef3(/* @__PURE__ */ new Set());
   const isChecklist = note.meta.type === "checklist";
   useEffect3(() => {
     if (latest.current.note.meta.id === note.meta.id) {
       latest.current = { note, title, body };
     }
   }, [note, title, body]);
+  const saveCurrentNote = useCallback2((meta, nextBody) => {
+    localSaveBodies.current.add(nextBody ?? "");
+    return Promise.resolve(onSave(meta, nextBody));
+  }, [onSave]);
   const flushSave = useCallback2(() => {
     const cur = latest.current;
     if (!cur?.note) return Promise.resolve();
@@ -2660,14 +2683,15 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
       ...cur.note.meta.attachments || [],
       ...bodyAttachmentRefs(liveBody)
     ]));
-    return Promise.resolve(onSave({ ...cur.note.meta, title: cur.title, attachments }, liveBody));
-  }, [onSave, forceSave]);
+    return saveCurrentNote({ ...cur.note.meta, title: cur.title, attachments }, liveBody);
+  }, [saveCurrentNote, forceSave]);
   useEffect3(() => {
     if (timer.current) clearTimeout(timer.current);
     flushSave().catch(() => {
     });
     latest.current = { note, title: note.meta.title || "", body: note.body || "" };
     reconciledBody.current = note.body || "";
+    localSaveBodies.current.clear();
     setTitle(note.meta.title || "");
     setBody(note.body || "");
   }, [note.meta.id]);
@@ -2678,6 +2702,11 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
     if (incoming === base) return;
     const v = viewRef.current;
     const mineBuf = v ? v.state.doc.toString() : body;
+    if (localSaveBodies.current.has(incoming)) {
+      localSaveBodies.current.delete(incoming);
+      reconciledBody.current = incoming;
+      return;
+    }
     const merged = mineBuf === base ? incoming : merge3(base, mineBuf, incoming).text;
     reconciledBody.current = incoming;
     if (v) {
@@ -2729,9 +2758,9 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
       nextBody = "- [ ] ";
     }
     if (nextBody !== body) setBody(nextBody);
-    Promise.resolve(onSave({ ...note.meta, title, type: nextType }, nextBody)).catch(() => {
+    saveCurrentNote({ ...note.meta, title, type: nextType }, nextBody).catch(() => {
     });
-  }, [isChecklist, body, note.meta, title, onSave]);
+  }, [isChecklist, body, note.meta, title, saveCurrentNote]);
   function insertMarkdown(md) {
     const v = viewRef.current;
     if (v) {
@@ -2772,7 +2801,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
       res.path
     ]));
     try {
-      await onSave({ ...note.meta, title, attachments }, nextBody);
+      await saveCurrentNote({ ...note.meta, title, attachments }, nextBody);
       releaseAttachment(res.path);
       setAttachErr("");
       window.mobius?.signal?.("attachment_added", { kind: isImage ? "image" : "file", bytes: f.size || 0, flattened: isImage });
@@ -2935,7 +2964,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
         className: "nt-title-input"
       }
     ) }),
-    /* @__PURE__ */ jsx6("div", { className: "nt-editor-body", children: /* @__PURE__ */ jsx6(Editor, { value: body, onChange: setBody, resolveAttachment, viewRef }) }),
+    /* @__PURE__ */ jsx6("div", { className: "nt-editor-body", children: /* @__PURE__ */ jsx6(Editor, { value: body, onChange: setBody, resolveAttachment, viewRef, syncKey: note.meta.id }) }),
     /* @__PURE__ */ jsxs4("footer", { className: "nt-editor-foot", "aria-label": "Note metadata", children: [
       /* @__PURE__ */ jsx6("span", { children: editorDate(note.meta) }),
       /* @__PURE__ */ jsxs4("span", { children: [
@@ -3018,8 +3047,7 @@ function ConfirmModal({ open, title, message, confirmLabel = "Confirm", danger, 
                 "button",
                 {
                   onClick: onConfirm,
-                  className: "nt-modal-btn nt-modal-confirm",
-                  style: { background: danger ? "var(--danger)" : "var(--accent)" },
+                  className: `nt-modal-btn nt-modal-confirm${danger ? " is-danger" : ""}`,
                   children: confirmLabel
                 }
               )
@@ -3138,6 +3166,8 @@ function App({ appId, token }) {
   const editorNavOwned = useRef5(false);
   const openIdRef = useRef5(null);
   const notesRef = useRef5([]);
+  const draftRef = useRef5(null);
+  const failedSaveIdsRef = useRef5(/* @__PURE__ */ new Set());
   const lastWrittenBodyRef = useRef5(/* @__PURE__ */ new Map());
   const [online, setOnline] = useState4(() => isOnline());
   const conflictsRef = useRef5(conflicts);
@@ -3176,6 +3206,12 @@ function App({ appId, token }) {
   useEffect5(() => {
     notesRef.current = notes;
   }, [notes]);
+  useEffect5(() => {
+    draftRef.current = draft;
+  }, [draft]);
+  useEffect5(() => {
+    failedSaveIdsRef.current = failedSaveIds;
+  }, [failedSaveIds]);
   const mergeNote = useMemo3(() => makeMergeNote(onConflict), [onConflict]);
   const liveDoc = useDocument(openPath, {
     initial: null,
@@ -3229,7 +3265,7 @@ function App({ appId, token }) {
     };
   }, [openId]);
   const upsert = useCallback4((meta, body) => {
-    setNotes((prev) => prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { ...n, meta, body } : n) : [{ meta, body }, ...prev]);
+    setNotes((prev) => prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { ...n, meta, body, storagePath: n.storagePath } : n) : [{ meta, body }, ...prev]);
   }, []);
   const scheduleGc = useCallback4(() => {
     if (gcTimer.current) clearTimeout(gcTimer.current);
@@ -3331,18 +3367,18 @@ function App({ appId, token }) {
     }
   }, []);
   const ensureAuthoritative = useCallback4(async (id) => {
-    const cur = notes.find((n) => n.meta.id === id);
+    const cur = notesRef.current.find((n) => n.meta.id === id);
     if (!cur) return null;
     if (!cur.placeholder) return cur;
     const loaded = await collection.load(id).catch(() => null);
     if (!loaded || !loaded.meta || !loaded.meta.id) return null;
     setNotes((prev) => prev.map((n) => n.meta.id === id ? loaded : n));
     return loaded;
-  }, [notes, collection]);
+  }, [collection]);
   const openEditor = useCallback4(async (id) => {
-    const cur = notes.find((n) => n.meta.id === id);
+    const cur = notesRef.current.find((n) => n.meta.id === id);
     window.mobius?.signal?.("item_opened", { type: cur?.meta?.type || "note" });
-    setSaveError((e) => e && failedSaveIds.has(e.id) ? e : null);
+    setSaveError((e) => e && failedSaveIdsRef.current.has(e.id) ? e : null);
     if (cur && cur.placeholder && !await ensureAuthoritative(id)) {
       setSaveError({ id, message: "This note is not cached yet. Reconnect to open it." });
       return;
@@ -3353,7 +3389,7 @@ function App({ appId, token }) {
     }
     editorNavOwned.current = await pushEditorNav();
     setView({ mode: "editor", id });
-  }, [ensureAuthoritative, notes, pushEditorNav, view.mode, failedSaveIds]);
+  }, [ensureAuthoritative, pushEditorNav, view.mode]);
   const createNote = useCallback4(() => {
     const meta = newNote({});
     setDraft({ meta, body: "" });
@@ -3397,20 +3433,21 @@ function App({ appId, token }) {
     }
   }, [openId, upsert, collection, scheduleGc]);
   const persist = useCallback4(async (meta, body) => {
-    if (draft && draft.meta.id === meta.id) {
-      const next = { meta: { ...draft.meta, ...meta }, body };
+    const currentDraft = draftRef.current;
+    if (currentDraft && currentDraft.meta.id === meta.id) {
+      const next = { meta: { ...currentDraft.meta, ...meta }, body };
       setDraft(next);
       if (isBlankNote(next.meta, next.body)) return;
       await writeNote(next.meta, next.body, { isDraftCommit: true });
       return;
     }
-    const prev = notes.find((n) => n.meta.id === meta.id);
+    const prev = notesRef.current.find((n) => n.meta.id === meta.id);
     if (prev && prev.placeholder) return;
     const nextHash = await contentHash(meta, body);
     const prevHash = prev ? await contentHash(prev.meta, prev.body) : null;
-    if (!failedSaveIds.has(meta.id) && prevHash != null && nextHash === prevHash) return;
+    if (!failedSaveIdsRef.current.has(meta.id) && prevHash != null && nextHash === prevHash) return;
     await writeNote({ ...meta, updated: (/* @__PURE__ */ new Date()).toISOString() }, body);
-  }, [draft, notes, writeNote, failedSaveIds]);
+  }, [writeNote]);
   const togglePin = useCallback4(async (id) => {
     if (draft && draft.meta.id === id) {
       setDraft((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }));
@@ -3440,10 +3477,10 @@ function App({ appId, token }) {
     scheduleGc();
   }, [collection, scheduleGc]);
   const doDelete = useCallback4(async (id) => {
+    setConfirmId(null);
     if (draft && draft.meta.id === id) {
       if (view.mode === "editor" && view.id === id) popEditorNav();
       setDraft(null);
-      setConfirmId(null);
       setView({ mode: "grid" });
       return;
     }
@@ -3455,12 +3492,10 @@ function App({ appId, token }) {
       } catch (err) {
         window.mobius?.signal?.("error", { message: err?.message ?? "delete failed", source: "deleteNote" });
         setSaveError({ id, kind: "delete", message: "Could not delete \u2014 the note is still here. Try again." });
-        setConfirmId(null);
         return;
       }
     }
     setNotes((prev) => prev.filter((note) => note.meta.id !== id));
-    setConfirmId(null);
     setView((v) => {
       if (v.mode === "editor" && v.id === id) {
         popEditorNav();
