@@ -198,3 +198,39 @@ test('remove deletes the canonical document', async () => {
     assert.equal(h.raw.has(notePath('d1')), false)
   })
 })
+
+test('remove deletes a note whose document filename and meta.id diverged', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    const c = makeNoteCollection({})
+    h.seed(notePath('file-id'), note('meta-id', 'broken image refs', {
+      attachments: ['attachments/missing-a.jpeg', 'attachments/missing-b.jpeg'],
+    }))
+
+    const listed = await c.list()
+    assert.equal(listed[0].meta.id, 'meta-id')
+    assert.equal(listed[0].storagePath, notePath('file-id'))
+
+    await c.remove('meta-id')
+
+    assert.equal(h.raw.has(notePath('file-id')), false, 'actual mismatched document path was removed')
+    assert.equal(h.raw.has(notePath('meta-id')), false, 'canonical meta-id path is absent too')
+    assert.deepEqual(await c.list(), [], 'the note does not reappear on the next list')
+  })
+})
+
+test('remove rejects on durable delete failure so the UI can keep the note visible', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    const c = makeNoteCollection({})
+    h.seed(notePath('keep'), note('keep', 'do not hide me'))
+    await c.load('keep')
+    h.forceDeadLetter(notePath('keep'), 500)
+
+    await assert.rejects(
+      () => c.remove('keep'),
+      (e) => e instanceof DurableWriteError && e.path === notePath('keep'),
+    )
+    assert.equal(h.raw.has(notePath('keep')), true, 'failed delete left the note on disk for retry')
+  })
+})

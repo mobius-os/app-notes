@@ -152,6 +152,15 @@ export function makeMockStorage() {
       return online ? { synced: true } : { queued: true }
     },
     async remove(path) {
+      const f = forced.get(path)
+      if (f) {
+        forced.delete(path)
+        throw new DurableWriteError(`remove ${path} rejected (${f.status})`, {
+          code: f.status === 412 ? 'conflict' : 'dead_letter',
+          status: f.status,
+          path,
+        })
+      }
       if (online) { server.delete(path); overlay.delete(path) }
       else { overlay.set(path, TOMBSTONE); queued++ }
       notify(path)

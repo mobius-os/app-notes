@@ -1383,6 +1383,49 @@ function makeChains() {
 function makeNoteCollection({ onConflict } = {}) {
   const withChain = makeChains();
   const bases = /* @__PURE__ */ new Map();
+  const paths = /* @__PURE__ */ new Map();
+  function rememberPath(id, path) {
+    if (!id || !path) return;
+    let set = paths.get(id);
+    if (!set) {
+      set = /* @__PURE__ */ new Set();
+      paths.set(id, set);
+    }
+    set.add(path);
+  }
+  function knownPaths(id) {
+    return paths.get(id) ? [...paths.get(id)] : [];
+  }
+  function primaryPath(id) {
+    return knownPaths(id)[0] || notePath(id);
+  }
+  function jsonIdFromPath(path) {
+    const name = String(path || "").split("/").pop() || "";
+    return name.endsWith(".json") ? name.slice(0, -5) : null;
+  }
+  async function findPathsForId(id) {
+    let entries;
+    try {
+      entries = await S2().list("notes");
+    } catch {
+      return [];
+    }
+    const found = [];
+    for (const e of entries || []) {
+      if (e.type !== "file" || !e.name.endsWith(".json")) continue;
+      let doc;
+      try {
+        doc = await S2().get(e.path);
+      } catch {
+        doc = null;
+      }
+      if (doc && doc.meta && doc.meta.id) {
+        rememberPath(doc.meta.id, e.path);
+        if (doc.meta.id === id) found.push(e.path);
+      }
+    }
+    return found;
+  }
   async function list() {
     let entries;
     try {
@@ -1402,27 +1445,39 @@ function makeNoteCollection({ onConflict } = {}) {
       }
       if (doc && doc.meta && doc.meta.id) {
         bases.set(doc.meta.id, doc);
-        out.push({ meta: doc.meta, body: doc.body ?? "" });
+        rememberPath(doc.meta.id, e.path);
+        out.push({ meta: doc.meta, body: doc.body ?? "", storagePath: e.path });
       }
     }
     return out;
   }
   async function load(id) {
-    let doc;
+    let doc = null;
+    let path = notePath(id);
     try {
-      doc = await S2().get(notePath(id));
+      doc = await S2().get(path);
     } catch {
-      return null;
+      doc = null;
     }
-    if (!doc || !doc.meta || !doc.meta.id) return null;
+    if (!doc || !doc.meta || doc.meta.id !== id) {
+      const found = await findPathsForId(id);
+      path = found[0] || path;
+      try {
+        doc = found[0] ? await S2().get(path) : null;
+      } catch {
+        doc = null;
+      }
+    }
+    if (!doc || !doc.meta || doc.meta.id !== id) return null;
     bases.set(id, doc);
-    return { meta: doc.meta, body: doc.body ?? "" };
+    rememberPath(id, path);
+    return { meta: doc.meta, body: doc.body ?? "", storagePath: path };
   }
   function ensureBase(id, doc) {
     if (!bases.has(id)) bases.set(id, doc);
   }
   function update(id, fn) {
-    const path = notePath(id);
+    const path = primaryPath(id);
     return withChain(path, async () => {
       const base = bases.get(id) ?? null;
       const mine = fn(base ? { meta: base.meta, body: base.body } : null);
@@ -1434,6 +1489,7 @@ function makeNoteCollection({ onConflict } = {}) {
       const { value: merged, conflict } = mergeNoteDocs(base, mine, theirs);
       const result = await S2().durableWrite(path, merged, { kind: "json" });
       bases.set(id, merged);
+      rememberPath(id, path);
       if (conflict && typeof onConflict === "function") {
         try {
           await onConflict({ base, mine, theirs });
@@ -1444,14 +1500,34 @@ function makeNoteCollection({ onConflict } = {}) {
     });
   }
   function remove(id) {
-    const path = notePath(id);
-    return withChain(path, async () => {
-      const res = await S2().remove(path);
+    return withChain(`remove:${id}`, async () => {
+      const candidates = /* @__PURE__ */ new Set([notePath(id), ...knownPaths(id)]);
+      for (const p of await findPathsForId(id)) candidates.add(p);
+      let res = null;
+      let firstError = null;
+      for (const path of candidates) {
+        try {
+          res = await S2().remove(path);
+        } catch (err) {
+          if (!firstError) firstError = err;
+        }
+      }
+      if (firstError) throw firstError;
       try {
         await S2().remove(legacyPath(id));
       } catch {
       }
+      for (const path of candidates) {
+        const fileId = jsonIdFromPath(path);
+        if (fileId && fileId !== id) {
+          try {
+            await S2().remove(legacyPath(fileId));
+          } catch {
+          }
+        }
+      }
       bases.delete(id);
+      paths.delete(id);
       return res;
     });
   }
@@ -3092,7 +3168,8 @@ function App({ appId, token }) {
   }, []);
   const collection = useMemo3(() => makeNoteCollection({ onConflict }), [onConflict]);
   const openId = view.mode === "editor" ? view.id : null;
-  const openPath = openId ? notePath(openId) : "__notes_no_open__.json";
+  const openNote = openId ? notes.find((n) => n.meta.id === openId && !n.placeholder) : null;
+  const openPath = openId ? openNote?.storagePath || notePath(openId) : "__notes_no_open__.json";
   useEffect5(() => {
     openIdRef.current = openId;
   }, [openId]);
@@ -3120,7 +3197,7 @@ function App({ appId, token }) {
     setNotes((prev) => {
       const cur = prev.find((n) => n.meta.id === openId);
       if (cur && cur.body === v.body && cur.meta.content_hash === v.meta.content_hash) return prev;
-      return prev.map((n) => n.meta.id === openId ? { meta: v.meta, body: v.body } : n);
+      return prev.map((n) => n.meta.id === openId ? { ...n, meta: v.meta, body: v.body } : n);
     });
   }, [openId, liveDoc.value]);
   useEffect5(() => {
@@ -3152,7 +3229,7 @@ function App({ appId, token }) {
     };
   }, [openId]);
   const upsert = useCallback4((meta, body) => {
-    setNotes((prev) => prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { meta, body } : n) : [{ meta, body }, ...prev]);
+    setNotes((prev) => prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { ...n, meta, body } : n) : [{ meta, body }, ...prev]);
   }, []);
   const scheduleGc = useCallback4(() => {
     if (gcTimer.current) clearTimeout(gcTimer.current);
@@ -3353,8 +3430,7 @@ function App({ appId, token }) {
     });
   }, [draft, ensureAuthoritative, persist]);
   const queueDelete = useCallback4(async (id) => {
-    await collection.remove(id).catch(() => {
-    });
+    await collection.remove(id);
     setConflicts((prev) => {
       if (!prev.has(id)) return prev;
       const n = new Set(prev);
@@ -3363,7 +3439,7 @@ function App({ appId, token }) {
     });
     scheduleGc();
   }, [collection, scheduleGc]);
-  const doDelete = useCallback4((id) => {
+  const doDelete = useCallback4(async (id) => {
     if (draft && draft.meta.id === id) {
       if (view.mode === "editor" && view.id === id) popEditorNav();
       setDraft(null);
@@ -3373,9 +3449,15 @@ function App({ appId, token }) {
     }
     const n = notes.find((x) => x.meta.id === id);
     if (n) {
-      window.mobius?.signal?.("item_deleted", { type: n.meta.type || "note" });
-      queueDelete(id).catch(() => {
-      });
+      try {
+        await queueDelete(id);
+        window.mobius?.signal?.("item_deleted", { type: n.meta.type || "note" });
+      } catch (err) {
+        window.mobius?.signal?.("error", { message: err?.message ?? "delete failed", source: "deleteNote" });
+        setSaveError({ id, kind: "delete", message: "Could not delete \u2014 the note is still here. Try again." });
+        setConfirmId(null);
+        return;
+      }
     }
     setNotes((prev) => prev.filter((note) => note.meta.id !== id));
     setConfirmId(null);
@@ -3387,22 +3469,34 @@ function App({ appId, token }) {
       return v;
     });
   }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode]);
-  const back = useCallback4((fromShell = false) => {
+  const leaveEditor = useCallback4((fromShell = false) => {
     if (!fromShell) popEditorNav();
     else editorNavOwned.current = false;
+  }, [popEditorNav]);
+  const back = useCallback4(async (fromShell = false) => {
     if (draft && draft.meta.id === view.id) {
+      leaveEditor(fromShell);
       setDraft(null);
       setView({ mode: "grid" });
       return;
     }
     const n = notes.find((x) => x.meta.id === view.id);
     if (n && !n.placeholder && isBlankNote(n.meta, n.body)) {
-      queueDelete(n.meta.id).catch(() => {
-      });
+      try {
+        await queueDelete(n.meta.id);
+      } catch (err) {
+        window.mobius?.signal?.("error", { message: err?.message ?? "delete failed", source: "deleteBlankNote" });
+        setSaveError({ id: n.meta.id, kind: "delete", message: "Could not delete \u2014 the note is still here. Try again." });
+        return;
+      }
+      leaveEditor(fromShell);
       setNotes((prev) => prev.filter((x) => x.meta.id !== n.meta.id));
+      setView({ mode: "grid" });
+      return;
     }
+    leaveEditor(fromShell);
     setView({ mode: "grid" });
-  }, [draft, notes, popEditorNav, view.id, queueDelete]);
+  }, [draft, notes, leaveEditor, view.id, queueDelete]);
   useEffect5(() => {
     const onMessage = (event) => {
       if (event.origin !== window.location.origin) return;
@@ -3421,7 +3515,7 @@ function App({ appId, token }) {
     return () => clearTimeout(h);
   }, [query, visible.length, loading]);
   const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id && !n.placeholder) || (draft && draft.meta.id === view.id ? draft : null) : null;
-  const status = saveError && editing && saveError.id === editing.meta.id ? "Save failed" : !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : null;
+  const status = saveError && editing && saveError.id === editing.meta.id ? saveError.kind === "delete" ? "Delete failed" : "Save failed" : !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : null;
   return /* @__PURE__ */ jsxs6("div", { className: "nt-root", children: [
     /* @__PURE__ */ jsx8("style", { children: CSS }),
     /* @__PURE__ */ jsxs6(ErrorBoundary, { children: [

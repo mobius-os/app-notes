@@ -56,6 +56,47 @@ export function makeNoteCollection({ onConflict } = {}) {
   const withChain = makeChains()
   // base[id] = our last-confirmed document for that note (the 3-way ancestor).
   const bases = new Map()
+  // paths[id] = every JSON document path that has presented this meta.id. This
+  // deliberately tolerates historical corruption where notes/<file-id>.json and
+  // doc.meta.id diverged: deletes and later writes must target the actual file,
+  // not only notes/<meta.id>.json, or the broken note resurrects on every list().
+  const paths = new Map()
+
+  function rememberPath(id, path) {
+    if (!id || !path) return
+    let set = paths.get(id)
+    if (!set) { set = new Set(); paths.set(id, set) }
+    set.add(path)
+  }
+
+  function knownPaths(id) {
+    return paths.get(id) ? [...paths.get(id)] : []
+  }
+
+  function primaryPath(id) {
+    return knownPaths(id)[0] || notePath(id)
+  }
+
+  function jsonIdFromPath(path) {
+    const name = String(path || '').split('/').pop() || ''
+    return name.endsWith('.json') ? name.slice(0, -5) : null
+  }
+
+  async function findPathsForId(id) {
+    let entries
+    try { entries = await S().list('notes') } catch { return [] }
+    const found = []
+    for (const e of entries || []) {
+      if (e.type !== 'file' || !e.name.endsWith('.json')) continue
+      let doc
+      try { doc = await S().get(e.path) } catch { doc = null }
+      if (doc && doc.meta && doc.meta.id) {
+        rememberPath(doc.meta.id, e.path)
+        if (doc.meta.id === id) found.push(e.path)
+      }
+    }
+    return found
+  }
 
   // Enumerate notes/ and parse each JSON document. `storage.list()` has NO offline
   // mirror (unlike get()): it returns `null` on a network failure and throws on a
@@ -75,18 +116,26 @@ export function makeNoteCollection({ onConflict } = {}) {
       try { doc = await S().get(e.path) } catch { doc = null }
       if (doc && doc.meta && doc.meta.id) {
         bases.set(doc.meta.id, doc)
-        out.push({ meta: doc.meta, body: doc.body ?? '' })
+        rememberPath(doc.meta.id, e.path)
+        out.push({ meta: doc.meta, body: doc.body ?? '', storagePath: e.path })
       }
     }
     return out
   }
 
   async function load(id) {
-    let doc
-    try { doc = await S().get(notePath(id)) } catch { return null }
-    if (!doc || !doc.meta || !doc.meta.id) return null
+    let doc = null
+    let path = notePath(id)
+    try { doc = await S().get(path) } catch { doc = null }
+    if (!doc || !doc.meta || doc.meta.id !== id) {
+      const found = await findPathsForId(id)
+      path = found[0] || path
+      try { doc = found[0] ? await S().get(path) : null } catch { doc = null }
+    }
+    if (!doc || !doc.meta || doc.meta.id !== id) return null
     bases.set(id, doc)
-    return { meta: doc.meta, body: doc.body ?? '' }
+    rememberPath(id, path)
+    return { meta: doc.meta, body: doc.body ?? '', storagePath: path }
   }
 
   // Seed the merge ancestor on first sight of a note loaded from canonical, when
@@ -105,7 +154,7 @@ export function makeNoteCollection({ onConflict } = {}) {
   // server dead-letters the write (the UI surfaces it; the edit is NOT marked
   // saved).
   function update(id, fn) {
-    const path = notePath(id)
+    const path = primaryPath(id)
     return withChain(path, async () => {
       const base = bases.get(id) ?? null
       const mine = fn(base ? { meta: base.meta, body: base.body } : null)
@@ -118,6 +167,7 @@ export function makeNoteCollection({ onConflict } = {}) {
       // write leaves the ancestor intact for the next attempt.
       const result = await S().durableWrite(path, merged, { kind: 'json' })
       bases.set(id, merged)
+      rememberPath(id, path)
       // Surface a genuine conflict AFTER the durable note write landed, so the
       // editor's "merging…" bar reflects a real on-disk divergence. We forward the
       // raw sides ({ base, mine, theirs }) — the SAME shape makeMergeNote passes —
@@ -136,13 +186,26 @@ export function makeNoteCollection({ onConflict } = {}) {
   // offline (read-your-writes hides it immediately) and drains it on reconnect.
   // Drop the local base so a re-created note with the same id starts fresh.
   function remove(id) {
-    const path = notePath(id)
-    return withChain(path, async () => {
-      const res = await S().remove(path)
+    return withChain(`remove:${id}`, async () => {
+      const candidates = new Set([notePath(id), ...knownPaths(id)])
+      for (const p of await findPathsForId(id)) candidates.add(p)
+      let res = null
+      let firstError = null
+      for (const path of candidates) {
+        try { res = await S().remove(path) } catch (err) { if (!firstError) firstError = err }
+      }
+      if (firstError) throw firstError
       // Also drop the dormant legacy .md, if any: the startup migration would
       // otherwise re-create (resurrect) this just-deleted note from it.
       try { await S().remove(legacyPath(id)) } catch {}
+      for (const path of candidates) {
+        const fileId = jsonIdFromPath(path)
+        if (fileId && fileId !== id) {
+          try { await S().remove(legacyPath(fileId)) } catch {}
+        }
+      }
       bases.delete(id)
+      paths.delete(id)
       return res
     })
   }

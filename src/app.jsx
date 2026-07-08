@@ -263,7 +263,8 @@ export default function App({ appId, token }) {
   // lastError. Its merge is mergeNote (merge3 + mergeMeta), identity the note id,
   // mode 'lww' (per-note files avoid same-path clobber; backend CAS isn't live).
   const openId = view.mode === 'editor' ? view.id : null
-  const openPath = openId ? notePath(openId) : '__notes_no_open__.json'
+  const openNote = openId ? notes.find((n) => n.meta.id === openId && !n.placeholder) : null
+  const openPath = openId ? (openNote?.storagePath || notePath(openId)) : '__notes_no_open__.json'
   // Keep the debounced-gc mirrors current (read in scheduleGc's setTimeout body).
   useEffect(() => { openIdRef.current = openId }, [openId])
   useEffect(() => { notesRef.current = notes }, [notes])
@@ -307,7 +308,7 @@ export default function App({ appId, token }) {
     setNotes((prev) => {
       const cur = prev.find((n) => n.meta.id === openId)
       if (cur && cur.body === v.body && cur.meta.content_hash === v.meta.content_hash) return prev
-      return prev.map((n) => (n.meta.id === openId ? { meta: v.meta, body: v.body } : n))
+      return prev.map((n) => (n.meta.id === openId ? { ...n, meta: v.meta, body: v.body } : n))
     })
   }, [openId, liveDoc.value])
 
@@ -369,7 +370,7 @@ export default function App({ appId, token }) {
   // persist an index for state that gets discarded.
   const upsert = useCallback((meta, body) => {
     setNotes((prev) => (prev.some((n) => n.meta.id === meta.id)
-      ? prev.map((n) => (n.meta.id === meta.id ? { meta, body } : n))
+      ? prev.map((n) => (n.meta.id === meta.id ? { ...n, meta, body } : n))
       : [{ meta, body }, ...prev]))
   }, [])
 
@@ -642,12 +643,12 @@ export default function App({ appId, token }) {
   // queues the delete offline and drains it on reconnect). Clear any conflict
   // flag and sweep orphaned attachments after.
   const queueDelete = useCallback(async (id) => {
-    await collection.remove(id).catch(() => {})
+    await collection.remove(id)
     setConflicts((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n })
     scheduleGc()
   }, [collection, scheduleGc])
 
-  const doDelete = useCallback((id) => {
+  const doDelete = useCallback(async (id) => {
     if (draft && draft.meta.id === id) {
       // An uncommitted draft (never durably saved) — discarding it is not a
       // deletion of a persisted item, so it emits no item_deleted signal.
@@ -659,8 +660,15 @@ export default function App({ appId, token }) {
     }
     const n = notes.find((x) => x.meta.id === id)
     if (n) {
-      window.mobius?.signal?.('item_deleted', { type: n.meta.type || 'note' })
-      queueDelete(id).catch(() => {})
+      try {
+        await queueDelete(id)
+        window.mobius?.signal?.('item_deleted', { type: n.meta.type || 'note' })
+      } catch (err) {
+        window.mobius?.signal?.('error', { message: err?.message ?? 'delete failed', source: 'deleteNote' })
+        setSaveError({ id, kind: 'delete', message: 'Could not delete — the note is still here. Try again.' })
+        setConfirmId(null)
+        return
+      }
     }
     // index.json is rewritten by the committed-notes effect; no write inside the updater.
     setNotes((prev) => prev.filter((note) => note.meta.id !== id))
@@ -674,22 +682,36 @@ export default function App({ appId, token }) {
     })
   }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode])
 
-  const back = useCallback((fromShell = false) => {
+  const leaveEditor = useCallback((fromShell = false) => {
     if (!fromShell) popEditorNav()
     else editorNavOwned.current = false
+  }, [popEditorNav])
+
+  const back = useCallback(async (fromShell = false) => {
     if (draft && draft.meta.id === view.id) {
+      leaveEditor(fromShell)
       setDraft(null)
       setView({ mode: 'grid' })
       return
     }
     const n = notes.find((x) => x.meta.id === view.id)
     if (n && !n.placeholder && isBlankNote(n.meta, n.body)) {
-      queueDelete(n.meta.id).catch(() => {})
+      try {
+        await queueDelete(n.meta.id)
+      } catch (err) {
+        window.mobius?.signal?.('error', { message: err?.message ?? 'delete failed', source: 'deleteBlankNote' })
+        setSaveError({ id: n.meta.id, kind: 'delete', message: 'Could not delete — the note is still here. Try again.' })
+        return
+      }
       // index.json is rewritten by the committed-notes effect; no write inside the updater.
+      leaveEditor(fromShell)
       setNotes((prev) => prev.filter((x) => x.meta.id !== n.meta.id))
+      setView({ mode: 'grid' })
+      return
     }
+    leaveEditor(fromShell)
     setView({ mode: 'grid' })
-  }, [draft, notes, popEditorNav, view.id, queueDelete])
+  }, [draft, notes, leaveEditor, view.id, queueDelete])
 
   useEffect(() => {
     const onMessage = (event) => {
@@ -722,7 +744,7 @@ export default function App({ appId, token }) {
   // Standard: silent when healthy. Saving/pending is plumbing — only Offline, an
   // actionable conflict state, and a hard save error ever surface.
   const status = saveError && editing && saveError.id === editing.meta.id
-    ? 'Save failed'
+    ? (saveError.kind === 'delete' ? 'Delete failed' : 'Save failed')
     : !online ? 'Offline'
     : (editing && conflicts.has(editing.meta.id)) ? 'Resolving…'
     : null
