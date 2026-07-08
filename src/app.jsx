@@ -54,28 +54,32 @@ const useDocument = HAS_RUNTIME_DOC
 function TopBar({ appId, query, onQuery }) {
   return (
     <header className="nt-topbar">
-      {/* Brand mark: the app's own glossy icon (downscaled + cached by the
-          backend). Falls back to the accent dot if this install has no custom
-          icon (the route 404s). No app-name text — icon only. */}
-      <img
-        src={`/api/apps/${appId}/icon?size=128`}
-        alt=""
-        width={34} height={34}
-        className="nt-brand-icon"
-        onError={(e) => {
-          e.currentTarget.style.display = 'none'
-          const f = e.currentTarget.nextElementSibling
-          if (f) f.style.display = 'flex'
-        }}
-      />
-      <span className="nt-brand-fallback" style={{ display: 'none' }} aria-hidden="true">·</span>
-      <div className="nt-search-wrap">
+      <div className="nt-topbar-row">
+        {/* Brand mark: the app's own glossy icon (downscaled + cached by the
+            backend). Falls back to the accent dot if this install has no custom
+            icon (the route 404s). */}
+        <img
+          src={`/api/apps/${appId}/icon?size=128`}
+          alt=""
+          width={34} height={34}
+          className="nt-brand-icon"
+          onError={(e) => {
+            e.currentTarget.style.display = 'none'
+            const f = e.currentTarget.nextElementSibling
+            if (f) f.style.display = 'flex'
+          }}
+        />
+        <span className="nt-brand-fallback" style={{ display: 'none' }} aria-hidden="true">·</span>
+        <h1 className="nt-app-title">Notes</h1>
+      </div>
+      <label className="nt-search-wrap">
+        <Icon name="search" size={17} />
         <input
           value={query} onChange={(e) => onQuery(e.target.value)}
           placeholder="Search notes" aria-label="Search notes"
           className="nt-search"
         />
-      </div>
+      </label>
     </header>
   )
 }
@@ -83,9 +87,13 @@ function TopBar({ appId, query, onQuery }) {
 function EmptyState({ filtered }) {
   return (
     <div className="nt-empty">
-      <div className="nt-empty-icon"><Icon name="edit" size={40} /></div>
+      <div className="nt-empty-icon"><Icon name={filtered ? 'search' : 'note'} size={26} /></div>
       <div className="nt-empty-msg">{filtered ? 'No matching notes' : 'No notes yet'}</div>
-      {!filtered && <div className="nt-empty-hint">Tap + to write your first note.</div>}
+      <div className="nt-empty-hint">
+        {filtered
+          ? 'Try another word or clear search to return to your notes.'
+          : 'Jot a thought, a list, or a draft. Your agent can read and tidy them later.'}
+      </div>
     </div>
   )
 }
@@ -765,7 +773,7 @@ export default function App({ appId, token }) {
           onClick={createNote}
           aria-label="New note"
           title="New note"
-        >+</button>
+        ><Icon name="plus" size={24} /></button>
       )}
 
       {editing && (

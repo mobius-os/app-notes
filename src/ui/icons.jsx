@@ -104,5 +104,21 @@ export function Icon({ name, size = 17 }) {
       </svg>
     )
   }
+  if (name === 'search') {
+    return (
+      <svg {...common}>
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-3.5-3.5" />
+      </svg>
+    )
+  }
+  if (name === 'plus') {
+    return (
+      <svg {...common}>
+        <path d="M12 5v14" />
+        <path d="M5 12h14" />
+      </svg>
+    )
+  }
   return null
 }

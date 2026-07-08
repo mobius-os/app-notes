@@ -12,6 +12,7 @@ import Editor from '../editor/Editor.jsx'
 import { Icon } from './icons.jsx'
 
 const AUTOSAVE_MS = 600
+const EDITOR_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
 
 // Ask the owner shell to spawn an agent chat to resolve a note's merge conflict
 // (the autonomous cron resolver also handles it; this is the on-demand path).
@@ -38,6 +39,26 @@ function resolveNow(note, appId) {
 function statusClass(status) {
   if (status === 'Resolving…') return 'is-resolving'
   return 'is-default'
+}
+
+function editorDate(meta) {
+  const raw = meta.updated || meta.created
+  if (!raw) return 'Draft'
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return 'Draft'
+  return `Edited ${EDITOR_DATE_FORMATTER.format(d)}`
+}
+
+function wordCount(body) {
+  const words = String(body || '').trim().match(/\S+/g)
+  return words ? words.length : 0
+}
+
+function taskSummary(body) {
+  const tasks = String(body || '').match(/^- \[[ x]\] /gim) || []
+  if (!tasks.length) return ''
+  const done = tasks.filter((task) => /\[[xX]\]/.test(task)).length
+  return `${tasks.length} task${tasks.length === 1 ? '' : 's'} · ${done} done`
 }
 
 export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment, conflict, status, forceSave }) {
@@ -305,6 +326,8 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   }, [strandedKey, resolveAttachment])
 
   const tone = normalizeColorName(note.meta.color)
+  const count = wordCount(body)
+  const tasks = taskSummary(body)
 
   return (
     <div className="nt-editor-root">
@@ -326,13 +349,8 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
             className="nt-hdr-btn"
           ><Icon name="back" size={18} /></button>
           {tone && <span className={`nt-color-dot nt-color-dot--${tone}`} />}
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Title"
-            aria-label="Note title"
-            className="nt-title-input"
-          />
+          <span className="nt-editor-back-label">Notes</span>
+          <div className="nt-hdr-spacer" />
           {status && (
             <span className={`nt-status ${statusClass(status)}`}>{status}</span>
           )}
@@ -404,9 +422,26 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
         <div className="nt-attach-err">{attachErr}</div>
       )}
 
+      <div className="nt-editor-title-band">
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Title"
+          aria-label="Note title"
+          className="nt-title-input"
+        />
+      </div>
+
       <div className="nt-editor-body">
         <Editor value={body} onChange={setBody} resolveAttachment={resolveAttachment} viewRef={viewRef} />
       </div>
+
+      <footer className="nt-editor-foot" aria-label="Note metadata">
+        <span>{editorDate(note.meta)}</span>
+        <span>{count} word{count === 1 ? '' : 's'}</span>
+        {tasks && <span>{tasks}</span>}
+        {status && <span>{status}</span>}
+      </footer>
 
       {strandedUrls.length > 0 && (
         <div className="nt-attach-strip" aria-label="Attached images">

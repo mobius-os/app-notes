@@ -14,25 +14,26 @@ import { NOTE_COLORS } from './colors.js'
 // painted raw, which is what keeps the palette muted on any theme.
 const TONE_CSS = NOTE_COLORS.filter((c) => c.name).map((c) => `
 .nt-card--${c.name} {
-  background: color-mix(in srgb, ${c.hex} 16%, var(--surface));
-  border-color: color-mix(in srgb, ${c.hex} 34%, var(--border));
+  --nt-note-tone: ${c.hex};
 }
-.nt-card--${c.name} .nt-card-footer {
-  border-top-color: color-mix(in srgb, ${c.hex} 26%, var(--border));
-  background: color-mix(in srgb, ${c.hex} 8%, transparent);
+.nt-card--${c.name}::before {
+  background: color-mix(in srgb, var(--nt-note-tone) 72%, var(--surface));
 }
 .nt-swatch--${c.name} { background: ${c.hex}; }
-.nt-color-dot--${c.name} { background: ${c.hex}; }`).join('\n')
+.nt-color-dot--${c.name},
+.nt-card--${c.name} .nt-card-tone-dot { background: color-mix(in srgb, var(--nt-note-tone) 72%, var(--surface)); }`).join('\n')
 
 export const CSS = `
 /* mobius-ui:Root v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-root {
+  --nt-measure: 704px;
   position: relative;
   display: flex; flex-direction: column;
   height: 100%; width: 100%; max-width: 100%;
   overflow: hidden;
   background: var(--bg); color: var(--text); font-family: var(--font);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 .nt-scroll {
   flex: 1; min-height: 0;
@@ -52,46 +53,56 @@ export const CSS = `
 /* ── TopBar ─────────────────────────────────────────────────────────────── */
 /* mobius-ui:Header v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-topbar {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; flex-direction: column; gap: 12px;
   /* top-pinned bar: pad past the notch/status bar on notched phones */
-  padding: max(12px, env(safe-area-inset-top)) 16px 12px;
-  border-bottom: 1px solid var(--border);
+  padding: max(14px, env(safe-area-inset-top)) 18px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   position: sticky; top: 0;
-  background: var(--bg); z-index: 5;
+  background: color-mix(in srgb, var(--bg) 86%, transparent); z-index: 5;
+  backdrop-filter: saturate(1.35) blur(14px);
+  -webkit-backdrop-filter: saturate(1.35) blur(14px);
   flex: 0 0 auto;
+}
+.nt-topbar-row {
+  display: flex; align-items: center; gap: 11px; min-width: 0;
 }
 /* Brand mark — the app's real icon, rounded and sized to the search row */
 .nt-brand-icon {
-  width: 34px; height: 34px; flex-shrink: 0;
-  border-radius: 9px; object-fit: cover; display: block;
+  width: 32px; height: 32px; flex-shrink: 0;
+  border-radius: 10px; object-fit: cover; display: block;
 }
 /* Accent-dot fallback when the install has no custom icon (route 404s) */
 .nt-brand-fallback {
-  width: 34px; height: 34px; flex-shrink: 0;
+  width: 32px; height: 32px; flex-shrink: 0;
   align-items: center; justify-content: center;
-  font-size: 34px; font-weight: 700; line-height: 1;
+  font-size: 32px; font-weight: 700; line-height: 1;
   color: var(--accent); user-select: none;
 }
-/* Search pill — full-width rounded pill */
+.nt-app-title {
+  flex: 1; margin: 0; min-width: 0;
+  color: var(--text);
+  font-size: 22px; line-height: 1; font-weight: 700; letter-spacing: 0;
+}
+/* Search field — full-width quiet inset */
 .nt-search-wrap {
-  flex: 1; display: flex; justify-content: center;
+  width: 100%; height: 40px;
+  display: flex; align-items: center; gap: 9px;
+  padding: 0 12px; border-radius: 11px;
+  border: 1px solid transparent;
+  background: var(--surface2, var(--surface)); color: var(--muted);
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 .nt-search {
-  width: 100%;
-  padding: 9px 16px; border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface2, var(--surface)); color: var(--text);
+  flex: 1; min-width: 0;
+  padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: var(--text);
   /* 16px stops iOS Safari zoom-on-focus (don't drop below on a focusable field) */
-  font-size: 16px; font-family: var(--font);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  font-size: 16px; font-family: var(--font); line-height: 1;
 }
-/* One soft focus halo, matching the shell composer pill (.chat__pill:focus-within):
-   suppress the shared 2px focus-visible outline so it can't stack with the halo
-   into a double ring. Accent border + a single accent-dim halo is the focus ring. */
 .nt-search:focus, .nt-search:focus-visible { outline: none; }
-.nt-search:focus {
+.nt-search-wrap:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-dim);
+  background: var(--surface);
 }
 .nt-search::placeholder { color: var(--muted); }
 /* FAB — floating action button, bottom-right, above gesture bar */
@@ -100,16 +111,15 @@ export const CSS = `
   right: max(20px, env(safe-area-inset-right, 0px));
   bottom: max(24px, env(safe-area-inset-bottom, 0px));
   z-index: 20;
-  width: 56px; height: 56px;
-  border-radius: 50%;
+  width: 54px; height: 54px;
+  border-radius: 18px;
   /* --accent-fg is the one legal foreground on an accent fill — a custom light
-     accent theme sets it dark; a hardcoded #fff would break that. No fallback hex. */
+     accent theme may set it dark, so do not add a fallback literal. */
   border: none; background: var(--accent); color: var(--accent-fg);
-  font-size: 28px; line-height: 1;
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; font-family: var(--font);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 30%, transparent),
-              0 1px 4px rgba(0,0,0,0.25);
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 22%, transparent),
+              0 1px 2px color-mix(in srgb, var(--text) 16%, transparent);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation; user-select: none;
   transition: filter 0.14s ease, transform 0.12s ease, box-shadow 0.14s ease;
@@ -134,33 +144,55 @@ export const CSS = `
 /* mobius-ui:Empty v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8px; padding: 18vh 24px; text-align: center; color: var(--muted);
+  gap: 0; padding: 18vh 24px; text-align: center; color: var(--muted);
 }
-.nt-empty-icon { opacity: 0.5; }
-.nt-empty-msg { font-size: 15px; }
-.nt-empty-hint { font-size: 13px; opacity: 0.8; }
+.nt-empty-icon {
+  width: 56px; height: 56px; border-radius: 16px;
+  display: grid; place-items: center;
+  margin-bottom: 16px;
+  background: var(--surface2, var(--surface));
+  color: color-mix(in srgb, var(--muted) 74%, transparent);
+}
+.nt-empty-msg {
+  margin: 0 0 6px;
+  font-size: 17px; line-height: 1.2; font-weight: 650; color: var(--text);
+}
+.nt-empty-hint {
+  max-width: 270px;
+  font-size: 13.5px; line-height: 1.5; color: var(--muted);
+}
 /* /mobius-ui:Empty */
 
 /* ── Grid ───────────────────────────────────────────────────────────────── */
 .nt-grid-wrap {
   /* bottom pad clears the gesture bar and FAB on Android/notched iPhones */
-  padding: 16px 8px max(96px, calc(72px + env(safe-area-inset-bottom)));
+  padding: 18px 18px max(96px, calc(72px + env(safe-area-inset-bottom)));
   max-width: 1120px; margin: 0 auto;
 }
-.nt-section { margin-bottom: 18px; }
+.nt-section { margin-bottom: 26px; }
 /* mobius-ui:SectionHead v1 — keep in sync; library candidate. */
 .nt-section-head {
-  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; line-height: 1; font-weight: 650; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--muted);
-  margin: 4px 8px 10px; user-select: none;
+  margin: 4px 4px 12px; user-select: none;
+}
+.nt-section-count {
+  letter-spacing: 0; font-weight: 500;
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
 }
 /* /mobius-ui:SectionHead */
-/* Masonry-style grid: content-height cards, no fixed row sizes */
 .nt-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-auto-rows: min-content;
-  gap: 10px;
+  gap: 12px;
+}
+@media (min-width: 700px) {
+  .nt-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (min-width: 980px) {
+  .nt-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 /* ── Card ───────────────────────────────────────────────────────────────── */
@@ -168,31 +200,66 @@ export const CSS = `
 .nt-card-wrap { /* grid item — no extra margin needed with gap */ }
 .nt-card {
   position: relative;
-  border-radius: 10px; overflow: hidden;
+  border-radius: 16px; overflow: hidden;
   background: var(--surface); border: 1px solid var(--border);
-  transition: box-shadow 0.14s ease, transform 0.1s ease;
+  min-height: 118px;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 5%, transparent),
+              0 8px 22px color-mix(in srgb, var(--text) 6%, transparent);
+  transition: box-shadow 0.16s ease, transform 0.16s ease, border-color 0.16s ease;
+}
+.nt-card::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  background: transparent;
 }
 @media (hover: hover) {
-  .nt-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.12); transform: translateY(-1px); }
+  .nt-card:hover {
+    box-shadow: 0 2px 6px color-mix(in srgb, var(--text) 7%, transparent),
+                0 16px 40px color-mix(in srgb, var(--text) 10%, transparent);
+    transform: translateY(-2px);
+  }
 }
 .nt-card:active { transform: scale(0.985); }
 .nt-card-body {
-  cursor: pointer; padding: 12px 14px 8px;
+  min-height: 118px;
+  cursor: pointer; padding: 14px 14px 12px 16px;
+  display: flex; flex-direction: column; gap: 8px;
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
 .nt-card-body:active { opacity: 0.85; }
-/* Title darkened to contrast against the full card tint background */
+.nt-card-main {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 8px;
+}
 .nt-card-title {
-  font-size: 14px; font-weight: 700; color: var(--text);
-  margin-bottom: 5px; overflow-wrap: anywhere;
+  display: flex; align-items: flex-start; gap: 6px;
+  font-size: 15px; line-height: 1.28; font-weight: 650; color: var(--text);
+  overflow-wrap: anywhere; padding-right: 24px;
+}
+.nt-card-title span {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .nt-card-empty {
-  font-size: 13px; color: var(--muted); opacity: 0.6; font-style: italic;
+  font-size: 13px; color: var(--muted); opacity: 0.72; font-style: italic;
 }
-/* Preview slightly muted over the tinted background */
 .nt-card-preview {
-  font-size: 13px; color: var(--text); opacity: 0.72; line-height: 1.5;
-  max-height: 180px; overflow: hidden;
+  font-size: 13px; color: var(--muted); line-height: 1.42;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.nt-card-kicker {
+  display: flex; align-items: center; gap: 5px;
+  color: var(--muted); opacity: 0.7; font-size: 12px;
+}
+.nt-card-meta {
+  display: flex; align-items: center; gap: 8px; min-height: 12px;
+}
+.nt-card-tone-dot {
+  width: 8px; height: 8px; border-radius: 3px; flex: 0 0 auto;
+}
+.nt-card-date {
+  color: color-mix(in srgb, var(--muted) 78%, transparent);
+  font: 500 11.5px/1 var(--mono); letter-spacing: 0;
 }
 .nt-card-thumbs {
   display: grid; gap: 6px; margin-bottom: 8px;
@@ -263,7 +330,7 @@ export const CSS = `
 .note-preview p { margin: 0 0 6px; }
 .note-preview p:last-child { margin-bottom: 0; }
 .note-preview h1, .note-preview h2, .note-preview h3 { font-size: 13.5px; font-weight: 700; margin: 0 0 4px; }
-.note-preview code { font-family: var(--mono); font-size: 12px; background: rgba(128,128,128,0.15); border-radius: 3px; padding: 0 3px; }
+.note-preview code { font-family: var(--mono); font-size: 12px; background: color-mix(in srgb, var(--muted) 15%, transparent); border-radius: 3px; padding: 0 3px; }
 .note-preview pre { margin: 0 0 6px; font-size: 12px; overflow: hidden; }
 .note-preview ul, .note-preview ol { margin: 0 0 6px; padding-left: 18px; }
 .note-preview li { margin-bottom: 2px; }
@@ -297,8 +364,8 @@ export const CSS = `
   display: grid; grid-template-columns: repeat(4, 44px); gap: 8px;
   max-width: calc(100vw - 24px); padding: 8px;
   background: var(--surface2, var(--surface));
-  border: 1px solid var(--border); border-radius: 8px;
-  box-shadow: 0 8px 24px var(--scrim, rgba(0,0,0,0.4));
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--text) 20%, transparent);
 }
 .nt-swatch {
   width: 44px; height: 44px; border-radius: 9px;
@@ -317,13 +384,13 @@ export const CSS = `
 .nt-modal-scrim {
   position: fixed; inset: 0; z-index: 50;
   display: flex; align-items: center; justify-content: center; padding: 20px;
-  background: var(--scrim, rgba(0,0,0,0.55)); backdrop-filter: blur(2px);
+  background: color-mix(in srgb, var(--text) 46%, transparent); backdrop-filter: blur(2px);
 }
 .nt-modal {
   width: 100%; max-width: 360px;
   background: var(--surface);
   border: 1px solid var(--border); border-radius: 16px; padding: 20px;
-  box-shadow: 0 12px 40px var(--scrim, rgba(0,0,0,0.5));
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--text) 22%, transparent);
 }
 .nt-modal-title {
   font-size: 16px; font-weight: 650; color: var(--text);
@@ -364,9 +431,12 @@ export const CSS = `
   /* The full-screen editor covers the viewport (position:absolute inset:0), so —
      unlike the grid, which the sticky .nt-topbar insets — the editor header sits
      at the top edge and must clear the notch/status bar itself. */
-  padding: max(8px, env(safe-area-inset-top)) 10px 9px;
-  border-bottom: 1px solid var(--border);
-  display: flex; flex-direction: column; gap: 7px; flex: 0 0 auto;
+  padding: max(12px, env(safe-area-inset-top)) 14px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: saturate(1.35) blur(14px);
+  -webkit-backdrop-filter: saturate(1.35) blur(14px);
 }
 .nt-editor-row1 {
   display: flex; align-items: center; gap: 6px; min-width: 0;
@@ -382,7 +452,7 @@ export const CSS = `
 .nt-hdr-btn {
   width: 44px; height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
-  border: none; border-radius: 9px;
+  border: 1px solid transparent; border-radius: 11px;
   background: transparent; color: var(--text);
   cursor: pointer; font-size: 16px; flex-shrink: 0; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
@@ -401,11 +471,21 @@ export const CSS = `
   flex-shrink: 0;
   /* background comes from the nt-color-dot--<tone> classes generated above */
 }
+.nt-editor-back-label {
+  color: var(--accent);
+  font-size: 15px; font-weight: 650; line-height: 1;
+}
+.nt-editor-title-band {
+  flex: 0 0 auto;
+  padding: 26px clamp(18px, 6vw, 40px) 6px;
+}
 .nt-title-input {
-  flex: 1; min-width: 0;
-  padding: 7px 6px; border: none;
+  display: block; width: 100%; max-width: var(--nt-measure); margin: 0 auto;
+  padding: 0; border: none;
   background: transparent; color: var(--text);
-  font-size: 17px; font-weight: 650; font-family: var(--font);
+  font-size: clamp(24px, 4vw, 31px); line-height: 1.14; font-weight: 700;
+  letter-spacing: 0; font-family: var(--font);
+  text-wrap: balance;
 }
 /* mouse focus is borderless by design; keyboard focus keeps the shared ring */
 .nt-title-input:focus:not(:focus-visible) { outline: none; }
@@ -422,7 +502,7 @@ export const CSS = `
 .nt-label-btn {
   height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
-  gap: 6px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px;
+  gap: 6px; border: 1px solid var(--border); border-radius: 11px; padding: 0 10px;
   background: var(--surface2, var(--surface)); color: var(--text);
   cursor: pointer; font-size: 13px; font-weight: 600;
   white-space: nowrap; flex-shrink: 0; font-family: var(--font);
@@ -472,7 +552,16 @@ export const CSS = `
   flex-shrink: 0; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
-.nt-editor-body { flex: 1; overflow: hidden; }
+.nt-editor-body { flex: 1; min-height: 0; overflow: hidden; }
+.nt-editor-foot {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 10px clamp(18px, 6vw, 40px) max(14px, env(safe-area-inset-bottom));
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  color: color-mix(in srgb, var(--muted) 82%, transparent);
+  font: 500 12px/1.2 var(--mono);
+}
 
 /* ── Grid offline pill (mobius-ui:SyncPill v2) ──────────────────────────── */
 /* SILENT WHEN HEALTHY: mounted ONLY while offline (never "Saving"/pending
@@ -480,12 +569,13 @@ export const CSS = `
    with the bottom-right FAB. Absolute to .nt-root (which is position:relative),
    never fixed — a fixed overlay could paint over the shell chrome. */
 .nt-sync-pill {
-  position: absolute; left: 12px; bottom: max(12px, env(safe-area-inset-bottom));
+  position: absolute; left: 50%; bottom: max(22px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
   z-index: 15;
-  display: inline-flex; align-items: center; padding: 6px 12px; border-radius: 999px;
-  background: var(--surface); border: 1px solid var(--border); color: var(--muted);
-  font-size: 11px; font-weight: 600; font-family: var(--font);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  display: inline-flex; align-items: center; padding: 9px 14px; border-radius: 999px;
+  background: var(--text); border: 1px solid transparent; color: var(--bg);
+  font-size: 12.5px; line-height: 1; font-weight: 650; font-family: var(--font);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--text) 20%, transparent);
 }
 .nt-sync-pill.is-error { border-color: var(--danger); color: var(--danger); }
 

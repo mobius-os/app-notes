@@ -7,8 +7,11 @@ export default function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveA
   const pinned = notes.filter((n) => n.meta.pinned)
   const others = notes.filter((n) => !n.meta.pinned)
 
-  const header = (txt) => (
-    <h2 className="nt-section-head">{txt}</h2>
+  const header = (txt, count) => (
+    <h2 className="nt-section-head">
+      <span>{txt}</span>
+      <span className="nt-section-count">· {count}</span>
+    </h2>
   )
   const cards = (list) => (
     <div className="nt-cards">
@@ -28,8 +31,8 @@ export default function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveA
 
   return (
     <div className="nt-grid-wrap">
-      {pinned.length > 0 && <section className="nt-section">{header('Pinned')}{cards(pinned)}</section>}
-      {others.length > 0 && <section>{pinned.length > 0 && header('Others')}{cards(others)}</section>}
+      {pinned.length > 0 && <section className="nt-section">{header('Pinned', pinned.length)}{cards(pinned)}</section>}
+      {others.length > 0 && <section>{header('All notes', others.length)}{cards(others)}</section>}
     </div>
   )
 }

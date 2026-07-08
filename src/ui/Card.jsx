@@ -18,6 +18,16 @@ function IconBtn({ children, title, onClick, active, danger }) {
   )
 }
 
+const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
+
+function formatCardDate(meta) {
+  const raw = meta.updated || meta.created
+  if (!raw) return ''
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return ''
+  return DATE_FORMATTER.format(d)
+}
+
 export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const { meta, body } = note
   const [html, setHtml] = useState('')
@@ -88,6 +98,7 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
   const tone = normalizeColorName(meta.color)
   const empty = !meta.title && !(body || '').trim()
   const isChecklist = meta.type === 'checklist'
+  const cardDate = formatCardDate(meta)
 
   // Long-press detection (~300ms) via pointer events. Touch/pen only — a mouse
   // reveals the tools on hover, so arming a long-press for it would wrongly suppress
@@ -177,23 +188,31 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
               ))}
             </div>
           )}
-          {meta.title && (
-            <div className="nt-card-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {isChecklist && <Icon name="checklist" size={13} />}
-              {meta.title}
+          <div className="nt-card-main">
+            {meta.title && (
+              <div className="nt-card-title">
+                {isChecklist && <Icon name="checklist" size={13} />}
+                <span>{meta.title}</span>
+              </div>
+            )}
+            {!meta.title && isChecklist && (
+              <div className="nt-card-kicker">
+                <Icon name="checklist" size={12} />Checklist
+              </div>
+            )}
+            {empty
+              ? <div className="nt-card-empty">Empty note</div>
+              : <div
+                  className="note-preview nt-card-preview"
+                  dangerouslySetInnerHTML={{ __html: html }}
+                />}
+          </div>
+          {(tone || cardDate) && (
+            <div className="nt-card-meta">
+              {tone && <span className="nt-card-tone-dot" aria-hidden="true" />}
+              {cardDate && <span className="nt-card-date">{cardDate}</span>}
             </div>
           )}
-          {!meta.title && isChecklist && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, opacity: 0.55, fontSize: 12 }}>
-              <Icon name="checklist" size={12} />Checklist
-            </div>
-          )}
-          {empty
-            ? <div className="nt-card-empty">Empty note</div>
-            : <div
-                className="note-preview nt-card-preview"
-                dangerouslySetInnerHTML={{ __html: html }}
-              />}
         </div>
 
         {/* Footer toolbar: color + delete (pin is top-right) */}

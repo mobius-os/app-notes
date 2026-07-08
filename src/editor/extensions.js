@@ -43,8 +43,8 @@ const theme = EditorView.theme({
   // color-scheme tint over the cards. Matches the .nt-scroll containment.
   // 16px (not 15px): a focusable text surface below 16px triggers iOS Safari
   // zoom-on-focus, which then leaves the whole app frame zoomed. Matches .nt-search.
-  '.cm-scroller': { overflow: 'auto', overscrollBehavior: 'contain', fontFamily: 'var(--font)', lineHeight: '1.65', fontSize: '16px' },
-  '.cm-content': { padding: '16px 18px 40vh', caretColor: 'var(--accent)', maxWidth: '760px', margin: '0 auto', width: '100%' },
+  '.cm-scroller': { overflow: 'auto', overscrollBehavior: 'contain', fontFamily: 'var(--font)', lineHeight: '1.66', fontSize: '16px' },
+  '.cm-content': { padding: '12px 18px 34vh', caretColor: 'var(--accent)', maxWidth: 'var(--nt-measure)', margin: '0 auto', width: '100%' },
   '&.cm-focused': { outline: 'none' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
   '.cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--accent) 22%, transparent)' },
