@@ -90,12 +90,14 @@ const colorPicker = () => findEl((n) => n.props && typeof n.props.onPick === 'fu
 // would churn the stranded-images effect (deps include resolveAttachment) into an
 // infinite setState loop.
 let setNote
-function mountWithNote(note0, onSave) {
+function mountWithNote(note0, onSave, extra = {}) {
   const stable = {
     appId: '1', onSave,
     onBack() {}, onPin() {}, onColor() {}, onDelete() {},
+    onExternalConflict() {},
     resolveAttachment: async () => null, putAttachment: async () => ({}),
     conflict: null, status: '', forceSave: false,
+    ...extra,
   }
   shim.mount(() => {
     const [n, setN] = shim.useState(note0)
@@ -105,6 +107,7 @@ function mountWithNote(note0, onSave) {
 }
 
 const tick = () => new Promise((r) => setTimeout(r, 0))
+const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 
 test('external body rewrite of the open note repaints the buffer and fires no stale save', async () => {
   const saves = []
@@ -172,9 +175,11 @@ test('open-editor color changes persist the live CodeMirror body', async () => {
 
 test('overlapping external edits do not inject raw conflict markers into the editor', async () => {
   const saves = []
+  const conflicts = []
   const onSave = (meta, body) => { saves.push(body); return Promise.resolve() }
+  const onExternalConflict = (sides) => { conflicts.push(sides); return Promise.resolve() }
   const note0 = { meta: { id: 'n4', title: 'T', type: 'note', color: null, pinned: false, attachments: [] }, body: 'a\nb\nc' }
-  mountWithNote(note0, onSave)
+  mountWithNote(note0, onSave, { onExternalConflict })
 
   editorEl().props.onChange('a\nlocal edit\nc')
   await tick()
@@ -183,5 +188,10 @@ test('overlapping external edits do not inject raw conflict markers into the edi
 
   assert.equal(editorEl().props.value, 'a\nlocal edit\nc', 'the local typing surface stays readable')
   assert.doesNotMatch(editorEl().props.value, /<<<<<<<|=======|>>>>>>>/, 'raw conflict markers are not shown while typing')
+  assert.equal(conflicts.length, 1, 'the overlapping external edit is recorded for resolver recovery')
+  assert.equal(conflicts[0].mine.body, 'a\nlocal edit\nc')
+  assert.equal(conflicts[0].theirs.body, 'a\nexternal edit\nc')
+  await wait(700)
+  assert.deepEqual(saves, [], 'the pending autosave is blocked while the external conflict is unresolved')
   shim.unmount()
 })

@@ -12,11 +12,22 @@ export class CheckboxWidget extends WidgetType {
     const box = document.createElement('input')
     box.type = 'checkbox'
     box.checked = this.checked
-    box.style.cssText = 'margin:0 6px 0 0; cursor:pointer; vertical-align:middle; accent-color:var(--accent)'
-    box.addEventListener('mousedown', (e) => {
-      e.preventDefault()
+    box.style.cssText = 'min-width:24px; min-height:24px; margin:0 6px 0 0; cursor:pointer; vertical-align:middle; accent-color:var(--accent)'
+    let pointerHandled = false
+    const toggle = () => {
       const insert = this.checked ? '[ ]' : '[x]'
       view.dispatch({ changes: { from: this.pos, to: this.pos + 3, insert } })
+    }
+    box.addEventListener('mousedown', (e) => {
+      e.preventDefault()
+      pointerHandled = true
+      toggle()
+      setTimeout(() => { pointerHandled = false }, 0)
+    })
+    box.addEventListener('change', (e) => {
+      e.preventDefault()
+      if (pointerHandled) return
+      toggle()
     })
     return box
   }
@@ -54,10 +65,11 @@ export class FileChipWidget extends WidgetType {
   constructor(name, src, resolve) { super(); this.name = name; this.src = src; this.resolve = resolve; this.url = null }
   eq(o) { return o.src === this.src && o.name === this.name }
   toDOM() {
-    const a = document.createElement('span')
+    const a = document.createElement('button')
+    a.type = 'button'
     a.textContent = `📎 ${this.name}`
     a.title = this.name
-    a.style.cssText = 'display:inline-flex; align-items:center; gap:4px; padding:2px 8px; margin:0 2px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:13px; cursor:pointer;'
+    a.style.cssText = 'display:inline-flex; align-items:center; gap:4px; padding:2px 8px; margin:0 2px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font:inherit; font-size:13px; cursor:pointer;'
     // Open the blob in a new tab rather than synthesizing an <a download> click.
     // The app iframe sandbox grants allow-popups but NOT allow-downloads, so the
     // `download` attribute is blocked (silent no-op) and iOS Safari ignores it

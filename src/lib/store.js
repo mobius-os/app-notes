@@ -43,12 +43,13 @@ function extFromName(name) {
 // attachment GC, which must read the AUTHORITATIVE on-disk note set.
 export async function listNotes() {
   let entries
-  try { entries = await S().list('notes') } catch { entries = [] }
+  try { entries = await S().list('notes') } catch { return null }
+  if (entries == null) return null
   const out = []
   for (const e of entries || []) {
     if (e.type !== 'file' || !e.name.endsWith('.json')) continue
     let doc
-    try { doc = await S().get(e.path) } catch { doc = null }
+    try { doc = await S().get(e.path) } catch { return null }
     if (doc && doc.meta && doc.meta.id) out.push({ meta: doc.meta, body: doc.body ?? '' })
   }
   return out

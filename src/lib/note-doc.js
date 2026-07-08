@@ -23,11 +23,12 @@ export const notePath = (id) => `notes/${id}.json`
 export const legacyPath = (id) => `notes/${id}.md`
 
 // Synchronous content-identity equality of two note documents — the same fields
-// note.js' contentHash digests (title, body, pinned, color, tags, type,
-// archived), with the same defaults, so it agrees with the async hash without
-// awaiting. Used to decide a fast-forward (server unchanged since our ancestor)
-// inside the SYNCHRONOUS merge useDocument requires. Volatile bookkeeping
-// (updated, rev, content_hash, id, created) is intentionally excluded.
+// note.js' contentHash digests (title, body, pinned, color, tags, attachments,
+// type, archived), with the same defaults, so it agrees with the async hash
+// without awaiting. Used to decide a fast-forward (server unchanged since our
+// ancestor) inside the SYNCHRONOUS merge useDocument requires. Volatile
+// bookkeeping (updated, rev, content_hash, id, created) is intentionally
+// excluded.
 function sameContent(a, b) {
   if (a == null || b == null) return a == null && b == null
   const am = a.meta ?? {}
@@ -44,7 +45,8 @@ function sameContent(a, b) {
     (am.color ?? null) === (bm.color ?? null) &&
     (am.type ?? 'note') === (bm.type ?? 'note') &&
     (am.archived ?? false) === (bm.archived ?? false) &&
-    eqArr(am.tags, bm.tags)
+    eqArr(am.tags, bm.tags) &&
+    eqArr(am.attachments, bm.attachments)
   )
 }
 
@@ -131,7 +133,10 @@ export function makeMergeNote(onConflict) {
   return function mergeNote(base, mine, theirs) {
     const { value, conflict } = mergeNoteDocs(base, mine, theirs)
     if (conflict && typeof onConflict === 'function') {
-      try { onConflict({ base, mine, theirs }) } catch (e) {}
+      try {
+        const result = onConflict({ base, mine, theirs })
+        if (result && typeof result.catch === 'function') result.catch(() => {})
+      } catch (e) {}
     }
     return value
   }

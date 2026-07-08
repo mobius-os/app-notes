@@ -59,11 +59,12 @@ function taskSummary(body) {
   return `${tasks.length} task${tasks.length === 1 ? '' : 's'} · ${done} done`
 }
 
-export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment, conflict, status, forceSave }) {
+export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, onExternalConflict, resolveAttachment, putAttachment, conflict, status, forceSave }) {
   const [title, setTitle] = useState(note.meta.title || '')
   const [body, setBody] = useState(note.body || '')
   const [showColors, setShowColors] = useState(false)
   const [attachErr, setAttachErr] = useState('')
+  const [externalConflict, setExternalConflict] = useState(false)
   const timer = useRef(null)
   const viewRef = useRef(null)
   const imageRef = useRef(null)
@@ -81,7 +82,10 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   // incoming body (theirs) against this base and repoints it. Seeded to the first
   // note body; reset on every note-swap and every reconcile.
   const reconciledBody = useRef(note.body || '')
+  const reconciledTitle = useRef(note.meta.title || '')
   const localSaveBodies = useRef(new Set())
+  const externalConflictRef = useRef(false)
+  const externalConflictKey = useRef('')
 
   const isChecklist = note.meta.type === 'checklist'
 
@@ -94,6 +98,9 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   }, [note, title, body])
 
   const saveCurrentNote = useCallback((meta, nextBody) => {
+    if (externalConflictRef.current) {
+      return Promise.reject(new Error('Resolve the incoming edit before saving this note.'))
+    }
     localSaveBodies.current.add(nextBody ?? '')
     return Promise.resolve(onSave(meta, nextBody))
   }, [onSave])
@@ -169,11 +176,25 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     flushSave().catch(() => {}) // a refused save surfaces via the saveError banner; don't throw on note-swap
     latest.current = { note, title: note.meta.title || '', body: note.body || '' }
     reconciledBody.current = note.body || ''
+    reconciledTitle.current = note.meta.title || ''
     localSaveBodies.current.clear()
+    externalConflictRef.current = false
+    externalConflictKey.current = ''
+    setExternalConflict(false)
     setTitle(note.meta.title || '')
     setBody(note.body || '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.meta.id])
+
+  useEffect(() => {
+    if (latest.current.note.meta.id !== note.meta.id) return
+    const incoming = note.meta.title || ''
+    const base = reconciledTitle.current
+    if (incoming === base) return
+    if (title === base) setTitle(incoming)
+    reconciledTitle.current = incoming
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.meta.title, note.meta.id, title])
 
   // Reconcile the live buffer with an EXTERNAL rewrite of the OPEN note. When the
   // agent conflict-resolver or another device writes
@@ -207,11 +228,32 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     // user's in-flight edits are preserved alongside the external change.
     const mergedResult = mineBuf === base ? { conflict: false, text: incoming } : merge3(base, mineBuf, incoming)
     if (mergedResult.conflict) {
-      reconciledBody.current = incoming
+      if (timer.current) clearTimeout(timer.current)
+      const key = `${note.meta.id}\u0000${base}\u0000${mineBuf}\u0000${incoming}`
+      externalConflictRef.current = true
+      setExternalConflict(true)
+      if (externalConflictKey.current !== key) {
+        externalConflictKey.current = key
+        const cur = latest.current
+        const attachments = Array.from(new Set([
+          ...(cur.note.meta.attachments || []),
+          ...bodyAttachmentRefs(mineBuf),
+        ]))
+        const baseMeta = { ...cur.note.meta, title: reconciledTitle.current }
+        const mineMeta = { ...cur.note.meta, title: cur.title, attachments }
+        Promise.resolve(onExternalConflict?.({
+          base: { meta: baseMeta, body: base },
+          mine: { meta: mineMeta, body: mineBuf },
+          theirs: { meta: note.meta, body: incoming },
+        })).catch(() => {})
+      }
       return
     }
     const merged = mergedResult.text
     reconciledBody.current = incoming
+    externalConflictRef.current = false
+    externalConflictKey.current = ''
+    setExternalConflict(false)
     if (v) {
       const cur = v.state.doc.toString()
       if (cur !== merged) {
@@ -408,7 +450,10 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
         </div>
         <div className="nt-editor-row2">
           <button
-            onClick={() => saveMetaPatch({ pinned: !note.meta.pinned }).catch(() => {})}
+            onClick={() => {
+              const current = latest.current?.note?.meta?.pinned
+              saveMetaPatch({ pinned: !current }).catch(() => {})
+            }}
             aria-label={note.meta.pinned ? 'Unpin' : 'Pin'}
             aria-pressed={note.meta.pinned}
             title={note.meta.pinned ? 'Unpin' : 'Pin'}
@@ -428,6 +473,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
                 align="start"
                 current={note.meta.color}
                 onPick={(c) => { saveMetaPatch({ color: c }).catch(() => {}); setShowColors(false) }}
+                onDismiss={() => setShowColors(false)}
               />
             )}
           </div>
@@ -462,10 +508,10 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
         <input ref={fileRef} type="file" onChange={handleFile} style={{ display: 'none' }} />
       </header>
 
-      {conflict && (
+      {(conflict || externalConflict) && (
         <div className="nt-conflict-bar">
           <span className="nt-conflict-msg">Edited in two places — merging…</span>
-          <button onClick={() => resolveNow(note, appId)} className="nt-conflict-btn">Resolve now</button>
+          {conflict && <button onClick={() => resolveNow(note, appId)} className="nt-conflict-btn">Resolve now</button>}
         </div>
       )}
 

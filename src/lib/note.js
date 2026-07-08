@@ -23,6 +23,9 @@ import {sha256Hex} from './hash.js'
 // edited (a phantom conflict) on the first reconcile after the update. New
 // notes never set them, so normalize()'s defaults keep their hashes identical
 // to an explicit `tags: [], archived: false`.
+//
+// Attachments are content too: a stranded image/file can live only in
+// meta.attachments, so an attachment-only update must not look like a no-op.
 function normalize(meta, body) {
   return {
     title: meta.title ?? '',
@@ -30,6 +33,7 @@ function normalize(meta, body) {
     pinned: meta.pinned ?? false,
     color: meta.color ?? null,
     tags: Array.isArray(meta.tags) ? meta.tags : [],
+    attachments: Array.isArray(meta.attachments) ? meta.attachments : [],
     type: meta.type ?? 'note',
     archived: meta.archived ?? false,
   }
@@ -45,6 +49,7 @@ export async function contentHash(meta, body) {
     canonical.pinned,
     canonical.color,
     canonical.tags,
+    canonical.attachments,
     canonical.type,
     canonical.archived,
   ])

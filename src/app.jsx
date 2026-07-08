@@ -212,6 +212,18 @@ export default function App({ appId, token }) {
   const conflictsRef = useRef(conflicts)
   useEffect(() => { conflictsRef.current = conflicts }, [conflicts])
 
+  const setDraftNow = useCallback((next) => {
+    draftRef.current = typeof next === 'function' ? next(draftRef.current) : next
+    setDraft(draftRef.current)
+  }, [])
+
+  const setNotesNow = useCallback((updater) => {
+    const next = typeof updater === 'function' ? updater(notesRef.current) : updater
+    notesRef.current = next
+    setNotes(next)
+    return next
+  }, [])
+
   // The conflict callback for any merge that detects a genuine overlapping-body
   // conflict. BOTH writers (the open-editor liveDoc via makeMergeNote, and the
   // collection's update for closed notes) call this with the SAME { base, mine,
@@ -249,6 +261,7 @@ export default function App({ appId, token }) {
           message: 'Merge conflict could not be saved for recovery — your local copy is kept. Reconnect and reopen the note to retry.',
         })
       }
+      throw err
     }
   }, [])
 
@@ -309,12 +322,12 @@ export default function App({ appId, token }) {
   useEffect(() => {
     const v = liveDoc.value
     if (!openId || !v || !v.meta || v.meta.id !== openId) return
-    setNotes((prev) => {
+    setNotesNow((prev) => {
       const cur = prev.find((n) => n.meta.id === openId)
       if (cur && cur.body === v.body && cur.meta.content_hash === v.meta.content_hash) return prev
       return prev.map((n) => (n.meta.id === openId ? { ...n, meta: v.meta, body: v.body } : n))
     })
-  }, [openId, liveDoc.value])
+  }, [openId, liveDoc.value, setNotesNow])
 
   // Clear the "Resolving…/merging…" indicator when an EXTERNAL writer (the agent
   // resolver, or another device) rewrites the OPEN note's BODY off mine — an
@@ -373,10 +386,10 @@ export default function App({ appId, token }) {
   // setNotes(prev => …) runs on React's StrictMode double-invoke too, which would
   // persist an index for state that gets discarded.
   const upsert = useCallback((meta, body) => {
-    setNotes((prev) => (prev.some((n) => n.meta.id === meta.id)
+    setNotesNow((prev) => (prev.some((n) => n.meta.id === meta.id)
       ? prev.map((n) => (n.meta.id === meta.id ? { ...n, meta, body, storagePath: n.storagePath } : n))
       : [{ meta, body }, ...prev]))
-  }, [])
+  }, [setNotesNow])
 
   // Debounced attachment GC. Deletes and body edits can orphan content-addressed
   // blobs; sweep them after the dust settles (the durable write has landed)
@@ -397,6 +410,10 @@ export default function App({ appId, token }) {
     }, 1500)
   }, [])
 
+  const canGcAfterDurableResult = useCallback((result) => (
+    !(result && (result.durability === 'queued' || result.queued === true))
+  ), [])
+
   // Initial load: migrate any legacy markdown notes to the JSON document model
   // (idempotent, before the first read so old notes never vanish), paint the
   // derived index.json cache for an instant grid, then read the canonical note
@@ -412,7 +429,7 @@ export default function App({ appId, token }) {
         .then((index) => {
           const cached = notesFromIndex(index)
           if (live && cached.length) {
-            setNotes((prev) => (prev.length ? prev : cached))
+            setNotesNow((prev) => (prev.length ? prev : cached))
             setLoading(false)
           }
         })
@@ -427,12 +444,12 @@ export default function App({ appId, token }) {
         // The online event re-lists the moment we reconnect (effect below).
         window.mobius?.signal?.('app_ready', { item_count: notesRef.current.length, offline: true })
       } else {
-        setNotes(canonical)
+        setNotesNow(canonical)
         window.mobius?.signal?.('app_ready', { item_count: canonical.length, offline: false })
       }
     })()
     return () => { live = false }
-  }, [collection])
+  }, [collection, setNotesNow])
 
   // Connectivity: keep `online` reactive to window events, and re-enumerate on
   // reconnect (a cold offline load couldn't list()). A successful re-list replaces
@@ -441,7 +458,7 @@ export default function App({ appId, token }) {
     const goOnline = () => {
       setOnline(true)
       collection.list().then((canonical) => {
-        if (canonical != null) { setNotes(canonical); setLoading(false) }
+        if (canonical != null) { setNotesNow(canonical); setLoading(false) }
       }).catch(() => {})
     }
     const goOffline = () => setOnline(false)
@@ -451,7 +468,7 @@ export default function App({ appId, token }) {
       window.removeEventListener('online', goOnline)
       window.removeEventListener('offline', goOffline)
     }
-  }, [collection])
+  }, [collection, setNotesNow])
 
   // Persist the derived index cache as a PURE effect on committed notes — never as a
   // side effect inside a setNotes updater (see upsert). Skip the pre-load paint so
@@ -515,9 +532,9 @@ export default function App({ appId, token }) {
     if (!cur.placeholder) return cur
     const loaded = await collection.load(id).catch(() => null)
     if (!loaded || !loaded.meta || !loaded.meta.id) return null
-    setNotes((prev) => prev.map((n) => (n.meta.id === id ? loaded : n)))
+    setNotesNow((prev) => prev.map((n) => (n.meta.id === id ? loaded : n)))
     return loaded
-  }, [collection])
+  }, [collection, setNotesNow])
 
   const openEditor = useCallback(async (id) => {
     const cur = notesRef.current.find((n) => n.meta.id === id)
@@ -540,9 +557,9 @@ export default function App({ appId, token }) {
 
   const createNote = useCallback(() => {
     const meta = newNote({})
-    setDraft({ meta, body: '' })
+    setDraftNow({ meta, body: '' })
     openEditor(meta.id).catch(() => setView({ mode: 'editor', id: meta.id }))
-  }, [openEditor])
+  }, [openEditor, setDraftNow])
 
   // Persist a note's full document ({ meta, body }). EXACTLY ONE writer touches a
   // given note path: the OPEN editor note writes through its live useDocument
@@ -578,13 +595,13 @@ export default function App({ appId, token }) {
       setSaveError((e) => (e && e.id === id ? null : e))
       setFailedSaveIds((s) => { if (!s.has(id)) return s; const n = new Set(s); n.delete(id); return n })
       if (isDraftCommit) {
-        setDraft(null)
+        setDraftNow(null)
         // First durable save of a draft == a real creation (distinct from autosaves).
         window.mobius?.signal?.('item_created', { type: m.type || 'note' })
       } else {
         window.mobius?.signal?.('item_updated', { type: m.type || 'note', durability: result?.durability })
       }
-      scheduleGc()
+      if (canGcAfterDurableResult(result)) scheduleGc()
       return m
     } catch (err) {
       // Durable write REFUSED by the server (DurableWriteError). Do not claim a
@@ -601,7 +618,7 @@ export default function App({ appId, token }) {
       setFailedSaveIds((s) => (s.has(id) ? s : new Set(s).add(id)))
       throw err
     }
-  }, [openId, upsert, collection, scheduleGc])
+  }, [openId, upsert, collection, scheduleGc, setDraftNow, canGcAfterDurableResult])
 
   // Persist an edit from the editor or a draft. `updated` is stamped only when
   // the content actually changed (hash compare): the grid sorts on it, so a real
@@ -611,7 +628,7 @@ export default function App({ appId, token }) {
     const currentDraft = draftRef.current
     if (currentDraft && currentDraft.meta.id === meta.id) {
       const next = { meta: { ...currentDraft.meta, ...meta }, body }
-      setDraft(next)
+      setDraftNow(next)
       if (isBlankNote(next.meta, next.body)) return
       await writeNote(next.meta, next.body, { isDraftCommit: true })
       return
@@ -625,33 +642,33 @@ export default function App({ appId, token }) {
     // edit never reached the server; force the retry instead of silently dropping.
     if (!failedSaveIdsRef.current.has(meta.id) && prevHash != null && nextHash === prevHash) return
     await writeNote({ ...meta, updated: new Date().toISOString() }, body)
-  }, [writeNote])
+  }, [writeNote, setDraftNow])
 
   const togglePin = useCallback(async (id) => {
     if (draft && draft.meta.id === id) {
-      setDraft((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }))
+      setDraftNow((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }))
       return
     }
     const n = await ensureAuthoritative(id)
     if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body).catch(() => {}) // saveError surfaces via the grid banner
-  }, [draft, ensureAuthoritative, persist])
+  }, [draft, ensureAuthoritative, persist, setDraftNow])
   const setColor = useCallback(async (id, color) => {
     if (draft && draft.meta.id === id) {
-      setDraft((d) => ({ ...d, meta: { ...d.meta, color } }))
+      setDraftNow((d) => ({ ...d, meta: { ...d.meta, color } }))
       return
     }
     const n = await ensureAuthoritative(id)
     if (n) persist({ ...n.meta, color }, n.body).catch(() => {}) // saveError surfaces via the grid banner
-  }, [draft, ensureAuthoritative, persist])
+  }, [draft, ensureAuthoritative, persist, setDraftNow])
 
   // Delete a note: remove its canonical document via the collection (the runtime
   // queues the delete offline and drains it on reconnect). Clear any conflict
   // flag and sweep orphaned attachments after.
   const queueDelete = useCallback(async (id) => {
-    await collection.remove(id)
+    const result = await collection.remove(id)
     setConflicts((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n })
-    scheduleGc()
-  }, [collection, scheduleGc])
+    if (canGcAfterDurableResult(result)) scheduleGc()
+  }, [collection, scheduleGc, canGcAfterDurableResult])
 
   const doDelete = useCallback(async (id) => {
     setConfirmId(null)
@@ -659,7 +676,7 @@ export default function App({ appId, token }) {
       // An uncommitted draft (never durably saved) — discarding it is not a
       // deletion of a persisted item, so it emits no item_deleted signal.
       if (view.mode === 'editor' && view.id === id) popEditorNav()
-      setDraft(null)
+      setDraftNow(null)
       setView({ mode: 'grid' })
       return
     }
@@ -675,7 +692,7 @@ export default function App({ appId, token }) {
       }
     }
     // index.json is rewritten by the committed-notes effect; no write inside the updater.
-    setNotes((prev) => prev.filter((note) => note.meta.id !== id))
+    setNotesNow((prev) => prev.filter((note) => note.meta.id !== id))
     setView((v) => {
       if (v.mode === 'editor' && v.id === id) {
         popEditorNav()
@@ -683,7 +700,7 @@ export default function App({ appId, token }) {
       }
       return v
     })
-  }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode])
+  }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode, setDraftNow, setNotesNow])
 
   const leaveEditor = useCallback((fromShell = false) => {
     if (!fromShell) popEditorNav()
@@ -691,13 +708,14 @@ export default function App({ appId, token }) {
   }, [popEditorNav])
 
   const back = useCallback(async (fromShell = false) => {
-    if (draft && draft.meta.id === view.id) {
+    const currentDraft = draftRef.current
+    if (currentDraft && currentDraft.meta.id === view.id) {
       leaveEditor(fromShell)
-      setDraft(null)
+      setDraftNow(null)
       setView({ mode: 'grid' })
       return
     }
-    const n = notes.find((x) => x.meta.id === view.id)
+    const n = notesRef.current.find((x) => x.meta.id === view.id)
     if (n && !n.placeholder && isBlankNote(n.meta, n.body)) {
       try {
         await queueDelete(n.meta.id)
@@ -708,13 +726,13 @@ export default function App({ appId, token }) {
       }
       // index.json is rewritten by the committed-notes effect; no write inside the updater.
       leaveEditor(fromShell)
-      setNotes((prev) => prev.filter((x) => x.meta.id !== n.meta.id))
+      setNotesNow((prev) => prev.filter((x) => x.meta.id !== n.meta.id))
       setView({ mode: 'grid' })
       return
     }
     leaveEditor(fromShell)
     setView({ mode: 'grid' })
-  }, [draft, notes, leaveEditor, view.id, queueDelete])
+  }, [leaveEditor, view.id, queueDelete, setDraftNow, setNotesNow])
 
   useEffect(() => {
     const onMessage = (event) => {
@@ -810,6 +828,7 @@ export default function App({ appId, token }) {
           onPin={togglePin}
           onColor={setColor}
           onDelete={setConfirmId}
+          onExternalConflict={onConflict}
           resolveAttachment={store.attachmentURL}
           putAttachment={store.putAttachment}
           conflict={conflicts.has(editing.meta.id)}

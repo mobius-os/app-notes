@@ -74,6 +74,13 @@ test('contentHash changes when pinned/color/tags change', async () => {
   assert.notEqual(base, tag)
 })
 
+test('contentHash changes when attachments change', async () => {
+  const meta = { title: 'T', pinned: false, color: null, tags: [], attachments: [] }
+  const base = await contentHash(meta, 'b')
+  const withAttachment = await contentHash({ ...meta, attachments: ['attachments/a.png'] }, 'b')
+  assert.notEqual(base, withAttachment)
+})
+
 test('contentHash is order-insensitive within tags only by value, not reordering meaning', async () => {
   // tags are a set semantically but the hash includes them as given;
   // here we assert identical tag arrays hash identically.

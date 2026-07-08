@@ -81,17 +81,18 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
     }
   }, [imageRefsKey, resolveAttachment])
 
-  // Close tools panel when clicking outside the card
+  // Close tools panel / portaled color picker when clicking outside the card.
   useEffect(() => {
-    if (!toolsOpen) return undefined
+    if (!toolsOpen && !showColors) return undefined
     const onPointerDown = (e) => {
       if (cardRef.current && !cardRef.current.contains(e.target)) {
         setToolsOpen(false)
+        setShowColors(false)
       }
     }
     document.addEventListener('pointerdown', onPointerDown)
     return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [toolsOpen])
+  }, [toolsOpen, showColors])
 
   // Tone class drives background/border/footer styling (css.js TONE_CSS);
   // legacy stored names (violet, sky, …) normalize to a current tone on read.
@@ -224,6 +225,7 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
                 anchorRef={colorBtnRef}
                 current={meta.color}
                 onPick={(c) => { onColor(meta.id, c); setShowColors(false) }}
+                onDismiss={() => setShowColors(false)}
               />
             )}
           </div>

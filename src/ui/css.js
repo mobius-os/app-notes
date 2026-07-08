@@ -190,6 +190,9 @@ export const CSS = `
   grid-auto-rows: min-content;
   gap: 12px;
 }
+@media (max-width: 420px) {
+  .nt-cards { grid-template-columns: minmax(0, 1fr); }
+}
 @media (min-width: 700px) {
   .nt-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
@@ -309,6 +312,13 @@ export const CSS = `
 }
 .nt-card-pin:focus-visible { opacity: 1 !important; }
 .nt-card-pin:active { transform: scale(0.9); }
+@media (hover: none) {
+  .nt-card-pin {
+    opacity: 0.72;
+    background: color-mix(in srgb, var(--surface) 78%, transparent);
+  }
+  .nt-card-pin.is-pinned { opacity: 1; }
+}
 
 /* ── Card toolbar — shown on hover/focus; toggled via .nt-card--tools ────── */
 .nt-card-footer {
@@ -327,6 +337,9 @@ export const CSS = `
 .nt-card:focus-within .nt-card-footer { opacity: 1; pointer-events: auto; }
 /* long-press (touch) toggle class */
 .nt-card--tools .nt-card-footer { opacity: 1; pointer-events: auto; }
+@media (hover: none) {
+  .nt-card-footer { opacity: 1; pointer-events: auto; }
+}
 
 /* note-preview: prose styles for rendered markdown in card previews */
 .note-preview p { margin: 0 0 6px; }

@@ -79,6 +79,26 @@ test('mergeNoteDocs: server META changed (body same) does NOT fast-forward — m
   assert.equal(value.meta.mobius_rev, 6) // mergeMeta bumped: max(5,5)+1
 })
 
+test('mergeNoteDocs: server attachment-only metadata is preserved by mergeMeta, not clobbered by fast-forward', () => {
+  const base = note('a', 'x', { created: 't0', mobius_rev: 4, attachments: [] })
+  const theirs = note('a', 'x', {
+    created: 't0',
+    mobius_rev: 5,
+    attachments: ['attachments/server.png'],
+    updated: '2026-02-02',
+  })
+  const mine = note('a', 'x local', {
+    created: 't0',
+    mobius_rev: 5,
+    attachments: [],
+    updated: '2026-02-01',
+  })
+  const { value, conflict } = mergeNoteDocs(base, mine, theirs)
+  assert.equal(conflict, false)
+  assert.equal(value.body, 'x local')
+  assert.ok(value.meta.attachments.includes('attachments/server.png'))
+})
+
 test('mergeNoteDocs: meta is 3-way merged (mergeMeta) on a clean body merge', () => {
   const base = note('a', 'x', { created: 't0', mobius_rev: 1, tags: [] })
   const mine = note('a', 'x', { created: 't0', mobius_rev: 2, pinned: true, updated: '2026-02-01' })

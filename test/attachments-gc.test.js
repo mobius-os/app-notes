@@ -209,3 +209,22 @@ test('a released in-flight blob that a note now references is kept (release does
   assert.ok(after.some((e) => e.path === res.path),
     'a blob a note references stays after the lease is released')
 })
+
+test('GC skips deletion when authoritative note enumeration fails', async () => {
+  const harness = installMobius()
+  const store = await import('../src/lib/store.js?gc-fail-closed')
+  const path = 'attachments/live.png'
+  harness.seed('notes/n1.json', { meta: { id: 'n1', attachments: [path] }, body: '' })
+  harness.seed(path, new Blob(['live']), 'blob')
+
+  const originalList = window.mobius.storage.list
+  window.mobius.storage.list = async (prefix) => {
+    if (prefix === 'notes') throw new Error('notes unavailable')
+    return originalList(prefix)
+  }
+
+  await store.gcAttachments()
+
+  const after = await originalList('attachments')
+  assert.ok(after.some((e) => e.path === path), 'GC failed closed and kept the referenced blob')
+})

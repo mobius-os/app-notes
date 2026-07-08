@@ -2,7 +2,7 @@
 // Edit src/app.jsx + src/{lib,ui,editor}/*, then run `npm run build`.
 
 // src/app.jsx
-import React, { useState as useState4, useEffect as useEffect5, useMemo as useMemo3, useCallback as useCallback4, useRef as useRef5 } from "react";
+import React, { useState as useState4, useEffect as useEffect6, useMemo as useMemo3, useCallback as useCallback4, useRef as useRef5 } from "react";
 
 // src/ui/colors.js
 var NOTE_COLORS = [
@@ -205,6 +205,9 @@ var CSS = `
   grid-auto-rows: min-content;
   gap: 12px;
 }
+@media (max-width: 420px) {
+  .nt-cards { grid-template-columns: minmax(0, 1fr); }
+}
 @media (min-width: 700px) {
   .nt-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
@@ -324,6 +327,13 @@ var CSS = `
 }
 .nt-card-pin:focus-visible { opacity: 1 !important; }
 .nt-card-pin:active { transform: scale(0.9); }
+@media (hover: none) {
+  .nt-card-pin {
+    opacity: 0.72;
+    background: color-mix(in srgb, var(--surface) 78%, transparent);
+  }
+  .nt-card-pin.is-pinned { opacity: 1; }
+}
 
 /* \u2500\u2500 Card toolbar \u2014 shown on hover/focus; toggled via .nt-card--tools \u2500\u2500\u2500\u2500\u2500\u2500 */
 .nt-card-footer {
@@ -342,6 +352,9 @@ var CSS = `
 .nt-card:focus-within .nt-card-footer { opacity: 1; pointer-events: auto; }
 /* long-press (touch) toggle class */
 .nt-card--tools .nt-card-footer { opacity: 1; pointer-events: auto; }
+@media (hover: none) {
+  .nt-card-footer { opacity: 1; pointer-events: auto; }
+}
 
 /* note-preview: prose styles for rendered markdown in card previews */
 .note-preview p { margin: 0 0 6px; }
@@ -655,6 +668,7 @@ function normalize(meta, body) {
     pinned: meta.pinned ?? false,
     color: meta.color ?? null,
     tags: Array.isArray(meta.tags) ? meta.tags : [],
+    attachments: Array.isArray(meta.attachments) ? meta.attachments : [],
     type: meta.type ?? "note",
     archived: meta.archived ?? false
   };
@@ -667,6 +681,7 @@ async function contentHash(meta, body) {
     canonical.pinned,
     canonical.color,
     canonical.tags,
+    canonical.attachments,
     canonical.type,
     canonical.archived
   ]);
@@ -1201,7 +1216,7 @@ function sameContent(a, b) {
     const ys = Array.isArray(y) ? y : [];
     return xs.length === ys.length && xs.every((v, i) => v === ys[i]);
   };
-  return (am.title ?? "") === (bm.title ?? "") && String(a.body ?? "") === String(b.body ?? "") && (am.pinned ?? false) === (bm.pinned ?? false) && (am.color ?? null) === (bm.color ?? null) && (am.type ?? "note") === (bm.type ?? "note") && (am.archived ?? false) === (bm.archived ?? false) && eqArr(am.tags, bm.tags);
+  return (am.title ?? "") === (bm.title ?? "") && String(a.body ?? "") === String(b.body ?? "") && (am.pinned ?? false) === (bm.pinned ?? false) && (am.color ?? null) === (bm.color ?? null) && (am.type ?? "note") === (bm.type ?? "note") && (am.archived ?? false) === (bm.archived ?? false) && eqArr(am.tags, bm.tags) && eqArr(am.attachments, bm.attachments);
 }
 var docId = (doc) => doc && doc.meta ? doc.meta.id : void 0;
 function buildConflictDescriptor({ noteId, base, mine, server, hashes }) {
@@ -1239,7 +1254,9 @@ function makeMergeNote(onConflict) {
     const { value, conflict } = mergeNoteDocs(base, mine, theirs);
     if (conflict && typeof onConflict === "function") {
       try {
-        onConflict({ base, mine, theirs });
+        const result = onConflict({ base, mine, theirs });
+        if (result && typeof result.catch === "function") result.catch(() => {
+        });
       } catch (e) {
       }
     }
@@ -1293,8 +1310,9 @@ async function listNotes() {
   try {
     entries = await S().list("notes");
   } catch {
-    entries = [];
+    return null;
   }
+  if (entries == null) return null;
   const out = [];
   for (const e of entries || []) {
     if (e.type !== "file" || !e.name.endsWith(".json")) continue;
@@ -1302,7 +1320,7 @@ async function listNotes() {
     try {
       doc = await S().get(e.path);
     } catch {
-      doc = null;
+      return null;
     }
     if (doc && doc.meta && doc.meta.id) out.push({ meta: doc.meta, body: doc.body ?? "" });
   }
@@ -1508,10 +1526,7 @@ function makeNoteCollection({ onConflict } = {}) {
       bases.set(id, merged);
       rememberPath(id, path);
       if (conflict && typeof onConflict === "function") {
-        try {
-          await onConflict({ base, mine, theirs });
-        } catch (e) {
-        }
+        await onConflict({ base, mine, theirs });
       }
       return { result, value: merged };
     });
@@ -1662,7 +1677,7 @@ async function migrateLegacyNotes() {
 }
 
 // src/ui/Card.jsx
-import { useState as useState2, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState as useState2, useEffect as useEffect2, useRef, useMemo, useCallback } from "react";
 
 // src/lib/preview.js
 var _libs;
@@ -1706,12 +1721,13 @@ async function renderPreviewHTML(md) {
 }
 
 // src/ui/ColorPicker.jsx
-import { useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { jsx } from "react/jsx-runtime";
 var MARGIN = 12;
-function ColorPicker({ anchorRef, current, onPick, placement = "above", align = "start" }) {
+function ColorPicker({ anchorRef, current, onPick, onDismiss, placement = "above", align = "start" }) {
   const [pos, setPos] = useState(null);
+  const normalizedCurrent = normalizeColorName(current);
   const width = 4 * 44 + 3 * 8 + 2 * 8;
   const rows = Math.ceil(NOTE_COLORS.length / 4);
   const height = rows * 44 + (rows - 1) * 8 + 2 * 8;
@@ -1734,27 +1750,39 @@ function ColorPicker({ anchorRef, current, onPick, placement = "above", align = 
       window.removeEventListener("resize", place);
     };
   }, [anchorRef, placement, align, height, width]);
+  useEffect(() => {
+    if (!onDismiss) return void 0;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") onDismiss();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onDismiss]);
   if (!pos) return null;
   return createPortal(
     /* @__PURE__ */ jsx(
       "div",
       {
-        role: "menu",
+        role: "listbox",
         "aria-label": "Note color",
         onClick: (e) => e.stopPropagation(),
+        onPointerDown: (e) => e.stopPropagation(),
         className: "nt-color-picker",
         style: { top: pos.top, left: pos.left },
         children: NOTE_COLORS.map((c) => /* @__PURE__ */ jsx(
           "button",
           {
+            type: "button",
+            role: "option",
             title: c.label,
             "aria-label": c.label,
+            "aria-selected": normalizedCurrent === c.name,
             onClick: () => onPick(c.name),
             className: [
               "nt-swatch",
               c.name ? `nt-swatch--${c.name}` : "nt-swatch--default",
               // Legacy stored names normalize to a tone so the matching swatch highlights.
-              normalizeColorName(current) === c.name ? "is-current" : ""
+              normalizedCurrent === c.name ? "is-current" : ""
             ].filter(Boolean).join(" ")
           },
           c.name || "default"
@@ -1897,7 +1925,7 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const longPressTimer = useRef(null);
   const cardRef = useRef(null);
   const suppressNextClick = useRef(false);
-  useEffect(() => {
+  useEffect2(() => {
     let live = true;
     renderPreviewHTML((body || "").slice(0, 700)).then((h) => {
       if (live) setHtml(h);
@@ -1909,7 +1937,7 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   }, [body]);
   const imageRefs = useMemo(() => localImageRefs(meta, body, 4), [meta, body]);
   const imageRefsKey = imageRefs.join("\n");
-  useEffect(() => {
+  useEffect2(() => {
     let live = true;
     let urls = [];
     const refs = imageRefsKey ? imageRefsKey.split("\n") : [];
@@ -1931,16 +1959,17 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
       urls.forEach((u) => URL.revokeObjectURL(u));
     };
   }, [imageRefsKey, resolveAttachment]);
-  useEffect(() => {
-    if (!toolsOpen) return void 0;
+  useEffect2(() => {
+    if (!toolsOpen && !showColors) return void 0;
     const onPointerDown2 = (e) => {
       if (cardRef.current && !cardRef.current.contains(e.target)) {
         setToolsOpen(false);
+        setShowColors(false);
       }
     };
     document.addEventListener("pointerdown", onPointerDown2);
     return () => document.removeEventListener("pointerdown", onPointerDown2);
-  }, [toolsOpen]);
+  }, [toolsOpen, showColors]);
   const tone = normalizeColorName(meta.color);
   const empty = !meta.title && !(body || "").trim();
   const isChecklist = meta.type === "checklist";
@@ -2060,7 +2089,8 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
                 onPick: (c) => {
                   onColor(meta.id, c);
                   setShowColors(false);
-                }
+                },
+                onDismiss: () => setShowColors(false)
               }
             )
           ] }),
@@ -2109,7 +2139,7 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
 }
 
 // src/ui/EditorPanel.jsx
-import { useState as useState3, useEffect as useEffect3, useRef as useRef3, useCallback as useCallback2, useMemo as useMemo2 } from "react";
+import { useState as useState3, useEffect as useEffect4, useRef as useRef3, useCallback as useCallback2, useMemo as useMemo2 } from "react";
 
 // src/lib/sdr-image.js
 var MAX_DIMENSION = 2048;
@@ -2208,7 +2238,7 @@ async function toSdrImage(file) {
 }
 
 // src/editor/Editor.jsx
-import { useRef as useRef2, useEffect as useEffect2 } from "react";
+import { useRef as useRef2, useEffect as useEffect3 } from "react";
 import { EditorState } from "@codemirror/state";
 import { EditorView as EditorView3 } from "@codemirror/view";
 
@@ -2252,11 +2282,24 @@ var CheckboxWidget = class extends WidgetType {
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = this.checked;
-    box.style.cssText = "margin:0 6px 0 0; cursor:pointer; vertical-align:middle; accent-color:var(--accent)";
-    box.addEventListener("mousedown", (e) => {
-      e.preventDefault();
+    box.style.cssText = "min-width:24px; min-height:24px; margin:0 6px 0 0; cursor:pointer; vertical-align:middle; accent-color:var(--accent)";
+    let pointerHandled = false;
+    const toggle = () => {
       const insert = this.checked ? "[ ]" : "[x]";
       view.dispatch({ changes: { from: this.pos, to: this.pos + 3, insert } });
+    };
+    box.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      pointerHandled = true;
+      toggle();
+      setTimeout(() => {
+        pointerHandled = false;
+      }, 0);
+    });
+    box.addEventListener("change", (e) => {
+      e.preventDefault();
+      if (pointerHandled) return;
+      toggle();
     });
     return box;
   }
@@ -2317,10 +2360,11 @@ var FileChipWidget = class extends WidgetType {
     return o.src === this.src && o.name === this.name;
   }
   toDOM() {
-    const a = document.createElement("span");
+    const a = document.createElement("button");
+    a.type = "button";
     a.textContent = `\u{1F4CE} ${this.name}`;
     a.title = this.name;
-    a.style.cssText = "display:inline-flex; align-items:center; gap:4px; padding:2px 8px; margin:0 2px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:13px; cursor:pointer;";
+    a.style.cssText = "display:inline-flex; align-items:center; gap:4px; padding:2px 8px; margin:0 2px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font:inherit; font-size:13px; cursor:pointer;";
     a.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -2585,7 +2629,7 @@ function Editor({ value, onChange, resolveAttachment, viewRef, syncKey }) {
   const resolveRef = useRef2(resolveAttachment);
   onChangeRef.current = onChange;
   resolveRef.current = resolveAttachment;
-  useEffect2(() => {
+  useEffect3(() => {
     const state = EditorState.create({
       doc: value || "",
       extensions: buildExtensions({
@@ -2604,7 +2648,7 @@ function Editor({ value, onChange, resolveAttachment, viewRef, syncKey }) {
       if (viewRef) viewRef.current = null;
     };
   }, []);
-  useEffect2(() => {
+  useEffect3(() => {
     const v = view.current;
     if (!v) return;
     const cur = v.state.doc.toString();
@@ -2650,11 +2694,12 @@ function taskSummary(body) {
   const done = tasks.filter((task) => /\[[xX]\]/.test(task)).length;
   return `${tasks.length} task${tasks.length === 1 ? "" : "s"} \xB7 ${done} done`;
 }
-function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment: putAttachment2, conflict, status, forceSave }) {
+function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, onExternalConflict, resolveAttachment, putAttachment: putAttachment2, conflict, status, forceSave }) {
   const [title, setTitle] = useState3(note.meta.title || "");
   const [body, setBody] = useState3(note.body || "");
   const [showColors, setShowColors] = useState3(false);
   const [attachErr, setAttachErr] = useState3("");
+  const [externalConflict, setExternalConflict] = useState3(false);
   const timer = useRef3(null);
   const viewRef = useRef3(null);
   const imageRef = useRef3(null);
@@ -2662,14 +2707,20 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
   const colorBtnRef = useRef3(null);
   const latest = useRef3({ note, title: note.meta.title || "", body: note.body || "" });
   const reconciledBody = useRef3(note.body || "");
+  const reconciledTitle = useRef3(note.meta.title || "");
   const localSaveBodies = useRef3(/* @__PURE__ */ new Set());
+  const externalConflictRef = useRef3(false);
+  const externalConflictKey = useRef3("");
   const isChecklist = note.meta.type === "checklist";
-  useEffect3(() => {
+  useEffect4(() => {
     if (latest.current.note.meta.id === note.meta.id) {
       latest.current = { note, title, body };
     }
   }, [note, title, body]);
   const saveCurrentNote = useCallback2((meta, nextBody) => {
+    if (externalConflictRef.current) {
+      return Promise.reject(new Error("Resolve the incoming edit before saving this note."));
+    }
     localSaveBodies.current.add(nextBody ?? "");
     return Promise.resolve(onSave(meta, nextBody));
   }, [onSave]);
@@ -2712,17 +2763,29 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
     ]));
     return saveCurrentNote({ ...cur.note.meta, title: cur.title, attachments }, currentBody);
   }, [saveCurrentNote, forceSave, liveBody]);
-  useEffect3(() => {
+  useEffect4(() => {
     if (timer.current) clearTimeout(timer.current);
     flushSave().catch(() => {
     });
     latest.current = { note, title: note.meta.title || "", body: note.body || "" };
     reconciledBody.current = note.body || "";
+    reconciledTitle.current = note.meta.title || "";
     localSaveBodies.current.clear();
+    externalConflictRef.current = false;
+    externalConflictKey.current = "";
+    setExternalConflict(false);
     setTitle(note.meta.title || "");
     setBody(note.body || "");
   }, [note.meta.id]);
-  useEffect3(() => {
+  useEffect4(() => {
+    if (latest.current.note.meta.id !== note.meta.id) return;
+    const incoming = note.meta.title || "";
+    const base = reconciledTitle.current;
+    if (incoming === base) return;
+    if (title === base) setTitle(incoming);
+    reconciledTitle.current = incoming;
+  }, [note.meta.title, note.meta.id, title]);
+  useEffect4(() => {
     if (latest.current.note.meta.id !== note.meta.id) return;
     const incoming = note.body || "";
     const base = reconciledBody.current;
@@ -2736,11 +2799,33 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
     }
     const mergedResult = mineBuf === base ? { conflict: false, text: incoming } : merge3(base, mineBuf, incoming);
     if (mergedResult.conflict) {
-      reconciledBody.current = incoming;
+      if (timer.current) clearTimeout(timer.current);
+      const key = `${note.meta.id}\0${base}\0${mineBuf}\0${incoming}`;
+      externalConflictRef.current = true;
+      setExternalConflict(true);
+      if (externalConflictKey.current !== key) {
+        externalConflictKey.current = key;
+        const cur = latest.current;
+        const attachments = Array.from(/* @__PURE__ */ new Set([
+          ...cur.note.meta.attachments || [],
+          ...bodyAttachmentRefs(mineBuf)
+        ]));
+        const baseMeta = { ...cur.note.meta, title: reconciledTitle.current };
+        const mineMeta = { ...cur.note.meta, title: cur.title, attachments };
+        Promise.resolve(onExternalConflict?.({
+          base: { meta: baseMeta, body: base },
+          mine: { meta: mineMeta, body: mineBuf },
+          theirs: { meta: note.meta, body: incoming }
+        })).catch(() => {
+        });
+      }
       return;
     }
     const merged = mergedResult.text;
     reconciledBody.current = incoming;
+    externalConflictRef.current = false;
+    externalConflictKey.current = "";
+    setExternalConflict(false);
     if (v) {
       const cur = v.state.doc.toString();
       if (cur !== merged) {
@@ -2756,7 +2841,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
       setBody(merged);
     }
   }, [note.body]);
-  useEffect3(() => {
+  useEffect4(() => {
     if (title === (note.meta.title || "") && body === (note.body || "")) return;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
@@ -2765,7 +2850,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
     }, AUTOSAVE_MS);
     return () => clearTimeout(timer.current);
   }, [title, body, flushSave]);
-  useEffect3(() => {
+  useEffect4(() => {
     const flushOnHide = () => {
       if (document.visibilityState === "hidden") flushSave().catch(() => {
       });
@@ -2844,7 +2929,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
   const stranded = useMemo2(() => strandedImageRefs(note.meta, body), [note.meta, body]);
   const strandedKey = stranded.join("\n");
   const [strandedUrls, setStrandedUrls] = useState3([]);
-  useEffect3(() => {
+  useEffect4(() => {
     let live = true;
     let urls = [];
     const refs = strandedKey ? strandedKey.split("\n") : [];
@@ -2897,8 +2982,11 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
         /* @__PURE__ */ jsx6(
           "button",
           {
-            onClick: () => saveMetaPatch({ pinned: !note.meta.pinned }).catch(() => {
-            }),
+            onClick: () => {
+              const current = latest.current?.note?.meta?.pinned;
+              saveMetaPatch({ pinned: !current }).catch(() => {
+              });
+            },
             "aria-label": note.meta.pinned ? "Unpin" : "Pin",
             "aria-pressed": note.meta.pinned,
             title: note.meta.pinned ? "Unpin" : "Pin",
@@ -2928,7 +3016,8 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
                 saveMetaPatch({ color: c }).catch(() => {
                 });
                 setShowColors(false);
-              }
+              },
+              onDismiss: () => setShowColors(false)
             }
           )
         ] }),
@@ -2984,9 +3073,9 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
       /* @__PURE__ */ jsx6("input", { ref: imageRef, type: "file", accept: "image/*", onChange: handleFile, style: { display: "none" } }),
       /* @__PURE__ */ jsx6("input", { ref: fileRef, type: "file", onChange: handleFile, style: { display: "none" } })
     ] }),
-    conflict && /* @__PURE__ */ jsxs4("div", { className: "nt-conflict-bar", children: [
+    (conflict || externalConflict) && /* @__PURE__ */ jsxs4("div", { className: "nt-conflict-bar", children: [
       /* @__PURE__ */ jsx6("span", { className: "nt-conflict-msg", children: "Edited in two places \u2014 merging\u2026" }),
-      /* @__PURE__ */ jsx6("button", { onClick: () => resolveNow(note, appId), className: "nt-conflict-btn", children: "Resolve now" })
+      conflict && /* @__PURE__ */ jsx6("button", { onClick: () => resolveNow(note, appId), className: "nt-conflict-btn", children: "Resolve now" })
     ] }),
     attachErr && /* @__PURE__ */ jsx6("div", { className: "nt-attach-err", children: attachErr }),
     /* @__PURE__ */ jsx6("div", { className: "nt-editor-title-band", children: /* @__PURE__ */ jsx6(
@@ -3015,14 +3104,14 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
 }
 
 // src/ui/ConfirmModal.jsx
-import { useEffect as useEffect4, useId, useRef as useRef4, useCallback as useCallback3 } from "react";
+import { useEffect as useEffect5, useId, useRef as useRef4, useCallback as useCallback3 } from "react";
 import { jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
 function ConfirmModal({ open, title, message, confirmLabel = "Confirm", danger, onConfirm, onCancel }) {
   const dialogRef = useRef4(null);
   const cancelRef = useRef4(null);
   const openerRef = useRef4(null);
   const titleId = useId();
-  useEffect4(() => {
+  useEffect5(() => {
     if (!open) return;
     openerRef.current = document.activeElement;
     cancelRef.current?.focus();
@@ -3167,7 +3256,7 @@ var ErrorBoundary = class extends React.Component {
   }
 };
 function App({ appId, token }) {
-  useEffect5(() => {
+  useEffect6(() => {
     if (document.querySelector("style[data-nt-katex]")) return void 0;
     let cancelled = false;
     const CSS_URL = "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css";
@@ -3206,9 +3295,19 @@ function App({ appId, token }) {
   const lastWrittenBodyRef = useRef5(/* @__PURE__ */ new Map());
   const [online, setOnline] = useState4(() => isOnline());
   const conflictsRef = useRef5(conflicts);
-  useEffect5(() => {
+  useEffect6(() => {
     conflictsRef.current = conflicts;
   }, [conflicts]);
+  const setDraftNow = useCallback4((next) => {
+    draftRef.current = typeof next === "function" ? next(draftRef.current) : next;
+    setDraft(draftRef.current);
+  }, []);
+  const setNotesNow = useCallback4((updater) => {
+    const next = typeof updater === "function" ? updater(notesRef.current) : updater;
+    notesRef.current = next;
+    setNotes(next);
+    return next;
+  }, []);
   const onConflict = useCallback4(async (sides) => {
     const id = sides?.mine?.meta?.id ?? sides?.theirs?.meta?.id ?? sides?.base?.meta?.id;
     if (id != null) {
@@ -3229,22 +3328,23 @@ function App({ appId, token }) {
           message: "Merge conflict could not be saved for recovery \u2014 your local copy is kept. Reconnect and reopen the note to retry."
         });
       }
+      throw err;
     }
   }, []);
   const collection = useMemo3(() => makeNoteCollection({ onConflict }), [onConflict]);
   const openId = view.mode === "editor" ? view.id : null;
   const openNote = openId ? notes.find((n) => n.meta.id === openId && !n.placeholder) : null;
   const openPath = openId ? openNote?.storagePath || notePath(openId) : "__notes_no_open__.json";
-  useEffect5(() => {
+  useEffect6(() => {
     openIdRef.current = openId;
   }, [openId]);
-  useEffect5(() => {
+  useEffect6(() => {
     notesRef.current = notes;
   }, [notes]);
-  useEffect5(() => {
+  useEffect6(() => {
     draftRef.current = draft;
   }, [draft]);
-  useEffect5(() => {
+  useEffect6(() => {
     failedSaveIdsRef.current = failedSaveIds;
   }, [failedSaveIds]);
   const mergeNote = useMemo3(() => makeMergeNote(onConflict), [onConflict]);
@@ -3256,22 +3356,22 @@ function App({ appId, token }) {
   });
   const liveDocRef = useRef5(liveDoc);
   liveDocRef.current = liveDoc;
-  useEffect5(() => {
+  useEffect6(() => {
     if (openId && liveDoc.lastError) {
       setSaveError({ id: openId, message: "Could not save \u2014 your edit is kept. Retrying when possible." });
       setFailedSaveIds((s) => s.has(openId) ? s : new Set(s).add(openId));
     }
   }, [openId, liveDoc.lastError]);
-  useEffect5(() => {
+  useEffect6(() => {
     const v = liveDoc.value;
     if (!openId || !v || !v.meta || v.meta.id !== openId) return;
-    setNotes((prev) => {
+    setNotesNow((prev) => {
       const cur = prev.find((n) => n.meta.id === openId);
       if (cur && cur.body === v.body && cur.meta.content_hash === v.meta.content_hash) return prev;
       return prev.map((n) => n.meta.id === openId ? { ...n, meta: v.meta, body: v.body } : n);
     });
-  }, [openId, liveDoc.value]);
-  useEffect5(() => {
+  }, [openId, liveDoc.value, setNotesNow]);
+  useEffect6(() => {
     if (!openId) return;
     const id = openId;
     const path = notePath(id);
@@ -3300,8 +3400,8 @@ function App({ appId, token }) {
     };
   }, [openId]);
   const upsert = useCallback4((meta, body) => {
-    setNotes((prev) => prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { ...n, meta, body, storagePath: n.storagePath } : n) : [{ meta, body }, ...prev]);
-  }, []);
+    setNotesNow((prev) => prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { ...n, meta, body, storagePath: n.storagePath } : n) : [{ meta, body }, ...prev]);
+  }, [setNotesNow]);
   const scheduleGc = useCallback4(() => {
     if (gcTimer.current) clearTimeout(gcTimer.current);
     gcTimer.current = setTimeout(() => {
@@ -3312,7 +3412,8 @@ function App({ appId, token }) {
       });
     }, 1500);
   }, []);
-  useEffect5(() => {
+  const canGcAfterDurableResult = useCallback4((result) => !(result && (result.durability === "queued" || result.queued === true)), []);
+  useEffect6(() => {
     let live = true;
     (async () => {
       await migrateLegacyNotes().catch(() => {
@@ -3320,7 +3421,7 @@ function App({ appId, token }) {
       readIndex().then((index) => {
         const cached = notesFromIndex(index);
         if (live && cached.length) {
-          setNotes((prev) => prev.length ? prev : cached);
+          setNotesNow((prev) => prev.length ? prev : cached);
           setLoading(false);
         }
       }).catch(() => {
@@ -3331,20 +3432,20 @@ function App({ appId, token }) {
       if (canonical == null) {
         window.mobius?.signal?.("app_ready", { item_count: notesRef.current.length, offline: true });
       } else {
-        setNotes(canonical);
+        setNotesNow(canonical);
         window.mobius?.signal?.("app_ready", { item_count: canonical.length, offline: false });
       }
     })();
     return () => {
       live = false;
     };
-  }, [collection]);
-  useEffect5(() => {
+  }, [collection, setNotesNow]);
+  useEffect6(() => {
     const goOnline = () => {
       setOnline(true);
       collection.list().then((canonical) => {
         if (canonical != null) {
-          setNotes(canonical);
+          setNotesNow(canonical);
           setLoading(false);
         }
       }).catch(() => {
@@ -3357,13 +3458,13 @@ function App({ appId, token }) {
       window.removeEventListener("online", goOnline);
       window.removeEventListener("offline", goOffline);
     };
-  }, [collection]);
-  useEffect5(() => {
+  }, [collection, setNotesNow]);
+  useEffect6(() => {
     if (loading) return;
     writeIndex(notes).catch(() => {
     });
   }, [notes, loading]);
-  useEffect5(() => () => {
+  useEffect6(() => () => {
     if (gcTimer.current) clearTimeout(gcTimer.current);
   }, []);
   const pushEditorNav = useCallback4(() => {
@@ -3407,9 +3508,9 @@ function App({ appId, token }) {
     if (!cur.placeholder) return cur;
     const loaded = await collection.load(id).catch(() => null);
     if (!loaded || !loaded.meta || !loaded.meta.id) return null;
-    setNotes((prev) => prev.map((n) => n.meta.id === id ? loaded : n));
+    setNotesNow((prev) => prev.map((n) => n.meta.id === id ? loaded : n));
     return loaded;
-  }, [collection]);
+  }, [collection, setNotesNow]);
   const openEditor = useCallback4(async (id) => {
     const cur = notesRef.current.find((n) => n.meta.id === id);
     window.mobius?.signal?.("item_opened", { type: cur?.meta?.type || "note" });
@@ -3427,9 +3528,9 @@ function App({ appId, token }) {
   }, [ensureAuthoritative, pushEditorNav, view.mode]);
   const createNote = useCallback4(() => {
     const meta = newNote({});
-    setDraft({ meta, body: "" });
+    setDraftNow({ meta, body: "" });
     openEditor(meta.id).catch(() => setView({ mode: "editor", id: meta.id }));
-  }, [openEditor]);
+  }, [openEditor, setDraftNow]);
   const writeNote = useCallback4(async (meta, body, { isDraftCommit = false } = {}) => {
     const id = meta.id;
     const m = { ...meta, updated: meta.updated || (/* @__PURE__ */ new Date()).toISOString() };
@@ -3453,12 +3554,12 @@ function App({ appId, token }) {
         return n;
       });
       if (isDraftCommit) {
-        setDraft(null);
+        setDraftNow(null);
         window.mobius?.signal?.("item_created", { type: m.type || "note" });
       } else {
         window.mobius?.signal?.("item_updated", { type: m.type || "note", durability: result?.durability });
       }
-      scheduleGc();
+      if (canGcAfterDurableResult(result)) scheduleGc();
       return m;
     } catch (err) {
       window.mobius?.signal?.("error", { message: err?.message ?? "save failed", source: "writeNote" });
@@ -3466,12 +3567,12 @@ function App({ appId, token }) {
       setFailedSaveIds((s) => s.has(id) ? s : new Set(s).add(id));
       throw err;
     }
-  }, [openId, upsert, collection, scheduleGc]);
+  }, [openId, upsert, collection, scheduleGc, setDraftNow, canGcAfterDurableResult]);
   const persist = useCallback4(async (meta, body) => {
     const currentDraft = draftRef.current;
     if (currentDraft && currentDraft.meta.id === meta.id) {
       const next = { meta: { ...currentDraft.meta, ...meta }, body };
-      setDraft(next);
+      setDraftNow(next);
       if (isBlankNote(next.meta, next.body)) return;
       await writeNote(next.meta, next.body, { isDraftCommit: true });
       return;
@@ -3482,40 +3583,40 @@ function App({ appId, token }) {
     const prevHash = prev ? await contentHash(prev.meta, prev.body) : null;
     if (!failedSaveIdsRef.current.has(meta.id) && prevHash != null && nextHash === prevHash) return;
     await writeNote({ ...meta, updated: (/* @__PURE__ */ new Date()).toISOString() }, body);
-  }, [writeNote]);
+  }, [writeNote, setDraftNow]);
   const togglePin = useCallback4(async (id) => {
     if (draft && draft.meta.id === id) {
-      setDraft((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }));
+      setDraftNow((d) => ({ ...d, meta: { ...d.meta, pinned: !d.meta.pinned } }));
       return;
     }
     const n = await ensureAuthoritative(id);
     if (n) persist({ ...n.meta, pinned: !n.meta.pinned }, n.body).catch(() => {
     });
-  }, [draft, ensureAuthoritative, persist]);
+  }, [draft, ensureAuthoritative, persist, setDraftNow]);
   const setColor = useCallback4(async (id, color) => {
     if (draft && draft.meta.id === id) {
-      setDraft((d) => ({ ...d, meta: { ...d.meta, color } }));
+      setDraftNow((d) => ({ ...d, meta: { ...d.meta, color } }));
       return;
     }
     const n = await ensureAuthoritative(id);
     if (n) persist({ ...n.meta, color }, n.body).catch(() => {
     });
-  }, [draft, ensureAuthoritative, persist]);
+  }, [draft, ensureAuthoritative, persist, setDraftNow]);
   const queueDelete = useCallback4(async (id) => {
-    await collection.remove(id);
+    const result = await collection.remove(id);
     setConflicts((prev) => {
       if (!prev.has(id)) return prev;
       const n = new Set(prev);
       n.delete(id);
       return n;
     });
-    scheduleGc();
-  }, [collection, scheduleGc]);
+    if (canGcAfterDurableResult(result)) scheduleGc();
+  }, [collection, scheduleGc, canGcAfterDurableResult]);
   const doDelete = useCallback4(async (id) => {
     setConfirmId(null);
     if (draft && draft.meta.id === id) {
       if (view.mode === "editor" && view.id === id) popEditorNav();
-      setDraft(null);
+      setDraftNow(null);
       setView({ mode: "grid" });
       return;
     }
@@ -3530,7 +3631,7 @@ function App({ appId, token }) {
         return;
       }
     }
-    setNotes((prev) => prev.filter((note) => note.meta.id !== id));
+    setNotesNow((prev) => prev.filter((note) => note.meta.id !== id));
     setView((v) => {
       if (v.mode === "editor" && v.id === id) {
         popEditorNav();
@@ -3538,19 +3639,20 @@ function App({ appId, token }) {
       }
       return v;
     });
-  }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode]);
+  }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode, setDraftNow, setNotesNow]);
   const leaveEditor = useCallback4((fromShell = false) => {
     if (!fromShell) popEditorNav();
     else editorNavOwned.current = false;
   }, [popEditorNav]);
   const back = useCallback4(async (fromShell = false) => {
-    if (draft && draft.meta.id === view.id) {
+    const currentDraft = draftRef.current;
+    if (currentDraft && currentDraft.meta.id === view.id) {
       leaveEditor(fromShell);
-      setDraft(null);
+      setDraftNow(null);
       setView({ mode: "grid" });
       return;
     }
-    const n = notes.find((x) => x.meta.id === view.id);
+    const n = notesRef.current.find((x) => x.meta.id === view.id);
     if (n && !n.placeholder && isBlankNote(n.meta, n.body)) {
       try {
         await queueDelete(n.meta.id);
@@ -3560,14 +3662,14 @@ function App({ appId, token }) {
         return;
       }
       leaveEditor(fromShell);
-      setNotes((prev) => prev.filter((x) => x.meta.id !== n.meta.id));
+      setNotesNow((prev) => prev.filter((x) => x.meta.id !== n.meta.id));
       setView({ mode: "grid" });
       return;
     }
     leaveEditor(fromShell);
     setView({ mode: "grid" });
-  }, [draft, notes, leaveEditor, view.id, queueDelete]);
-  useEffect5(() => {
+  }, [leaveEditor, view.id, queueDelete, setDraftNow, setNotesNow]);
+  useEffect6(() => {
     const onMessage = (event) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === "moebius:nav-back") back(true);
@@ -3576,7 +3678,7 @@ function App({ appId, token }) {
     return () => window.removeEventListener("message", onMessage);
   }, [back]);
   const visible = useMemo3(() => visibleNotes(notes, query), [notes, query]);
-  useEffect5(() => {
+  useEffect6(() => {
     const q = query.trim();
     if (loading || !q || visible.length > 0) return void 0;
     const h = setTimeout(() => {
@@ -3638,6 +3740,7 @@ function App({ appId, token }) {
           onPin: togglePin,
           onColor: setColor,
           onDelete: setConfirmId,
+          onExternalConflict: onConflict,
           resolveAttachment: attachmentURL,
           putAttachment,
           conflict: conflicts.has(editing.meta.id),

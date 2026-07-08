@@ -189,7 +189,7 @@ export function makeNoteCollection({ onConflict } = {}) {
       // its write must be durable-or-loud, which the handler owns). Awaiting the
       // handler keeps the descriptor's persistence deterministic for this path.
       if (conflict && typeof onConflict === 'function') {
-        try { await onConflict({ base, mine, theirs }) } catch (e) {}
+        await onConflict({ base, mine, theirs })
       }
       return { result, value: merged }
     })

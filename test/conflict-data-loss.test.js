@@ -44,7 +44,7 @@ const note = (id, body, extra = {}) => ({ meta: { id, title: '', ...extra }, bod
 // failure KEEP the note flagged + record a visible error. `flagged` and
 // `saveError` stand in for the component's `conflicts` set + `saveError` state so
 // the test can assert the user-visible outcome.
-function makeConflictHandler(state) {
+function makeConflictHandler(state, { throwOnFailure = false } = {}) {
   return async (sides) => {
     const id = sides?.mine?.meta?.id ?? sides?.theirs?.meta?.id ?? sides?.base?.meta?.id
     if (id != null) state.flagged.add(id)
@@ -57,6 +57,7 @@ function makeConflictHandler(state) {
         state.saveError = { id, message: 'Merge conflict could not be saved for recovery — your local copy is kept.' }
       }
       state.error = err
+      if (throwOnFailure) throw err
     }
   }
 }
@@ -82,10 +83,13 @@ test('(a) a conflict-descriptor write that DEAD-LETTERS surfaces an error and th
     )
     h.forceDeadLetter(d.path, 413)
 
-    const value = await runConflict(h, 'x1', { onConflict: makeConflictHandler(state) })
+    await assert.rejects(
+      () => runConflict(h, 'x1', { onConflict: makeConflictHandler(state, { throwOnFailure: true }) }),
+      (e) => e instanceof DurableWriteError && e.code === 'dead_letter',
+    )
 
     // The note keeps MINE's body (LWW lands the local edit canonically).
-    assert.equal(value.body, 'a\nMINE\nc')
+    assert.equal((await h.storage.get(notePath('x1'))).body, 'a\nMINE\nc')
     // The descriptor write was REFUSED — surfaced as an error, not a false save.
     assert.ok(state.error instanceof DurableWriteError, 'a DurableWriteError surfaced')
     assert.equal(state.error.code, 'dead_letter')
