@@ -13,12 +13,14 @@ import { NOTE_COLORS } from './colors.js'
 // editor-header dot. The tone hex is mixed INTO the theme tokens rather than
 // painted raw, which is what keeps the palette muted on any theme.
 const TONE_CSS = NOTE_COLORS.filter((c) => c.name).map((c) => `
-.nt-card--${c.name} {
-  --nt-note-tone: ${c.hex};
-}
-.nt-card--${c.name}::before {
-  background: color-mix(in srgb, var(--nt-note-tone) 72%, var(--surface));
-}
+	.nt-card--${c.name} {
+	  --nt-note-tone: ${c.hex};
+	  background: color-mix(in srgb, var(--nt-note-tone) 14%, var(--surface));
+	  border-color: color-mix(in srgb, var(--nt-note-tone) 36%, var(--border));
+	}
+	.nt-card--${c.name}::before {
+	  background: color-mix(in srgb, var(--nt-note-tone) 72%, var(--surface));
+	}
 .nt-swatch--${c.name} { background: ${c.hex}; }
 .nt-color-dot--${c.name},
 .nt-card--${c.name} .nt-card-tone-dot { background: color-mix(in srgb, var(--nt-note-tone) 72%, var(--surface)); }`).join('\n')

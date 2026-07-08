@@ -100,6 +100,36 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     return Promise.resolve(onSave(meta, nextBody))
   }, [onSave])
 
+  const liveBody = useCallback(() => (
+    viewRef.current ? viewRef.current.state.doc.toString() : latest.current.body
+  ), [])
+
+  const replaceEditorBody = useCallback((nextBody) => {
+    const v = viewRef.current
+    if (v) {
+      const cur = v.state.doc.toString()
+      if (cur !== nextBody) {
+        v.dispatch({ changes: { from: 0, to: cur.length, insert: nextBody } })
+      }
+    } else {
+      setBody(nextBody)
+    }
+  }, [])
+
+  const saveMetaPatch = useCallback((patch, bodyOverride) => {
+    const cur = latest.current
+    if (!cur?.note) return Promise.resolve()
+    if (timer.current) clearTimeout(timer.current)
+    const nextBody = bodyOverride ?? liveBody()
+    const attachments = Array.from(new Set([
+      ...(cur.note.meta.attachments || []),
+      ...bodyAttachmentRefs(nextBody),
+    ]))
+    const nextMeta = { ...cur.note.meta, title: cur.title, attachments, ...patch }
+    latest.current = { note: { ...cur.note, meta: nextMeta, body: nextBody }, title: cur.title, body: nextBody }
+    return saveCurrentNote(nextMeta, nextBody)
+  }, [liveBody, saveCurrentNote])
+
   const flushSave = useCallback(() => {
     const cur = latest.current
     if (!cur?.note) return Promise.resolve()
@@ -109,13 +139,13 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     // still be a pre-insert snapshot. Persisting that snapshot would drop a just-
     // inserted `![](attachments/…)` ref (the multi-image broken-link bug). The CM
     // doc is the single source of truth for the visible body, so flush it.
-    const liveBody = viewRef.current ? viewRef.current.state.doc.toString() : cur.body
+    const currentBody = liveBody()
     // Normally a buffer that equals the note is a no-op. But after a REFUSED save
     // the optimistic note prop already equals the buffer, so that equality would
     // make us skip the retry and close as if saved. `forceSave` (the app flagging
     // this id's last write as failed) overrides the skip so the write is re-issued
     // until it actually lands.
-    if (!forceSave && cur.title === (cur.note.meta.title || '') && liveBody === (cur.note.body || '')) {
+    if (!forceSave && cur.title === (cur.note.meta.title || '') && currentBody === (cur.note.body || '')) {
       return Promise.resolve()
     }
     if (timer.current) clearTimeout(timer.current)
@@ -126,10 +156,10 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     // an image record that the body still references mid-attach.
     const attachments = Array.from(new Set([
       ...(cur.note.meta.attachments || []),
-      ...bodyAttachmentRefs(liveBody),
+      ...bodyAttachmentRefs(currentBody),
     ]))
-    return saveCurrentNote({ ...cur.note.meta, title: cur.title, attachments }, liveBody)
-  }, [saveCurrentNote, forceSave])
+    return saveCurrentNote({ ...cur.note.meta, title: cur.title, attachments }, currentBody)
+  }, [saveCurrentNote, forceSave, liveBody])
 
   // Switching directly from one note to another in the editor: flush the
   // OUTGOING note's pending edits (held in `latest`, still pointing at the old
@@ -177,7 +207,12 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     }
     // No local unsaved edits → adopt theirs verbatim; otherwise 3-way merge so the
     // user's in-flight edits are preserved alongside the external change.
-    const merged = mineBuf === base ? incoming : merge3(base, mineBuf, incoming).text
+    const mergedResult = mineBuf === base ? { conflict: false, text: incoming } : merge3(base, mineBuf, incoming)
+    if (mergedResult.conflict) {
+      reconciledBody.current = incoming
+      return
+    }
+    const merged = mergedResult.text
     reconciledBody.current = incoming
     if (v) {
       const cur = v.state.doc.toString()
@@ -224,18 +259,19 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   // and the body has no list items yet, prepend a starter item.
   const toggleType = useCallback(() => {
     const nextType = isChecklist ? 'note' : 'checklist'
-    let nextBody = body
-    if (nextType === 'checklist' && body.trim() && !/^- \[[ x]\] /m.test(body)) {
+    const currentBody = liveBody()
+    let nextBody = currentBody
+    if (nextType === 'checklist' && currentBody.trim() && !/^- \[[ x]\] /m.test(currentBody)) {
       // Wrap existing content as first checklist item
-      nextBody = body.replace(/^(.+)/m, '- [ ] $1')
-    } else if (nextType === 'checklist' && !body.trim()) {
+      nextBody = currentBody.replace(/^(.+)/m, '- [ ] $1')
+    } else if (nextType === 'checklist' && !currentBody.trim()) {
       nextBody = '- [ ] '
     }
-    if (nextBody !== body) setBody(nextBody)
+    if (nextBody !== currentBody) replaceEditorBody(nextBody)
     // A refused save rejects; the saveError banner surfaces it. Swallow here so a
     // type-toggle doesn't raise an unhandled rejection.
-    saveCurrentNote({ ...note.meta, title, type: nextType }, nextBody).catch(() => {})
-  }, [isChecklist, body, note.meta, title, saveCurrentNote])
+    saveMetaPatch({ type: nextType }, nextBody).catch(() => {})
+  }, [isChecklist, liveBody, replaceEditorBody, saveMetaPatch])
 
   function insertMarkdown(md) {
     const v = viewRef.current
@@ -374,7 +410,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
         </div>
         <div className="nt-editor-row2">
           <button
-            onClick={() => onPin(note.meta.id)}
+            onClick={() => saveMetaPatch({ pinned: !note.meta.pinned }).catch(() => {})}
             aria-label={note.meta.pinned ? 'Unpin' : 'Pin'}
             aria-pressed={note.meta.pinned}
             title={note.meta.pinned ? 'Unpin' : 'Pin'}
@@ -393,7 +429,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
                 placement="below"
                 align="start"
                 current={note.meta.color}
-                onPick={(c) => { onColor(note.meta.id, c); setShowColors(false) }}
+                onPick={(c) => { saveMetaPatch({ color: c }).catch(() => {}); setShowColors(false) }}
               />
             )}
           </div>

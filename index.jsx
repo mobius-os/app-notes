@@ -29,12 +29,14 @@ function normalizeColorName(name) {
 
 // src/ui/css.js
 var TONE_CSS = NOTE_COLORS.filter((c) => c.name).map((c) => `
-.nt-card--${c.name} {
-  --nt-note-tone: ${c.hex};
-}
-.nt-card--${c.name}::before {
-  background: color-mix(in srgb, var(--nt-note-tone) 72%, var(--surface));
-}
+	.nt-card--${c.name} {
+	  --nt-note-tone: ${c.hex};
+	  background: color-mix(in srgb, var(--nt-note-tone) 14%, var(--surface));
+	  border-color: color-mix(in srgb, var(--nt-note-tone) 36%, var(--border));
+	}
+	.nt-card--${c.name}::before {
+	  background: color-mix(in srgb, var(--nt-note-tone) 72%, var(--surface));
+	}
 .nt-swatch--${c.name} { background: ${c.hex}; }
 .nt-color-dot--${c.name},
 .nt-card--${c.name} .nt-card-tone-dot { background: color-mix(in srgb, var(--nt-note-tone) 72%, var(--surface)); }`).join("\n");
@@ -2671,20 +2673,45 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
     localSaveBodies.current.add(nextBody ?? "");
     return Promise.resolve(onSave(meta, nextBody));
   }, [onSave]);
+  const liveBody = useCallback2(() => viewRef.current ? viewRef.current.state.doc.toString() : latest.current.body, []);
+  const replaceEditorBody = useCallback2((nextBody) => {
+    const v = viewRef.current;
+    if (v) {
+      const cur = v.state.doc.toString();
+      if (cur !== nextBody) {
+        v.dispatch({ changes: { from: 0, to: cur.length, insert: nextBody } });
+      }
+    } else {
+      setBody(nextBody);
+    }
+  }, []);
+  const saveMetaPatch = useCallback2((patch, bodyOverride) => {
+    const cur = latest.current;
+    if (!cur?.note) return Promise.resolve();
+    if (timer.current) clearTimeout(timer.current);
+    const nextBody = bodyOverride ?? liveBody();
+    const attachments = Array.from(/* @__PURE__ */ new Set([
+      ...cur.note.meta.attachments || [],
+      ...bodyAttachmentRefs(nextBody)
+    ]));
+    const nextMeta = { ...cur.note.meta, title: cur.title, attachments, ...patch };
+    latest.current = { note: { ...cur.note, meta: nextMeta, body: nextBody }, title: cur.title, body: nextBody };
+    return saveCurrentNote(nextMeta, nextBody);
+  }, [liveBody, saveCurrentNote]);
   const flushSave = useCallback2(() => {
     const cur = latest.current;
     if (!cur?.note) return Promise.resolve();
-    const liveBody = viewRef.current ? viewRef.current.state.doc.toString() : cur.body;
-    if (!forceSave && cur.title === (cur.note.meta.title || "") && liveBody === (cur.note.body || "")) {
+    const currentBody = liveBody();
+    if (!forceSave && cur.title === (cur.note.meta.title || "") && currentBody === (cur.note.body || "")) {
       return Promise.resolve();
     }
     if (timer.current) clearTimeout(timer.current);
     const attachments = Array.from(/* @__PURE__ */ new Set([
       ...cur.note.meta.attachments || [],
-      ...bodyAttachmentRefs(liveBody)
+      ...bodyAttachmentRefs(currentBody)
     ]));
-    return saveCurrentNote({ ...cur.note.meta, title: cur.title, attachments }, liveBody);
-  }, [saveCurrentNote, forceSave]);
+    return saveCurrentNote({ ...cur.note.meta, title: cur.title, attachments }, currentBody);
+  }, [saveCurrentNote, forceSave, liveBody]);
   useEffect3(() => {
     if (timer.current) clearTimeout(timer.current);
     flushSave().catch(() => {
@@ -2707,7 +2734,12 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
       reconciledBody.current = incoming;
       return;
     }
-    const merged = mineBuf === base ? incoming : merge3(base, mineBuf, incoming).text;
+    const mergedResult = mineBuf === base ? { conflict: false, text: incoming } : merge3(base, mineBuf, incoming);
+    if (mergedResult.conflict) {
+      reconciledBody.current = incoming;
+      return;
+    }
+    const merged = mergedResult.text;
     reconciledBody.current = incoming;
     if (v) {
       const cur = v.state.doc.toString();
@@ -2751,16 +2783,17 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
   }, [flushSave]);
   const toggleType = useCallback2(() => {
     const nextType = isChecklist ? "note" : "checklist";
-    let nextBody = body;
-    if (nextType === "checklist" && body.trim() && !/^- \[[ x]\] /m.test(body)) {
-      nextBody = body.replace(/^(.+)/m, "- [ ] $1");
-    } else if (nextType === "checklist" && !body.trim()) {
+    const currentBody = liveBody();
+    let nextBody = currentBody;
+    if (nextType === "checklist" && currentBody.trim() && !/^- \[[ x]\] /m.test(currentBody)) {
+      nextBody = currentBody.replace(/^(.+)/m, "- [ ] $1");
+    } else if (nextType === "checklist" && !currentBody.trim()) {
       nextBody = "- [ ] ";
     }
-    if (nextBody !== body) setBody(nextBody);
-    saveCurrentNote({ ...note.meta, title, type: nextType }, nextBody).catch(() => {
+    if (nextBody !== currentBody) replaceEditorBody(nextBody);
+    saveMetaPatch({ type: nextType }, nextBody).catch(() => {
     });
-  }, [isChecklist, body, note.meta, title, saveCurrentNote]);
+  }, [isChecklist, liveBody, replaceEditorBody, saveMetaPatch]);
   function insertMarkdown(md) {
     const v = viewRef.current;
     if (v) {
@@ -2864,7 +2897,8 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
         /* @__PURE__ */ jsx6(
           "button",
           {
-            onClick: () => onPin(note.meta.id),
+            onClick: () => saveMetaPatch({ pinned: !note.meta.pinned }).catch(() => {
+            }),
             "aria-label": note.meta.pinned ? "Unpin" : "Pin",
             "aria-pressed": note.meta.pinned,
             title: note.meta.pinned ? "Unpin" : "Pin",
@@ -2891,7 +2925,8 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, re
               align: "start",
               current: note.meta.color,
               onPick: (c) => {
-                onColor(note.meta.id, c);
+                saveMetaPatch({ color: c }).catch(() => {
+                });
                 setShowColors(false);
               }
             }

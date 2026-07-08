@@ -81,6 +81,8 @@ function findEl(pred) {
 // resolveAttachment; its `value` prop is EditorPanel's live `body` buffer.
 const editorEl = () => findEl((n) => n.props && 'value' in n.props && typeof n.props.onChange === 'function' && 'resolveAttachment' in n.props)
 const backBtn = () => findEl((n) => n.type === 'button' && n.props && n.props['aria-label'] === 'Back')
+const colorBtn = () => findEl((n) => n.type === 'button' && n.props && n.props['aria-label'] === 'Color')
+const colorPicker = () => findEl((n) => n.props && typeof n.props.onPick === 'function')
 
 // Mount EditorPanel behind a wrapper whose useState owns the `note` prop, so a test
 // can re-pass a new note (same id, new body) without resetting EditorPanel's hooks.
@@ -144,5 +146,42 @@ test('external rewrite with local unsaved edits 3-way-merges; the merge (not the
   assert.ok(saves.length >= 1, 'the merged buffer was persisted on flush')
   assert.equal(saves[saves.length - 1], 'a\nB local\nC external', 'the persisted body is the merge, preserving both edits')
   assert.ok(!saves.includes('a\nB local\nc'), 'the stale local-only body never clobbered the external edit')
+  shim.unmount()
+})
+
+test('open-editor color changes persist the live CodeMirror body', async () => {
+  const saves = []
+  const onSave = (meta, body) => { saves.push({ meta, body }); return Promise.resolve() }
+  const note0 = { meta: { id: 'n3', title: 'T', type: 'note', color: null, pinned: false, attachments: [] }, body: 'old body' }
+  mountWithNote(note0, onSave)
+
+  // Simulate CodeMirror having newer text than React's last body snapshot.
+  editorEl().props.viewRef.current = {
+    state: { doc: { toString: () => 'live unsaved body' } },
+  }
+  colorBtn().props.onClick()
+  await tick()
+  colorPicker().props.onPick('moss')
+  await tick()
+
+  assert.ok(saves.length >= 1, 'color action saved')
+  assert.equal(saves[saves.length - 1].meta.color, 'moss')
+  assert.equal(saves[saves.length - 1].body, 'live unsaved body')
+  shim.unmount()
+})
+
+test('overlapping external edits do not inject raw conflict markers into the editor', async () => {
+  const saves = []
+  const onSave = (meta, body) => { saves.push(body); return Promise.resolve() }
+  const note0 = { meta: { id: 'n4', title: 'T', type: 'note', color: null, pinned: false, attachments: [] }, body: 'a\nb\nc' }
+  mountWithNote(note0, onSave)
+
+  editorEl().props.onChange('a\nlocal edit\nc')
+  await tick()
+  setNote({ ...note0, body: 'a\nexternal edit\nc' })
+  await tick()
+
+  assert.equal(editorEl().props.value, 'a\nlocal edit\nc', 'the local typing surface stays readable')
+  assert.doesNotMatch(editorEl().props.value, /<<<<<<<|=======|>>>>>>>/, 'raw conflict markers are not shown while typing')
   shim.unmount()
 })

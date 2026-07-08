@@ -1,6 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert'
 import {NOTE_COLORS, colorHex, normalizeColorName} from '../src/ui/colors.js'
+import {CSS} from '../src/ui/css.js'
 
 test('palette is the muted tone set: default + 5 tones', () => {
   assert.deepEqual(NOTE_COLORS.map((c) => c.name), [null, 'slate', 'moss', 'sand', 'clay', 'plum'])
@@ -32,4 +33,9 @@ test('unknown or absent color names resolve to default, never crash', () => {
   assert.equal(normalizeColorName(null), null)
   assert.equal(normalizeColorName(undefined), null)
   assert.equal(colorHex('chartreuse'), null)
+})
+
+test('tone classes tint the whole note card, not only the stripe', () => {
+  assert.match(CSS, /\.nt-card--moss\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--nt-note-tone\) 14%, var\(--surface\)\)/s)
+  assert.match(CSS, /\.nt-card--moss\s*\{[^}]*border-color:\s*color-mix\(in srgb, var\(--nt-note-tone\) 36%, var\(--border\)\)/s)
 })
