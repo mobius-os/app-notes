@@ -133,7 +133,7 @@ function laterSide(mine, theirs) {
 // addressed blobs are kept alive by ANY note that references them, and a stranded
 // image (in meta.attachments, not embedded in the body) is a supported state, so
 // dropping a side's attachments here would let the GC sweep free a blob the merged
-// note still owns (silent image loss). title/color/pinned/type/archived: taken
+// note still owns (silent image loss). title/color/pinned/locked/type/archived: taken
 // from the side with the later `updated`. mobius_rev: max(mine, theirs) + 1.
 // parent_revs records both source revs. id/created are pinned to base
 // (stable identity).
@@ -152,6 +152,7 @@ export function mergeMeta(base, mine, theirs) {
     title: winner?.title,
     color: winner?.color ?? null,
     pinned: winner?.pinned ?? false,
+    locked: winner?.locked ?? false,
     tags,
     attachments,
     type: winner?.type ?? 'note',

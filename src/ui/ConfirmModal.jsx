@@ -13,6 +13,7 @@ export default function ConfirmModal({ open, title, message, confirmLabel = 'Con
   // component is reusable, so it can't share a hardcoded id with another
   // instance.
   const titleId = useId()
+  const messageId = useId()
 
   // Focus Cancel on open, restore the opener on close. Cancel is the safe
   // default so keyboard/AT users land on "back out", not on a destructive
@@ -60,23 +61,25 @@ export default function ConfirmModal({ open, title, message, confirmLabel = 'Con
   if (!open) return null
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={title ? titleId : undefined}
       onClick={onCancel}
       onKeyDown={onKeyDown}
       className="nt-modal-scrim"
     >
       <div
         ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        aria-describedby={message ? messageId : undefined}
         onClick={(e) => e.stopPropagation()}
         className="nt-modal"
       >
         {title && <h2 id={titleId} className="nt-modal-title">{title}</h2>}
-        {message && <p className="nt-modal-msg">{message}</p>}
+        {message && <p id={messageId} className="nt-modal-msg">{message}</p>}
         <div className="nt-modal-actions">
-          <button ref={cancelRef} onClick={onCancel} className="nt-modal-btn nt-modal-cancel">Cancel</button>
+          <button type="button" ref={cancelRef} onClick={onCancel} className="nt-modal-btn nt-modal-cancel">Cancel</button>
           <button
+            type="button"
             onClick={onConfirm}
             className={`nt-modal-btn nt-modal-confirm${danger ? ' is-danger' : ''}`}
           >{confirmLabel}</button>

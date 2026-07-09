@@ -56,7 +56,7 @@ export default function ColorPicker({ anchorRef, current, onPick, onDismiss, pla
 
   return createPortal(
     <div
-      role="listbox"
+      role="group"
       aria-label="Note color"
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
@@ -67,10 +67,9 @@ export default function ColorPicker({ anchorRef, current, onPick, onDismiss, pla
         <button
           key={c.name || 'default'}
           type="button"
-          role="option"
           title={c.label}
           aria-label={c.label}
-          aria-selected={normalizedCurrent === c.name}
+          aria-pressed={normalizedCurrent === c.name}
           onClick={() => onPick(c.name)}
           className={[
             'nt-swatch',

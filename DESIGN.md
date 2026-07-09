@@ -70,33 +70,38 @@ We do not reference or imitate the Google Keep brand. The name is **Notes**
 
 ## 3. UX
 
-Möbius dark theme via CSS vars (never hardcode): `--bg #0d0d0d`, `--surface`,
-`--surface2`, `--border`, `--text`, `--muted`, `--accent` (violet `#a78bfa`),
-`--green`, `--danger`, `--font` Inter, `--mono` JetBrains Mono. Read them with a
-`cssVar(name, fallback)` helper so theme switches reflow live.
+Möbius theme via CSS vars (never hardcode structural colors): `--bg`,
+`--surface`, `--surface2`, `--border`, `--text`, `--muted`, `--accent`,
+`--accent-fg`, `--green`, `--danger`, `--font`, `--mono`. The UI lives in a
+single module-level stylesheet (`src/ui/css.js`) rendered once as
+`<style>{CSS}</style>`, with `mobius-ui:*` fence comments around shared shapes.
+Inline `style={}` is reserved for genuinely measured runtime values, such as
+popover coordinates.
 
-**Grid (home).** Responsive masonry of note **cards** (CSS columns; 1 col phone
-→ 2–4 desktop). A **Pinned** section sits above **Others**. Each card shows:
+**Grid (home).** Responsive, content-height note **cards** in a CSS grid using
+`repeat(auto-fill, minmax(min(100%, 190px), 1fr))`, so phones, tablets, and wide
+web windows all settle into native-feeling track counts. A **Pinned** section
+sits above **Others**. Each card shows:
 title, a **read-only markdown preview** (truncated, with checkboxes + a first
-inline image thumbnail), color accent, a pin toggle, and an attachment/`⋯`
-affordance. Tap a card → editor. A top bar holds **search** (instant,
+inline image thumbnail), color accent, and a bottom action strip. Tap a card →
+editor. A top bar holds **search** (instant,
 client-side over title+body) and a floating **+** button creates a note —
 there is no inline capture row and no view toggle. Empty state is a friendly
 prompt, not a blank screen.
 
 **Card actions** (no native dialogs): pin/unpin, color picker (muted ink-tone
 palette: slate / moss / sand / clay / plum + default, mixed from theme
-tokens), delete (in-app **ConfirmModal**). There is no archive and there are
-no tags (legacy notes carrying either still open fine; the fields are
-ignored).
+tokens), lock/unlock, delete (in-app **ConfirmModal**). Locked notes are
+read-only in the editor and cannot be deleted until unlocked. There is no
+archive and there are no tags (legacy notes carrying either still open fine;
+the fields are ignored).
 
-**Editor (note open).** Full-card surface with the **live-inline markdown**
-editor (§4). Header: editable title, pin, color, attach (📎 image / file),
-created/updated. Auto-saves (debounced) — no save button; opening (or a
-no-op flush) never bumps `updated`, only a real edit does, and the grid
-sorts by last edit. Back returns to grid. On mobile the editor is
-full-screen; the keyboard-resize quirk is handled by sizing to the stable
-viewport.
+**Editor (note open).** Over-grid note surface, Keep-style, with the
+**live-inline markdown** editor (§4). Header: back, pin, color, lock, type,
+icon-only image/file attachment buttons, delete, and status when needed; the
+open note does not repeat the app title. Auto-saves (debounced) — no save
+button; opening (or a no-op flush) never bumps `updated`, only a real edit
+does, and the grid sorts by last edit. Back or outside-click returns to grid.
 
 **Status.** Silent when healthy: saving/pending is plumbing and never
 rendered. Only `Offline` and an actionable `Resolving…` conflict state

@@ -52,35 +52,57 @@ const useDocument = HAS_RUNTIME_DOC
   : () => NO_DOC
 
 function TopBar({ appId, query, onQuery }) {
+  const [iconOk, setIconOk] = useState(true)
+
   return (
     <header className="nt-topbar">
       <div className="nt-topbar-row">
         {/* Brand mark: the app's own glossy icon (downscaled + cached by the
             backend). Falls back to the accent dot if this install has no custom
             icon (the route 404s). */}
-        <img
-          src={`/api/apps/${appId}/icon?size=128`}
-          alt=""
-          width={34} height={34}
-          className="nt-brand-icon"
-          onError={(e) => {
-            e.currentTarget.style.display = 'none'
-            const f = e.currentTarget.nextElementSibling
-            if (f) f.style.display = 'flex'
-          }}
-        />
-        <span className="nt-brand-fallback" style={{ display: 'none' }} aria-hidden="true">·</span>
+        {iconOk
+          ? <img
+              src={`/api/apps/${appId}/icon?size=128`}
+              alt=""
+              width={34} height={34}
+              className="nt-brand-icon"
+              onError={() => setIconOk(false)}
+            />
+          : <span className="nt-brand-fallback" aria-hidden="true">·</span>}
         <h1 className="nt-app-title">Notes</h1>
       </div>
       <label className="nt-search-wrap">
         <Icon name="search" size={17} />
         <input
           value={query} onChange={(e) => onQuery(e.target.value)}
-          placeholder="Search notes" aria-label="Search notes"
+          name="notes-search"
+          autoComplete="off"
+          placeholder="Search notes…" aria-label="Search notes"
           className="nt-search"
         />
       </label>
     </header>
+  )
+}
+
+function LoadingGrid() {
+  return (
+    <div className="nt-loading-grid" role="status" aria-live="polite" aria-label="Loading notes">
+      <div className="nt-loading-label">
+        <span className="nt-spinner" aria-hidden="true" />
+        <span>Loading notes…</span>
+      </div>
+      <div className="nt-skeleton-grid" aria-hidden="true">
+        {Array.from({ length: 6 }, (_, i) => (
+          <div className="nt-skeleton-card" key={i}>
+            <span className="nt-skeleton-line is-title" />
+            <span className="nt-skeleton-line" />
+            <span className="nt-skeleton-line" />
+            <span className="nt-skeleton-line is-short" />
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -566,8 +588,8 @@ export default function App({ appId, token }) {
   // hook (liveDoc.update — the literal per-note document); every other note (grid
   // pin/color/delete on a closed note, a draft's first save) writes through the
   // collection's update, which runs the IDENTICAL lww read-merge-write. The
-  // routing is exclusive — the editor is full-screen, so the grid never acts on
-  // the open note — so the two writers can never target the same path
+  // routing is exclusive — the editor overlay owns the open note, so the grid
+  // never acts on that same note — and the two writers can never target the same path
   // concurrently. Both serialize the read-merge-write per path, merge concurrent
   // edits via merge3, and resolve DURABLE (synced/queued) or REJECT
   // DurableWriteError on a server refusal. We optimistically upsert the in-memory
@@ -660,6 +682,14 @@ export default function App({ appId, token }) {
     const n = await ensureAuthoritative(id)
     if (n) persist({ ...n.meta, color }, n.body).catch(() => {}) // saveError surfaces via the grid banner
   }, [draft, ensureAuthoritative, persist, setDraftNow])
+  const toggleLock = useCallback(async (id) => {
+    if (draft && draft.meta.id === id) {
+      setDraftNow((d) => ({ ...d, meta: { ...d.meta, locked: !d.meta.locked } }))
+      return
+    }
+    const n = await ensureAuthoritative(id)
+    if (n) persist({ ...n.meta, locked: !n.meta.locked }, n.body).catch(() => {}) // saveError surfaces via the grid banner
+  }, [draft, ensureAuthoritative, persist, setDraftNow])
 
   // Delete a note: remove its canonical document via the collection (the runtime
   // queues the delete offline and drains it on reconnect). Clear any conflict
@@ -681,6 +711,10 @@ export default function App({ appId, token }) {
       return
     }
     const n = notes.find((x) => x.meta.id === id)
+    if (n?.meta?.locked) {
+      setSaveError({ id, kind: 'delete', message: 'Unlock this note before deleting it.' })
+      return
+    }
     if (n) {
       try {
         await queueDelete(id)
@@ -785,6 +819,7 @@ export default function App({ appId, token }) {
         <div className="nt-save-err" role="alert" aria-live="assertive">
           <span className="nt-save-err-msg">{saveError.message}</span>
           <button
+            type="button"
             className="nt-save-err-btn"
             onClick={() => setSaveError(null)}
             aria-label="Dismiss save error"
@@ -793,10 +828,7 @@ export default function App({ appId, token }) {
       )}
       <main className="nt-scroll">
         {loading
-          ? <div className="nt-loading" role="status" aria-live="polite">
-              <span className="nt-spinner" aria-hidden="true" />
-              <span>Loading…</span>
-            </div>
+          ? <LoadingGrid />
           : visible.length === 0
             ? <EmptyState filtered={!!query.trim()} />
             : <Grid
@@ -804,6 +836,7 @@ export default function App({ appId, token }) {
                 onOpen={(id) => { openEditor(id).catch(() => setView({ mode: 'editor', id })) }}
                 onPin={togglePin}
                 onColor={setColor}
+                onLock={toggleLock}
                 onDelete={setConfirmId}
                 resolveAttachment={store.attachmentURL}
               />}
@@ -812,6 +845,7 @@ export default function App({ appId, token }) {
       {/* FAB — the single way to create a note; hidden while the editor is open */}
       {view.mode !== 'editor' && (
         <button
+          type="button"
           className="nt-fab"
           onClick={createNote}
           aria-label="New note"
@@ -848,7 +882,7 @@ export default function App({ appId, token }) {
       />
 
       {/* Silent when healthy: the pill mounts ONLY when offline, and not over the
-          full-screen editor (which shows its own 'Offline' status). Plain copy, no
+          editor overlay (which shows its own 'Offline' status). Plain copy, no
           counts/timestamps. */}
       {!online && view.mode !== 'editor' && (
         <div className="nt-sync-pill" role="status">Offline</div>

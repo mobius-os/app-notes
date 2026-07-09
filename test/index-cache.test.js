@@ -11,11 +11,12 @@ test('buildIndex returns one entry per note with the projected fields', () => {
   assert.equal(notes.length, 1)
   // Projected fields only — removed-feature fields (tags, archived) are not
   // carried into the index even when present on legacy meta.
-  assert.deepEqual(Object.keys(notes[0]).sort(), ['color', 'id', 'pinned', 'snippet', 'title', 'type', 'updated'])
+  assert.deepEqual(Object.keys(notes[0]).sort(), ['color', 'id', 'locked', 'pinned', 'snippet', 'title', 'type', 'updated'])
   assert.equal(notes[0].id, 'a')
   assert.equal(notes[0].title, 'Alpha')
   assert.equal(notes[0].color, 'violet')
   assert.equal(notes[0].pinned, false)
+  assert.equal(notes[0].locked, false)
   assert.equal(notes[0].updated, '2026-06-03T10:00:00Z')
   assert.equal(notes[0].snippet, 'hello')
   assert.equal(notes[0].type, 'note')
@@ -76,6 +77,7 @@ test('missing optional meta fields default sensibly', () => {
   const {notes} = buildIndex([note({id: 'a'}, 'body')])
   assert.equal(notes[0].title, '')
   assert.equal(notes[0].pinned, false)
+  assert.equal(notes[0].locked, false)
   assert.equal(notes[0].color, null)
   // updated may be undefined; entry should still build.
   assert.equal(notes[0].id, 'a')
@@ -119,6 +121,13 @@ test('buildIndex projects type from meta', () => {
     note({id: 'a', type: 'checklist', updated: '2026-06-03T00:00:00Z'}, '- [ ] item'),
   ])
   assert.equal(notes[0].type, 'checklist')
+})
+
+test('buildIndex projects locked from meta', () => {
+  const {notes} = buildIndex([
+    note({id: 'a', locked: true, updated: '2026-06-03T00:00:00Z'}, 'locked'),
+  ])
+  assert.equal(notes[0].locked, true)
 })
 
 test('buildIndex defaults type to note when absent', () => {

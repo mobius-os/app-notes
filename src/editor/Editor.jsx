@@ -5,13 +5,16 @@
 // exposes the EditorView so the panel can insert attachment markdown at the
 // cursor.
 import { useRef, useEffect } from 'react'
-import { EditorState } from '@codemirror/state'
+import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { buildExtensions } from './extensions.js'
 
-export default function Editor({ value, onChange, resolveAttachment, viewRef, syncKey }) {
+export default function Editor({ value, onChange, resolveAttachment, viewRef, syncKey, readOnly = false }) {
   const host = useRef(null)
   const view = useRef(null)
+  const editableCompartment = useRef(new Compartment())
+  const readOnlyCompartment = useRef(new Compartment())
+  const readOnlyRef = useRef(readOnly)
   const onChangeRef = useRef(onChange)
   const resolveRef = useRef(resolveAttachment)
   onChangeRef.current = onChange
@@ -23,6 +26,9 @@ export default function Editor({ value, onChange, resolveAttachment, viewRef, sy
       extensions: buildExtensions({
         onDocChange: (t) => { if (onChangeRef.current) onChangeRef.current(t) },
         resolveAttachment: (p) => (resolveRef.current ? resolveRef.current(p) : Promise.resolve(null)),
+        editableCompartment: editableCompartment.current,
+        readOnlyCompartment: readOnlyCompartment.current,
+        readOnly,
       }),
     })
     const v = new EditorView({ state, parent: host.current })
@@ -31,6 +37,19 @@ export default function Editor({ value, onChange, resolveAttachment, viewRef, sy
     return () => { v.destroy(); view.current = null; if (viewRef) viewRef.current = null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    const v = view.current
+    if (!v) return
+    if (readOnlyRef.current === readOnly) return
+    readOnlyRef.current = readOnly
+    v.dispatch({
+      effects: [
+        editableCompartment.current.reconfigure(EditorView.editable.of(!readOnly)),
+        readOnlyCompartment.current.reconfigure(EditorState.readOnly.of(!!readOnly)),
+      ],
+    })
+  }, [readOnly])
 
   // External value change (note switch) -> replace doc. Deliberately keyed on
   // syncKey, not value: during rapid typing React can briefly render an older
@@ -46,5 +65,5 @@ export default function Editor({ value, onChange, resolveAttachment, viewRef, sy
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncKey])
 
-  return <div ref={host} style={{ height: '100%' }} />
+  return <div ref={host} className="nt-cm-host" />
 }

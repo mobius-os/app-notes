@@ -4,6 +4,7 @@
 // line wrapping. Only the pieces we use are pulled from the vendored bundle.
 import {
   EditorSelection,
+  EditorState,
 } from '@codemirror/state'
 import {
   history, historyKeymap, defaultKeymap, indentWithTab,
@@ -44,12 +45,12 @@ const theme = EditorView.theme({
   // 16px (not 15px): a focusable text surface below 16px triggers iOS Safari
   // zoom-on-focus, which then leaves the whole app frame zoomed. Matches .nt-search.
   '.cm-scroller': { overflow: 'auto', overscrollBehavior: 'contain', fontFamily: 'var(--font)', lineHeight: '1.66', fontSize: '16px' },
-  '.cm-content': { padding: '12px 18px 34vh', caretColor: 'var(--accent)', maxWidth: 'var(--nt-measure)', margin: '0 auto', width: '100%' },
+  '.cm-content': { boxSizing: 'border-box', padding: '12px 18px 34vh', caretColor: 'var(--accent)', maxWidth: 'var(--nt-measure)', margin: '0 auto', width: '100%' },
   '&.cm-focused': { outline: 'none' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
   '.cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--accent) 22%, transparent)' },
   '&.cm-focused .cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--accent) 30%, transparent)' },
-  '.cm-line': { padding: '0' },
+  '.cm-line': { padding: '0', overflowWrap: 'anywhere', wordBreak: 'break-word' },
 }, { dark: true })
 
 // Wrap the selection in `mark`…`markEnd` (bold, italic, code, strike). With no
@@ -75,8 +76,10 @@ const mdKeymap = [
   { key: 'Mod-Shift-x', run: wrap('~~') },
 ]
 
-export function buildExtensions({ onDocChange, resolveAttachment }) {
+export function buildExtensions({ onDocChange, resolveAttachment, editableCompartment, readOnlyCompartment, readOnly = false }) {
   return [
+    editableCompartment.of(EditorView.editable.of(!readOnly)),
+    readOnlyCompartment.of(EditorState.readOnly.of(!!readOnly)),
     history(),
     markdown({ base: markdownLanguage }),
     syntaxHighlighting(highlightStyle),

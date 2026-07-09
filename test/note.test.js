@@ -63,13 +63,15 @@ test('contentHash changes when title changes', async () => {
   assert.notEqual(a, b)
 })
 
-test('contentHash changes when pinned/color/tags change', async () => {
+test('contentHash changes when pinned/locked/color/tags change', async () => {
   const m = {title: 'T', pinned: false, color: null, tags: []}
   const pin = await contentHash({...m, pinned: true}, 'b')
+  const lock = await contentHash({...m, locked: true}, 'b')
   const col = await contentHash({...m, color: 'violet'}, 'b')
   const tag = await contentHash({...m, tags: ['x']}, 'b')
   const base = await contentHash(m, 'b')
   assert.notEqual(base, pin)
+  assert.notEqual(base, lock)
   assert.notEqual(base, col)
   assert.notEqual(base, tag)
 })
@@ -105,6 +107,7 @@ test('newNote returns a fresh meta with sane defaults', () => {
   assert.equal(m.mobius_rev, 1)
   assert.equal(m.parent_rev, 0)
   assert.equal(m.pinned, false)
+  assert.equal(m.locked, false)
   assert.equal(m.color, null)
   assert.deepEqual(m.attachments, [])
   // created/updated are ISO strings and start equal
@@ -195,6 +198,13 @@ test('contentHash treats absent type as note (default)', async () => {
 test('contentHash treats absent archived as false (default)', async () => {
   const meta = {title: 'T', pinned: false, color: null, tags: [], type: 'note'}
   const explicit = await contentHash({...meta, archived: false}, 'body')
+  const absent = await contentHash(meta, 'body')
+  assert.equal(explicit, absent)
+})
+
+test('contentHash treats absent locked as false (default)', async () => {
+  const meta = {title: 'T', pinned: false, color: null, tags: [], type: 'note'}
+  const explicit = await contentHash({...meta, locked: false}, 'body')
   const absent = await contentHash(meta, 'body')
   assert.equal(explicit, absent)
 })

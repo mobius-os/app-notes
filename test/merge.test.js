@@ -94,37 +94,39 @@ test('mergeMeta: unions tags from both sides', () => {
   assert.deepEqual([...m.tags].sort(), ['a', 'b', 'c'])
 })
 
-test('mergeMeta: later-updated side wins title/color/pinned', () => {
+test('mergeMeta: later-updated side wins title/color/pinned/locked', () => {
   const base = { id: 'n1', created: 'C', mobius_rev: 1 }
   const mine = {
     id: 'n1', created: 'C', mobius_rev: 2, updated: '2026-06-03T12:00:00Z',
-    title: 'Mine', color: 'violet', pinned: true,
+    title: 'Mine', color: 'violet', pinned: true, locked: true,
   }
   const theirs = {
     id: 'n1', created: 'C', mobius_rev: 3, updated: '2026-06-03T08:00:00Z',
-    title: 'Theirs', color: 'green', pinned: false,
+    title: 'Theirs', color: 'green', pinned: false, locked: false,
   }
   const m = mergeMeta(base, mine, theirs)
-  // mine.updated is later -> mine's title/color/pinned win
+  // mine.updated is later -> mine's title/color/pinned/locked win
   assert.equal(m.title, 'Mine')
   assert.equal(m.color, 'violet')
   assert.equal(m.pinned, true)
+  assert.equal(m.locked, true)
 })
 
-test('mergeMeta: theirs later wins title/color/pinned', () => {
+test('mergeMeta: theirs later wins title/color/pinned/locked', () => {
   const base = { id: 'n1', created: 'C', mobius_rev: 1 }
   const mine = {
     id: 'n1', created: 'C', mobius_rev: 2, updated: '2026-06-03T08:00:00Z',
-    title: 'Mine', color: 'violet', pinned: true,
+    title: 'Mine', color: 'violet', pinned: true, locked: true,
   }
   const theirs = {
     id: 'n1', created: 'C', mobius_rev: 3, updated: '2026-06-03T12:00:00Z',
-    title: 'Theirs', color: 'green', pinned: false,
+    title: 'Theirs', color: 'green', pinned: false, locked: false,
   }
   const m = mergeMeta(base, mine, theirs)
   assert.equal(m.title, 'Theirs')
   assert.equal(m.color, 'green')
   assert.equal(m.pinned, false)
+  assert.equal(m.locked, false)
 })
 
 test('mergeMeta: mobius_rev = max(mine,theirs)+1; parent_revs=[mine,theirs]', () => {

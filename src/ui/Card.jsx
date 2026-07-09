@@ -1,4 +1,4 @@
-// A single note card: tone-class background, pin top-right, on-demand toolbar
+// A single note card: tone-class background, on-demand footer toolbar
 // (hover/focus/long-press), rendered markdown preview.
 // Tapping the body opens the editor.
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
@@ -7,12 +7,15 @@ import { localImageRefs, renderPreviewHTML } from '../lib/preview.js'
 import ColorPicker from './ColorPicker.jsx'
 import { Icon } from './icons.jsx'
 
-function IconBtn({ children, title, onClick, active, danger }) {
+function IconBtn({ children, title, onClick, active, danger, disabled }) {
   return (
     <button
+      type="button"
       title={title}
       aria-label={title}
-      onClick={(e) => { e.stopPropagation(); onClick() }}
+      aria-pressed={active}
+      disabled={disabled}
+      onClick={(e) => { e.stopPropagation(); if (!disabled && typeof onClick === 'function') onClick() }}
       className={`nt-icon-btn${active ? ' is-active' : ''}${danger ? ' is-danger' : ''}`}
     >{children}</button>
   )
@@ -28,7 +31,7 @@ function formatCardDate(meta) {
   return DATE_FORMATTER.format(d)
 }
 
-export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
+export default function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachment }) {
   const { meta, body } = note
   const [html, setHtml] = useState('')
   const [showColors, setShowColors] = useState(false)
@@ -99,6 +102,7 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
   const tone = normalizeColorName(meta.color)
   const empty = !meta.title && !(body || '').trim()
   const isChecklist = meta.type === 'checklist'
+  const locked = !!meta.locked
   const cardDate = formatCardDate(meta)
 
   // Long-press detection (~300ms) via pointer events. Touch/pen only — a mouse
@@ -127,24 +131,13 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
     <div className="nt-card-wrap">
       <div
         ref={cardRef}
-        className={`nt-card${tone ? ` nt-card--${tone}` : ''}${toolsOpen ? ' nt-card--tools' : ''}`}
+        className={`nt-card${tone ? ` nt-card--${tone}` : ''}${toolsOpen ? ' nt-card--tools' : ''}${locked ? ' is-locked' : ''}`}
         onPointerDown={onPointerDown}
         onPointerUp={cancelLongPress}
         onPointerMove={cancelLongPress}
         onPointerCancel={cancelLongPress}
         onPointerLeave={cancelLongPress}
       >
-        {/* Pin button — top-right corner */}
-        <button
-          title={meta.pinned ? 'Unpin' : 'Pin'}
-          aria-label={meta.pinned ? 'Unpin' : 'Pin'}
-          aria-pressed={meta.pinned}
-          onClick={(e) => { e.stopPropagation(); onPin(meta.id) }}
-          className={`nt-card-pin${meta.pinned ? ' is-pinned' : ''}`}
-        >
-          <Icon name="pin" size={14} />
-        </button>
-
         {/* The card body is the open affordance. It can't be a real <button>:
             it holds flow content (the thumbnail grid + the markdown preview's
             block-level dangerouslySetInnerHTML), which is invalid inside a
@@ -171,20 +164,13 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
           }}
         >
           {thumbUrls.length > 0 && (
-            <div
-              className="nt-card-thumbs"
-              style={{ gridTemplateColumns: thumbUrls.length === 1 ? '1fr' : 'repeat(2, minmax(0, 1fr))' }}
-            >
+            <div className={`nt-card-thumbs nt-card-thumbs--${thumbUrls.length}`}>
               {thumbUrls.map((url, index) => (
                 <img
                   key={url}
                   src={url}
                   alt=""
-                  className="nt-card-thumb"
-                  style={{
-                    aspectRatio: thumbUrls.length === 1 ? '16 / 10' : '1 / 1',
-                    gridColumn: thumbUrls.length === 3 && index === 0 ? 'span 2' : undefined,
-                  }}
+                  className={`nt-card-thumb${thumbUrls.length === 3 && index === 0 ? ' is-wide' : ''}`}
                 />
               ))}
             </div>
@@ -192,13 +178,12 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
           <div className="nt-card-main">
             {meta.title && (
               <div className="nt-card-title">
-                {isChecklist && <Icon name="checklist" size={13} />}
                 <span>{meta.title}</span>
               </div>
             )}
             {!meta.title && isChecklist && (
               <div className="nt-card-kicker">
-                <Icon name="checklist" size={12} />Checklist
+                Checklist
               </div>
             )}
             {empty
@@ -216,8 +201,13 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
           )}
         </div>
 
-        {/* Footer toolbar: color + delete (pin is top-right) */}
+        {/* Footer toolbar: pin + color + lock + delete */}
         <div className="nt-card-footer">
+          <IconBtn
+            title={meta.pinned ? 'Unpin' : 'Pin'}
+            active={meta.pinned}
+            onClick={() => onPin(meta.id)}
+          ><Icon name="pin" size={15} /></IconBtn>
           <div ref={colorBtnRef} className="nt-color-anchor">
             <IconBtn title="Color" onClick={() => setShowColors((v) => !v)}><Icon name="palette" size={16} /></IconBtn>
             {showColors && (
@@ -229,8 +219,18 @@ export default function Card({ note, onOpen, onPin, onColor, onDelete, resolveAt
               />
             )}
           </div>
+          <IconBtn
+            title={locked ? 'Unlock note' : 'Lock note'}
+            active={locked}
+            onClick={() => onLock(meta.id)}
+          ><Icon name={locked ? 'lock' : 'unlock'} size={15} /></IconBtn>
           <div className="nt-spacer" />
-          <IconBtn title="Delete" danger onClick={() => onDelete(meta.id)}><Icon name="trash" size={15} /></IconBtn>
+          <IconBtn
+            title={locked ? 'Unlock to delete' : 'Delete'}
+            danger
+            disabled={locked}
+            onClick={() => onDelete(meta.id)}
+          ><Icon name="trash" size={15} /></IconBtn>
         </div>
       </div>
     </div>

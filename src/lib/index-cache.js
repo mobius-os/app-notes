@@ -1,5 +1,5 @@
 // The derived grid index: a small projection of every note (id, title,
-// snippet, pinned, color, updated) so the home grid loads fast without parsing
+// snippet, pinned, locked, color, updated) so the home grid loads fast without parsing
 // every note body. It is STRICTLY DERIVED from `notes/*.md` — never merged,
 // never authoritative. If `index.json` is ever stale or conflicting, discard it
 // and `rebuildFromFiles` (DESIGN §5, plan Task C5). Pure functions, no IO.
@@ -41,6 +41,7 @@ function toEntry({meta, body}) {
     title: meta.title ?? '',
     snippet: snippetOf(body),
     pinned: meta.pinned ?? false,
+    locked: meta.locked ?? false,
     color: meta.color ?? null,
     type: meta.type ?? 'note',
     updated: meta.updated,
@@ -94,6 +95,7 @@ export function notesFromIndex(index) {
         id: e.id,
         title: e.title ?? '',
         pinned: e.pinned ?? false,
+        locked: e.locked ?? false,
         color: e.color ?? null,
         type: e.type ?? 'note',
         updated: e.updated,

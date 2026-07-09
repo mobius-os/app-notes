@@ -32,6 +32,7 @@ before(async () => {
       b.onLoad({ filter: /^state$/, namespace: 'stub' }, () => ({
         contents: `
           class Doc { constructor(text){ this.text = text || '' } toString(){ return this.text } }
+          export class Compartment { of(v){ return v } reconfigure(v){ return { reconfigure: v } } }
           export const EditorState = { create(opts){ return { doc: new Doc(opts.doc || '') } } }
         `,
         loader: 'js',

@@ -1,8 +1,7 @@
-// Full-screen note editor: header (back, title, pin, color, type toggle,
+// Overlay note editor: header (back, title, pin, color, lock, type toggle,
 // attach, status, delete) + live-inline CodeMirror body. Image attachments the
 // body no longer embeds render in a strip below the editor (see strandedImageRefs).
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { normalizeColorName } from './colors.js'
 import { strandedImageRefs, bodyAttachmentRefs } from '../lib/attachments.js'
 import { releaseAttachment } from '../lib/attachment-leases.js'
 import { toSdrImage } from '../lib/sdr-image.js'
@@ -88,6 +87,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   const externalConflictKey = useRef('')
 
   const isChecklist = note.meta.type === 'checklist'
+  const locked = !!note.meta.locked
 
   useEffect(() => {
     // Keep the buffer in sync only while the note identity is unchanged; the
@@ -138,6 +138,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   const flushSave = useCallback(() => {
     const cur = latest.current
     if (!cur?.note) return Promise.resolve()
+    if (cur.note.meta.locked && !forceSave) return Promise.resolve()
     // Source the body from the LIVE CodeMirror doc, not the lagging React `body`
     // state: an image insert dispatches into the editor and returns the new doc
     // synchronously, but the React state that the autosave debounce captured may
@@ -165,6 +166,11 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     ]))
     return saveCurrentNote({ ...cur.note.meta, title: cur.title, attachments }, currentBody)
   }, [saveCurrentNote, forceSave, liveBody])
+
+  const closeEditor = useCallback(async () => {
+    try { await flushSave() } catch { return }
+    onBack()
+  }, [flushSave, onBack])
 
   // Switching directly from one note to another in the editor: flush the
   // OUTGOING note's pending edits (held in `latest`, still pointing at the old
@@ -277,12 +283,16 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   }, [note.body])
 
   useEffect(() => {
+    if (locked) {
+      if (timer.current) clearTimeout(timer.current)
+      return undefined
+    }
     if (title === (note.meta.title || '') && body === (note.body || '')) return
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => { flushSave().catch(() => {}) }, AUTOSAVE_MS)
     return () => clearTimeout(timer.current)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, body, flushSave])
+  }, [title, body, flushSave, locked])
 
   useEffect(() => {
     const flushOnHide = () => { if (document.visibilityState === 'hidden') flushSave().catch(() => {}) }
@@ -298,6 +308,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   // Toggle note type between 'note' and 'checklist'. When switching TO checklist
   // and the body has no list items yet, prepend a starter item.
   const toggleType = useCallback(() => {
+    if (locked) return
     const nextType = isChecklist ? 'note' : 'checklist'
     const currentBody = liveBody()
     let nextBody = currentBody
@@ -311,9 +322,10 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     // A refused save rejects; the saveError banner surfaces it. Swallow here so a
     // type-toggle doesn't raise an unhandled rejection.
     saveMetaPatch({ type: nextType }, nextBody).catch(() => {})
-  }, [isChecklist, liveBody, replaceEditorBody, saveMetaPatch])
+  }, [isChecklist, liveBody, replaceEditorBody, saveMetaPatch, locked])
 
   function insertMarkdown(md) {
+    if (locked) return liveBody()
     const v = viewRef.current
     if (v) {
       v.dispatch(v.state.replaceSelection(md))
@@ -328,6 +340,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   async function handleFile(e) {
     const f = e.target.files && e.target.files[0]
     e.target.value = ''
+    if (locked) return
     if (!f || !putAttachment) return
     // CANCEL the pending autosave before the (slow) async attach work. The SDR
     // flatten (toSdrImage) re-encodes through a canvas, which widens the window in
@@ -418,100 +431,112 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     return () => { live = false; urls.forEach((u) => URL.revokeObjectURL(u)) }
   }, [strandedKey, resolveAttachment])
 
-  const tone = normalizeColorName(note.meta.color)
   const count = wordCount(body)
   const tasks = taskSummary(body)
 
   return (
-    <div className="nt-editor-root">
+    <div className="nt-editor-root" onClick={(e) => { if (e.target === e.currentTarget) closeEditor() }}>
+      <section
+        className={`nt-editor-sheet${locked ? ' is-locked' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title || 'Untitled note'}
+        onClick={(e) => e.stopPropagation()}
+      >
       <header className="nt-editor-hdr">
-        <div className="nt-editor-row1">
+        <div className="nt-editor-toolbar">
           <button
-            onClick={async () => {
-              // Flush pending edits, then leave — but ONLY if the flush succeeded.
-              // A dead-lettered (server-refused) save REJECTS here; we must NOT
-              // close the editor as if saved (that would hide the failure and look
-              // like data loss). Stay open so the 'Save failed' status banner is
-              // visible and the user can retry. A 'queued' offline write resolves
-              // success and closes normally. (No pending change -> flushSave
-              // resolves immediately and we close.)
-              try { await flushSave() } catch { return }
-              onBack()
-            }}
+            type="button"
+            onClick={closeEditor}
             aria-label="Back"
             className="nt-hdr-btn"
           ><Icon name="back" size={18} /></button>
-          {tone && <span className={`nt-color-dot nt-color-dot--${tone}`} />}
-          <span className="nt-editor-back-label">Notes</span>
+          <div className="nt-editor-actions">
+            <button
+              type="button"
+              onClick={() => {
+                const current = latest.current?.note?.meta?.pinned
+                saveMetaPatch({ pinned: !current }).catch(() => {})
+              }}
+              aria-label={note.meta.pinned ? 'Unpin' : 'Pin'}
+              aria-pressed={note.meta.pinned}
+              title={note.meta.pinned ? 'Unpin' : 'Pin'}
+              className={`nt-hdr-btn${note.meta.pinned ? ' is-active' : ''}`}
+            ><Icon name="pin" size={16} /></button>
+            <div ref={colorBtnRef} className="nt-color-anchor">
+              <button
+                type="button"
+                onClick={() => setShowColors((v) => !v)}
+                aria-label="Color"
+                title="Color"
+                className="nt-hdr-btn"
+              ><Icon name="palette" size={17} /></button>
+              {showColors && (
+                <ColorPicker
+                  anchorRef={colorBtnRef}
+                  placement="below"
+                  align="start"
+                  current={note.meta.color}
+                  onPick={(c) => { saveMetaPatch({ color: c }).catch(() => {}); setShowColors(false) }}
+                  onDismiss={() => setShowColors(false)}
+                />
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => saveMetaPatch({ locked: !locked }).catch(() => {})}
+              aria-label={locked ? 'Unlock note' : 'Lock note'}
+              aria-pressed={locked}
+              title={locked ? 'Unlock note' : 'Lock note'}
+              className={`nt-hdr-btn${locked ? ' is-active' : ''}`}
+            ><Icon name={locked ? 'lock' : 'unlock'} size={16} /></button>
+            <button
+              type="button"
+              onClick={toggleType}
+              aria-label={isChecklist ? 'Switch to note' : 'Switch to checklist'}
+              aria-pressed={isChecklist}
+              disabled={locked}
+              title={isChecklist ? 'Switch to note' : 'Switch to checklist'}
+              className={`nt-hdr-btn${isChecklist ? ' is-active' : ''}`}
+            ><Icon name={isChecklist ? 'checklist' : 'note'} size={16} /></button>
+            <button
+              type="button"
+              onClick={() => imageRef.current && imageRef.current.click()}
+              aria-label="Insert image"
+              title="Insert image"
+              disabled={locked}
+              className="nt-hdr-btn"
+            ><Icon name="image" size={16} /></button>
+            <button
+              type="button"
+              onClick={() => fileRef.current && fileRef.current.click()}
+              aria-label="Attach file"
+              title="Attach file"
+              disabled={locked}
+              className="nt-hdr-btn"
+            ><Icon name="file" size={16} /></button>
+          </div>
           <div className="nt-hdr-spacer" />
           {status && (
             <span className={`nt-status ${statusClass(status)}`}>{status}</span>
           )}
-        </div>
-        <div className="nt-editor-row2">
           <button
-            onClick={() => {
-              const current = latest.current?.note?.meta?.pinned
-              saveMetaPatch({ pinned: !current }).catch(() => {})
-            }}
-            aria-label={note.meta.pinned ? 'Unpin' : 'Pin'}
-            aria-pressed={note.meta.pinned}
-            title={note.meta.pinned ? 'Unpin' : 'Pin'}
-            className={`nt-hdr-btn${note.meta.pinned ? ' is-active' : ''}`}
-          ><Icon name="pin" size={16} /></button>
-          <div ref={colorBtnRef} style={{ position: 'relative', flexShrink: 0 }}>
-            <button
-              onClick={() => setShowColors((v) => !v)}
-              aria-label="Color"
-              title="Color"
-              className="nt-hdr-btn"
-            ><Icon name="palette" size={17} /></button>
-            {showColors && (
-              <ColorPicker
-                anchorRef={colorBtnRef}
-                placement="below"
-                align="start"
-                current={note.meta.color}
-                onPick={(c) => { saveMetaPatch({ color: c }).catch(() => {}); setShowColors(false) }}
-                onDismiss={() => setShowColors(false)}
-              />
-            )}
-          </div>
-          <button
-            onClick={toggleType}
-            aria-label={isChecklist ? 'Switch to note' : 'Switch to checklist'}
-            aria-pressed={isChecklist}
-            title={isChecklist ? 'Switch to note' : 'Switch to checklist'}
-            className={`nt-hdr-btn${isChecklist ? ' is-active' : ''}`}
-          ><Icon name={isChecklist ? 'checklist' : 'note'} size={16} /></button>
-          <button
-            onClick={() => imageRef.current && imageRef.current.click()}
-            aria-label="Insert image"
-            title="Insert image"
-            className="nt-label-btn"
-          ><Icon name="image" size={16} />Image</button>
-          <button
-            onClick={() => fileRef.current && fileRef.current.click()}
-            aria-label="Attach file"
-            title="Attach file"
-            className="nt-label-btn"
-          ><Icon name="file" size={16} />File</button>
-          <div className="nt-hdr-spacer" />
-          <button
+            type="button"
             onClick={() => onDelete(note.meta.id)}
             aria-label="Delete"
-            title="Delete"
+            title={locked ? 'Unlock to delete' : 'Delete'}
+            disabled={locked}
             className="nt-hdr-btn is-danger"
           ><Icon name="trash" size={16} /></button>
         </div>
-        <input ref={imageRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
-        <input ref={fileRef} type="file" onChange={handleFile} style={{ display: 'none' }} />
+        <input ref={imageRef} type="file" name="note-image-attachment" accept="image/*" onChange={handleFile} disabled={locked} className="nt-file-input" />
+        <input ref={fileRef} type="file" name="note-file-attachment" onChange={handleFile} disabled={locked} className="nt-file-input" />
       </header>
 
       {(conflict || externalConflict) && (
         <div className="nt-conflict-bar">
           <span className="nt-conflict-msg">Edited in two places — merging…</span>
-          {conflict && <button onClick={() => resolveNow(note, appId)} className="nt-conflict-btn">Resolve now</button>}
+          {conflict && <button type="button" onClick={() => resolveNow(note, appId)} className="nt-conflict-btn">Resolve now</button>}
         </div>
       )}
 
@@ -521,8 +546,11 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
 
       <div className="nt-editor-title-band">
         <input
+          name="note-title"
+          autoComplete="off"
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          readOnly={locked}
+          onChange={(e) => { if (!locked) setTitle(e.target.value) }}
           placeholder="Title"
           aria-label="Note title"
           className="nt-title-input"
@@ -530,13 +558,14 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
       </div>
 
       <div className="nt-editor-body">
-        <Editor value={body} onChange={setBody} resolveAttachment={resolveAttachment} viewRef={viewRef} syncKey={note.meta.id} />
+        <Editor value={body} onChange={locked ? () => {} : setBody} resolveAttachment={resolveAttachment} viewRef={viewRef} syncKey={note.meta.id} readOnly={locked} />
       </div>
 
       <footer className="nt-editor-foot" aria-label="Note metadata">
         <span>{editorDate(note.meta)}</span>
         <span>{count} word{count === 1 ? '' : 's'}</span>
         {tasks && <span>{tasks}</span>}
+        {locked && <span>Locked</span>}
         {status && <span>{status}</span>}
       </footer>
 
@@ -547,6 +576,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
           ))}
         </div>
       )}
+      </section>
     </div>
   )
 }

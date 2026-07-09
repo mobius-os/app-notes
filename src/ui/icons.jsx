@@ -63,6 +63,22 @@ export function Icon({ name, size = 17 }) {
       </svg>
     )
   }
+  if (name === 'lock') {
+    return (
+      <svg {...common}>
+        <rect x="5" y="11" width="14" height="10" rx="2" />
+        <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+      </svg>
+    )
+  }
+  if (name === 'unlock') {
+    return (
+      <svg {...common}>
+        <rect x="5" y="11" width="14" height="10" rx="2" />
+        <path d="M8 11V8a4 4 0 0 1 7.2-2.4" />
+      </svg>
+    )
+  }
   if (name === 'back') {
     return (
       <svg {...common}>

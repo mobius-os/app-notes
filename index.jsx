@@ -29,14 +29,11 @@ function normalizeColorName(name) {
 
 // src/ui/css.js
 var TONE_CSS = NOTE_COLORS.filter((c) => c.name).map((c) => `
-	.nt-card--${c.name} {
-	  --nt-note-tone: ${c.hex};
-	  background: color-mix(in srgb, var(--nt-note-tone) 14%, var(--surface));
-	  border-color: color-mix(in srgb, var(--nt-note-tone) 36%, var(--border));
-	}
-	.nt-card--${c.name}::before {
-	  background: color-mix(in srgb, var(--nt-note-tone) 72%, var(--surface));
-	}
+  .nt-card--${c.name} {
+    --nt-note-tone: ${c.hex};
+    background: color-mix(in srgb, var(--nt-note-tone) 14%, var(--surface));
+    border-color: color-mix(in srgb, var(--nt-note-tone) 36%, var(--border));
+  }
 .nt-swatch--${c.name} { background: ${c.hex}; }
 .nt-color-dot--${c.name},
 .nt-card--${c.name} .nt-card-tone-dot { background: color-mix(in srgb, var(--nt-note-tone) 72%, var(--surface)); }`).join("\n");
@@ -59,6 +56,19 @@ var CSS = `
   word-break: break-word; overflow-wrap: anywhere;
 }
 /* /mobius-ui:Root */
+
+/* mobius-ui:Scrollskin v2 \u2014 keep in sync; library candidate. */
+.nt-scroll,
+.nt-attach-strip {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.nt-scroll::-webkit-scrollbar,
+.nt-attach-strip::-webkit-scrollbar {
+  display: none;
+  width: 0; height: 0;
+}
+/* /mobius-ui:Scrollskin */
 
 /* mobius-ui:Focus v1 \u2014 shared keyboard focus ring (WCAG 2.4.7); never bare outline:none */
 :where(button,a,input,textarea,select,summary,[role="button"],[tabindex]:not([tabindex="-1"])):focus-visible {
@@ -86,11 +96,12 @@ var CSS = `
 /* Brand mark \u2014 the app's real icon, rounded and sized to the search row */
 .nt-brand-icon {
   width: 32px; height: 32px; flex-shrink: 0;
-  border-radius: 10px; object-fit: cover; display: block;
+  border-radius: 8px; object-fit: cover; display: block;
 }
 /* Accent-dot fallback when the install has no custom icon (route 404s) */
 .nt-brand-fallback {
   width: 32px; height: 32px; flex-shrink: 0;
+  display: inline-flex;
   align-items: center; justify-content: center;
   font-size: 32px; font-weight: 700; line-height: 1;
   color: var(--accent); user-select: none;
@@ -135,7 +146,7 @@ var CSS = `
   border: none; background: var(--accent); color: var(--accent-fg);
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; font-family: var(--font);
-  box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 22%, transparent),
+  box-shadow: 0 6px 12px color-mix(in srgb, var(--accent) 18%, transparent),
               0 1px 2px color-mix(in srgb, var(--text) 16%, transparent);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation; user-select: none;
@@ -146,11 +157,6 @@ var CSS = `
 /* /mobius-ui:Header */
 
 /* \u2500\u2500 Loading / Empty \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-.nt-loading {
-  padding: 18vh 0;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
-  color: var(--muted); font-size: 14px;
-}
 .nt-spinner {
   width: 22px; height: 22px; border-radius: 50%;
   border: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
@@ -158,6 +164,38 @@ var CSS = `
   animation: nt-spin 0.7s linear infinite;
 }
 @keyframes nt-spin { to { transform: rotate(360deg); } }
+.nt-loading-grid {
+  padding: 18px 18px max(126px, calc(102px + env(safe-area-inset-bottom)));
+  max-width: 1040px; margin: 0 auto;
+}
+.nt-loading-label {
+  display: inline-flex; align-items: center; gap: 9px;
+  margin: 4px 4px 12px;
+  color: var(--muted); font-size: 13px; font-weight: 600;
+}
+.nt-skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
+  gap: 12px; align-items: start;
+}
+.nt-skeleton-card {
+  min-height: 128px; border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 5%, transparent),
+              0 8px 22px color-mix(in srgb, var(--text) 6%, transparent);
+  padding: 16px;
+}
+.nt-skeleton-line {
+  display: block; height: 10px; border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  margin-bottom: 10px;
+}
+.nt-skeleton-line.is-title {
+  width: 72%; height: 13px;
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+}
+.nt-skeleton-line.is-short { width: 44%; }
 /* mobius-ui:Empty v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
 .nt-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -183,41 +221,34 @@ var CSS = `
 /* \u2500\u2500 Grid \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 .nt-grid-wrap {
   /* bottom pad clears the gesture bar and FAB on Android/notched iPhones */
-  padding: 18px 18px max(96px, calc(72px + env(safe-area-inset-bottom)));
-  max-width: 1120px; margin: 0 auto;
+  padding: 18px 18px max(126px, calc(102px + env(safe-area-inset-bottom)));
+  max-width: 1040px; margin: 0 auto;
 }
 .nt-section { margin-bottom: 26px; }
 /* mobius-ui:SectionHead v1 \u2014 keep in sync; library candidate. */
 .nt-section-head {
   display: flex; align-items: center; gap: 8px;
-  font-size: 12px; line-height: 1; font-weight: 650; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--muted);
+  font-size: 13px; line-height: 1; font-weight: 650; letter-spacing: 0;
+  color: color-mix(in srgb, var(--text) 66%, var(--muted));
   margin: 4px 4px 12px; user-select: none;
 }
 .nt-section-count {
   letter-spacing: 0; font-weight: 500;
-  color: color-mix(in srgb, var(--muted) 72%, transparent);
+  color: color-mix(in srgb, var(--text) 50%, var(--muted));
 }
 /* /mobius-ui:SectionHead */
 .nt-cards {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
   grid-auto-rows: min-content;
-  gap: 12px;
-}
-@media (max-width: 420px) {
-  .nt-cards { grid-template-columns: minmax(0, 1fr); }
-}
-@media (min-width: 700px) {
-  .nt-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-@media (min-width: 980px) {
-  .nt-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  gap: 12px; align-items: start;
 }
 
 /* \u2500\u2500 Card \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 /* mobius-ui:Card v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
-.nt-card-wrap { /* grid item \u2014 no extra margin needed with gap */ }
+.nt-card-wrap {
+  min-width: 0; /* grid item \u2014 no extra margin needed with gap */
+}
 .nt-card {
   position: relative;
   border-radius: 16px; overflow: hidden;
@@ -227,9 +258,9 @@ var CSS = `
               0 8px 22px color-mix(in srgb, var(--text) 6%, transparent);
   transition: box-shadow 0.16s ease, transform 0.16s ease, border-color 0.16s ease;
 }
-.nt-card::before {
-  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
-  background: transparent;
+.nt-card.is-locked {
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 4%, transparent),
+              0 8px 22px color-mix(in srgb, var(--text) 5%, transparent);
 }
 @media (hover: hover) {
   .nt-card:hover {
@@ -251,25 +282,27 @@ var CSS = `
   display: flex; flex-direction: column; gap: 8px;
 }
 .nt-card-title {
-  display: flex; align-items: flex-start; gap: 6px;
+  display: block;
   font-size: 15px; line-height: 1.28; font-weight: 650; color: var(--text);
-  overflow-wrap: anywhere; padding-right: 24px;
+  overflow-wrap: anywhere;
 }
 .nt-card-title span {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .nt-card-empty {
-  font-size: 13px; color: var(--muted); opacity: 0.72; font-style: italic;
+  font-size: 13px; color: color-mix(in srgb, var(--text) 58%, var(--muted)); font-style: italic;
 }
 .nt-card-preview {
-  font-size: 13px; color: var(--muted); line-height: 1.42;
+  font-size: 13px;
+  color: color-mix(in srgb, var(--text) 72%, var(--muted));
+  font-weight: 450;
+  line-height: 1.45;
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .nt-card-kicker {
-  display: flex; align-items: center; gap: 5px;
-  color: var(--muted); opacity: 0.7; font-size: 12px;
+  color: color-mix(in srgb, var(--text) 64%, var(--muted)); font-size: 12px;
 }
 .nt-card-meta {
   display: flex; align-items: center; gap: 8px; min-height: 12px;
@@ -278,14 +311,18 @@ var CSS = `
   width: 8px; height: 8px; border-radius: 3px; flex: 0 0 auto;
 }
 .nt-card-date {
-  color: color-mix(in srgb, var(--muted) 78%, transparent);
+  color: color-mix(in srgb, var(--text) 58%, var(--muted));
   font: 500 11.5px/1 var(--mono); letter-spacing: 0;
 }
 .nt-card-thumbs {
   display: grid; gap: 6px; margin-bottom: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.nt-card-thumbs--1 {
+  grid-template-columns: minmax(0, 1fr);
 }
 .nt-card-thumb {
-  width: 100%; object-fit: cover; display: block; border-radius: 6px;
+  width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--surface2, var(--surface));
   /* Render an already-stored Ultra HDR image (gain-map JPEG) as SDR. Without
@@ -296,49 +333,18 @@ var CSS = `
      covers images stored before that fix. */
   dynamic-range-limit: standard;
 }
+.nt-card-thumbs--1 .nt-card-thumb {
+  aspect-ratio: 16 / 10;
+}
+.nt-card-thumb.is-wide {
+  grid-column: span 2;
+}
 /* /mobius-ui:Card */
-
-/* \u2500\u2500 Card pin button (top-right) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-.nt-card-pin {
-  position: absolute; top: 6px; right: 6px;
-  /* 44px touch floor (icon stays 14px, centered) \u2014 a corner icon button still
-     needs a full tap target on phones. */
-  width: 44px; height: 44px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: none; border-radius: 8px;
-  background: transparent; cursor: pointer;
-  font-family: var(--font);
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: background 0.12s ease, opacity 0.12s ease, transform 0.1s ease;
-  /* unpinned: invisible at rest, revealed on card hover/focus */
-  opacity: 0;
-  color: var(--muted);
-  z-index: 2;
-}
-/* Pinned state: always faintly visible to show the pin */
-.nt-card-pin.is-pinned {
-  opacity: 0.35;
-  color: var(--accent);
-}
-@media (hover: hover) {
-  .nt-card:hover .nt-card-pin { opacity: 0.6; }
-  .nt-card:hover .nt-card-pin.is-pinned { opacity: 1; }
-  .nt-card-pin:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); opacity: 1 !important; }
-}
-.nt-card-pin:focus-visible { opacity: 1 !important; }
-.nt-card-pin:active { transform: scale(0.9); }
-@media (hover: none) {
-  .nt-card-pin {
-    opacity: 0.72;
-    background: color-mix(in srgb, var(--surface) 78%, transparent);
-  }
-  .nt-card-pin.is-pinned { opacity: 1; }
-}
 
 /* \u2500\u2500 Card toolbar \u2014 shown on hover/focus; toggled via .nt-card--tools \u2500\u2500\u2500\u2500\u2500\u2500 */
 .nt-card-footer {
-  display: flex; align-items: center; gap: 2px;
-  padding: 4px 6px;
+  display: flex; align-items: center; gap: 0;
+  padding: 4px 6px 5px;
   border-top: 1px solid var(--border); background: transparent;
   /* hidden by default; revealed on hover/focus or long-press (.nt-card--tools) */
   opacity: 0;
@@ -364,6 +370,22 @@ var CSS = `
 .note-preview pre { margin: 0 0 6px; font-size: 12px; overflow: hidden; }
 .note-preview ul, .note-preview ol { margin: 0 0 6px; padding-left: 18px; }
 .note-preview li { margin-bottom: 2px; }
+.note-preview li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-left: -18px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.note-preview li:has(> input[type="checkbox"])::marker { content: ""; }
+.note-preview input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 13px; height: 13px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+  opacity: 1;
+  filter: saturate(1.2) contrast(1.12);
+}
 
 /* \u2500\u2500 Card toolbar buttons \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 /* mobius-ui:Button v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
@@ -371,21 +393,30 @@ var CSS = `
   width: 44px; height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
   border: none; border-radius: 8px;
-  background: transparent; color: var(--muted);
+  background: transparent; color: color-mix(in srgb, var(--text) 64%, var(--muted));
   cursor: pointer; font-size: 14px;
-  opacity: 0.85; font-family: var(--font);
+  opacity: 1; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
   transition: background 0.12s ease, transform 0.1s ease;
 }
 .nt-icon-btn.is-active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); opacity: 1; }
 .nt-icon-btn.is-danger { color: var(--danger); }
+.nt-icon-btn:disabled,
+.nt-icon-btn:disabled:hover {
+  background: transparent;
+  cursor: default;
+  color: color-mix(in srgb, var(--text) 40%, var(--muted));
+  opacity: 0.68;
+  transform: none;
+}
 @media (hover: hover) {
   .nt-icon-btn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 }
 .nt-icon-btn:active { transform: scale(0.93); }
+.nt-icon-btn:disabled:active { transform: none; }
 /* keyboard focus ring comes from the shared mobius-ui:Focus block above */
 /* /mobius-ui:Button */
-.nt-color-anchor { position: relative; }
+.nt-color-anchor { position: relative; flex-shrink: 0; }
 .nt-spacer { flex: 1; }
 
 /* \u2500\u2500 ColorPicker \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
@@ -395,7 +426,7 @@ var CSS = `
   max-width: calc(100vw - 24px); padding: 8px;
   background: var(--surface2, var(--surface));
   border: 1px solid var(--border); border-radius: 12px;
-  box-shadow: 0 16px 40px color-mix(in srgb, var(--text) 20%, transparent);
+  box-shadow: 0 4px 8px color-mix(in srgb, var(--text) 20%, transparent);
 }
 .nt-swatch {
   width: 44px; height: 44px; border-radius: 9px;
@@ -414,13 +445,14 @@ var CSS = `
 .nt-modal-scrim {
   position: fixed; inset: 0; z-index: 50;
   display: flex; align-items: center; justify-content: center; padding: 20px;
+  overscroll-behavior: contain;
   background: color-mix(in srgb, var(--text) 46%, transparent); backdrop-filter: blur(2px);
 }
 .nt-modal {
   width: 100%; max-width: 360px;
   background: var(--surface);
   border: 1px solid var(--border); border-radius: 16px; padding: 20px;
-  box-shadow: 0 18px 48px color-mix(in srgb, var(--text) 22%, transparent);
+  box-shadow: 0 4px 8px color-mix(in srgb, var(--text) 22%, transparent);
 }
 .nt-modal-title {
   font-size: 16px; font-weight: 650; color: var(--text);
@@ -452,32 +484,59 @@ var CSS = `
 
 /* \u2500\u2500 EditorPanel \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 .nt-editor-root {
-  position: absolute; inset: 0;
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--bg) 54%, transparent);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+.nt-editor-sheet {
+  width: min(760px, 100%);
+  height: min(760px, 100%);
+  max-height: 100%;
+  box-sizing: border-box;
   display: flex; flex-direction: column;
-  background: var(--bg); z-index: 10;
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 4px 8px color-mix(in srgb, var(--text) 18%, transparent);
+}
+@media (max-width: 640px) {
+  .nt-editor-root {
+    align-items: flex-end;
+    padding: max(10px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom));
+  }
+  .nt-editor-sheet {
+    width: 100%;
+    height: min(92vh, 100%);
+    border-radius: 18px 18px 14px 14px;
+  }
 }
 /* mobius-ui:Header v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
 .nt-editor-hdr {
-  /* The full-screen editor covers the viewport (position:absolute inset:0), so \u2014
-     unlike the grid, which the sticky .nt-topbar insets \u2014 the editor header sits
-     at the top edge and must clear the notch/status bar itself. */
   position: relative; z-index: 3;
-  padding: max(12px, env(safe-area-inset-top)) 14px 10px;
+  padding: 12px 14px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto;
+  flex: 0 0 auto;
   background: color-mix(in srgb, var(--bg) 86%, transparent);
   backdrop-filter: saturate(1.35) blur(14px);
   -webkit-backdrop-filter: saturate(1.35) blur(14px);
 }
-.nt-editor-row1 {
+.nt-editor-toolbar {
   display: flex; align-items: center; gap: 6px; min-width: 0;
+  padding-bottom: 1px;
 }
-.nt-editor-row2 {
+.nt-editor-actions {
+  flex: 0 1 auto;
+  min-width: 0;
   display: flex; align-items: center; gap: 6px;
-  overflow-x: auto; padding-bottom: 1px;
+  overflow-x: auto;
   overscroll-behavior: contain;
+  scrollbar-width: none;
 }
-.nt-editor-row2::-webkit-scrollbar { display: none; }
+.nt-editor-actions::-webkit-scrollbar { display: none; }
 /* /mobius-ui:Header */
 /* mobius-ui:Button v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
 .nt-hdr-btn {
@@ -491,10 +550,15 @@ var CSS = `
 }
 .nt-hdr-btn.is-active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .nt-hdr-btn.is-danger { color: var(--danger); }
-@media (hover: hover) {
-  .nt-hdr-btn:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.nt-hdr-btn:disabled {
+  cursor: default;
+  color: color-mix(in srgb, var(--text) 40%, var(--muted));
+  background: transparent;
 }
-.nt-hdr-btn:active { transform: scale(0.95); }
+@media (hover: hover) {
+  .nt-hdr-btn:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+}
+.nt-hdr-btn:not(:disabled):active { transform: scale(0.95); }
 /* keyboard focus ring comes from the shared mobius-ui:Focus block above */
 /* /mobius-ui:Button */
 .nt-color-dot {
@@ -502,10 +566,11 @@ var CSS = `
   flex-shrink: 0;
   /* background comes from the nt-color-dot--<tone> classes generated above */
 }
-.nt-editor-back-label {
-  color: var(--accent);
-  font-size: 15px; font-weight: 650; line-height: 1;
+.nt-cm-host {
+  height: 100%;
+  min-height: 0;
 }
+.nt-file-input { display: none; }
 .nt-editor-title-band {
   position: relative; z-index: 1;
   flex: 0 0 auto;
@@ -522,6 +587,29 @@ var CSS = `
 /* mouse focus is borderless by design; keyboard focus keeps the shared ring */
 .nt-title-input:focus:not(:focus-visible) { outline: none; }
 .nt-title-input::placeholder { color: var(--muted); }
+.nt-title-input[readonly] { cursor: default; color: color-mix(in srgb, var(--text) 88%, var(--muted)); }
+.nt-cm-host .cm-scroller {
+  overflow-x: hidden;
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.66;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.nt-cm-host .cm-scroller::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.nt-cm-host .cm-content {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--nt-measure);
+  margin: 0 auto;
+  padding: 12px 18px 34vh;
+}
+.nt-cm-host .cm-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.nt-editor-sheet.is-locked .cm-content { cursor: default; }
 /* mobius-ui:SyncPill v1 (editor variant) \u2014 keep in sync; library candidate. */
 .nt-status {
   font-size: 12px; white-space: nowrap; margin-right: 2px; flex-shrink: 0;
@@ -531,20 +619,6 @@ var CSS = `
 .nt-status.is-resolving { color: var(--accent); }
 .nt-status.is-default { color: var(--muted); }
 /* /mobius-ui:SyncPill */
-.nt-label-btn {
-  height: 44px;
-  display: inline-flex; align-items: center; justify-content: center;
-  gap: 6px; border: 1px solid var(--border); border-radius: 11px; padding: 0 10px;
-  background: var(--surface2, var(--surface)); color: var(--text);
-  cursor: pointer; font-size: 13px; font-weight: 600;
-  white-space: nowrap; flex-shrink: 0; font-family: var(--font);
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-  transition: border-color 0.12s ease, transform 0.1s ease;
-}
-@media (hover: hover) {
-  .nt-label-btn:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
-}
-.nt-label-btn:active { transform: scale(0.97); }
 .nt-hdr-spacer { flex: 1; min-width: 4px; }
 .nt-conflict-bar {
   display: flex; align-items: center; gap: 10px;
@@ -592,7 +666,7 @@ var CSS = `
   gap: 8px 14px;
   padding: 10px clamp(18px, 6vw, 40px) max(14px, env(safe-area-inset-bottom));
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  color: color-mix(in srgb, var(--muted) 82%, transparent);
+  color: color-mix(in srgb, var(--text) 54%, var(--muted));
   font: 500 12px/1.2 var(--mono);
 }
 
@@ -608,7 +682,7 @@ var CSS = `
   display: inline-flex; align-items: center; padding: 9px 14px; border-radius: 999px;
   background: var(--text); border: 1px solid transparent; color: var(--bg);
   font-size: 12.5px; line-height: 1; font-weight: 650; font-family: var(--font);
-  box-shadow: 0 12px 28px color-mix(in srgb, var(--text) 20%, transparent);
+  box-shadow: 0 4px 8px color-mix(in srgb, var(--text) 20%, transparent);
 }
 .nt-sync-pill.is-error { border-color: var(--danger); color: var(--danger); }
 
@@ -666,6 +740,7 @@ function normalize(meta, body) {
     title: meta.title ?? "",
     body: String(body ?? ""),
     pinned: meta.pinned ?? false,
+    locked: meta.locked ?? false,
     color: meta.color ?? null,
     tags: Array.isArray(meta.tags) ? meta.tags : [],
     attachments: Array.isArray(meta.attachments) ? meta.attachments : [],
@@ -679,6 +754,7 @@ async function contentHash(meta, body) {
     canonical.title,
     canonical.body,
     canonical.pinned,
+    canonical.locked,
     canonical.color,
     canonical.tags,
     canonical.attachments,
@@ -696,6 +772,7 @@ function newNote({ title, type } = {}) {
     id: globalThis.crypto.randomUUID(),
     title: title ?? "",
     pinned: false,
+    locked: false,
     color: null,
     type: type ?? "note",
     created: ts,
@@ -734,6 +811,7 @@ function toEntry({ meta, body }) {
     title: meta.title ?? "",
     snippet: snippetOf(body),
     pinned: meta.pinned ?? false,
+    locked: meta.locked ?? false,
     color: meta.color ?? null,
     type: meta.type ?? "note",
     updated: meta.updated
@@ -758,6 +836,7 @@ function notesFromIndex(index) {
       id: e.id,
       title: e.title ?? "",
       pinned: e.pinned ?? false,
+      locked: e.locked ?? false,
       color: e.color ?? null,
       type: e.type ?? "note",
       updated: e.updated
@@ -1194,6 +1273,7 @@ function mergeMeta(base, mine, theirs) {
     title: winner?.title,
     color: winner?.color ?? null,
     pinned: winner?.pinned ?? false,
+    locked: winner?.locked ?? false,
     tags: tags2,
     attachments,
     type: winner?.type ?? "note",
@@ -1763,7 +1843,7 @@ function ColorPicker({ anchorRef, current, onPick, onDismiss, placement = "above
     /* @__PURE__ */ jsx(
       "div",
       {
-        role: "listbox",
+        role: "group",
         "aria-label": "Note color",
         onClick: (e) => e.stopPropagation(),
         onPointerDown: (e) => e.stopPropagation(),
@@ -1773,10 +1853,9 @@ function ColorPicker({ anchorRef, current, onPick, onDismiss, placement = "above
           "button",
           {
             type: "button",
-            role: "option",
             title: c.label,
             "aria-label": c.label,
-            "aria-selected": normalizedCurrent === c.name,
+            "aria-pressed": normalizedCurrent === c.name,
             onClick: () => onPick(c.name),
             className: [
               "nt-swatch",
@@ -1846,6 +1925,18 @@ function Icon({ name, size = 17 }) {
       /* @__PURE__ */ jsx2("path", { d: "M14 11v6" })
     ] });
   }
+  if (name === "lock") {
+    return /* @__PURE__ */ jsxs("svg", { ...common, children: [
+      /* @__PURE__ */ jsx2("rect", { x: "5", y: "11", width: "14", height: "10", rx: "2" }),
+      /* @__PURE__ */ jsx2("path", { d: "M8 11V8a4 4 0 0 1 8 0v3" })
+    ] });
+  }
+  if (name === "unlock") {
+    return /* @__PURE__ */ jsxs("svg", { ...common, children: [
+      /* @__PURE__ */ jsx2("rect", { x: "5", y: "11", width: "14", height: "10", rx: "2" }),
+      /* @__PURE__ */ jsx2("path", { d: "M8 11V8a4 4 0 0 1 7.2-2.4" })
+    ] });
+  }
   if (name === "back") {
     return /* @__PURE__ */ jsxs("svg", { ...common, children: [
       /* @__PURE__ */ jsx2("path", { d: "M19 12H5" }),
@@ -1892,15 +1983,18 @@ function Icon({ name, size = 17 }) {
 
 // src/ui/Card.jsx
 import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
-function IconBtn({ children, title, onClick, active, danger }) {
+function IconBtn({ children, title, onClick, active, danger, disabled }) {
   return /* @__PURE__ */ jsx3(
     "button",
     {
+      type: "button",
       title,
       "aria-label": title,
+      "aria-pressed": active,
+      disabled,
       onClick: (e) => {
         e.stopPropagation();
-        onClick();
+        if (!disabled && typeof onClick === "function") onClick();
       },
       className: `nt-icon-btn${active ? " is-active" : ""}${danger ? " is-danger" : ""}`,
       children
@@ -1915,7 +2009,7 @@ function formatCardDate(meta) {
   if (Number.isNaN(d.getTime())) return "";
   return DATE_FORMATTER.format(d);
 }
-function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
+function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachment }) {
   const { meta, body } = note;
   const [html, setHtml] = useState2("");
   const [showColors, setShowColors] = useState2(false);
@@ -1973,6 +2067,7 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
   const tone = normalizeColorName(meta.color);
   const empty = !meta.title && !(body || "").trim();
   const isChecklist = meta.type === "checklist";
+  const locked = !!meta.locked;
   const cardDate = formatCardDate(meta);
   const onPointerDown = useCallback((e) => {
     if (e.pointerType === "mouse") return;
@@ -1992,27 +2087,13 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
     "div",
     {
       ref: cardRef,
-      className: `nt-card${tone ? ` nt-card--${tone}` : ""}${toolsOpen ? " nt-card--tools" : ""}`,
+      className: `nt-card${tone ? ` nt-card--${tone}` : ""}${toolsOpen ? " nt-card--tools" : ""}${locked ? " is-locked" : ""}`,
       onPointerDown,
       onPointerUp: cancelLongPress,
       onPointerMove: cancelLongPress,
       onPointerCancel: cancelLongPress,
       onPointerLeave: cancelLongPress,
       children: [
-        /* @__PURE__ */ jsx3(
-          "button",
-          {
-            title: meta.pinned ? "Unpin" : "Pin",
-            "aria-label": meta.pinned ? "Unpin" : "Pin",
-            "aria-pressed": meta.pinned,
-            onClick: (e) => {
-              e.stopPropagation();
-              onPin(meta.id);
-            },
-            className: `nt-card-pin${meta.pinned ? " is-pinned" : ""}`,
-            children: /* @__PURE__ */ jsx3(Icon, { name: "pin", size: 14 })
-          }
-        ),
         /* @__PURE__ */ jsxs2(
           "div",
           {
@@ -2034,35 +2115,18 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
               }
             },
             children: [
-              thumbUrls.length > 0 && /* @__PURE__ */ jsx3(
-                "div",
+              thumbUrls.length > 0 && /* @__PURE__ */ jsx3("div", { className: `nt-card-thumbs nt-card-thumbs--${thumbUrls.length}`, children: thumbUrls.map((url, index) => /* @__PURE__ */ jsx3(
+                "img",
                 {
-                  className: "nt-card-thumbs",
-                  style: { gridTemplateColumns: thumbUrls.length === 1 ? "1fr" : "repeat(2, minmax(0, 1fr))" },
-                  children: thumbUrls.map((url, index) => /* @__PURE__ */ jsx3(
-                    "img",
-                    {
-                      src: url,
-                      alt: "",
-                      className: "nt-card-thumb",
-                      style: {
-                        aspectRatio: thumbUrls.length === 1 ? "16 / 10" : "1 / 1",
-                        gridColumn: thumbUrls.length === 3 && index === 0 ? "span 2" : void 0
-                      }
-                    },
-                    url
-                  ))
-                }
-              ),
+                  src: url,
+                  alt: "",
+                  className: `nt-card-thumb${thumbUrls.length === 3 && index === 0 ? " is-wide" : ""}`
+                },
+                url
+              )) }),
               /* @__PURE__ */ jsxs2("div", { className: "nt-card-main", children: [
-                meta.title && /* @__PURE__ */ jsxs2("div", { className: "nt-card-title", children: [
-                  isChecklist && /* @__PURE__ */ jsx3(Icon, { name: "checklist", size: 13 }),
-                  /* @__PURE__ */ jsx3("span", { children: meta.title })
-                ] }),
-                !meta.title && isChecklist && /* @__PURE__ */ jsxs2("div", { className: "nt-card-kicker", children: [
-                  /* @__PURE__ */ jsx3(Icon, { name: "checklist", size: 12 }),
-                  "Checklist"
-                ] }),
+                meta.title && /* @__PURE__ */ jsx3("div", { className: "nt-card-title", children: /* @__PURE__ */ jsx3("span", { children: meta.title }) }),
+                !meta.title && isChecklist && /* @__PURE__ */ jsx3("div", { className: "nt-card-kicker", children: "Checklist" }),
                 empty ? /* @__PURE__ */ jsx3("div", { className: "nt-card-empty", children: "Empty note" }) : /* @__PURE__ */ jsx3(
                   "div",
                   {
@@ -2079,6 +2143,15 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
           }
         ),
         /* @__PURE__ */ jsxs2("div", { className: "nt-card-footer", children: [
+          /* @__PURE__ */ jsx3(
+            IconBtn,
+            {
+              title: meta.pinned ? "Unpin" : "Pin",
+              active: meta.pinned,
+              onClick: () => onPin(meta.id),
+              children: /* @__PURE__ */ jsx3(Icon, { name: "pin", size: 15 })
+            }
+          ),
           /* @__PURE__ */ jsxs2("div", { ref: colorBtnRef, className: "nt-color-anchor", children: [
             /* @__PURE__ */ jsx3(IconBtn, { title: "Color", onClick: () => setShowColors((v) => !v), children: /* @__PURE__ */ jsx3(Icon, { name: "palette", size: 16 }) }),
             showColors && /* @__PURE__ */ jsx3(
@@ -2094,8 +2167,26 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
               }
             )
           ] }),
+          /* @__PURE__ */ jsx3(
+            IconBtn,
+            {
+              title: locked ? "Unlock note" : "Lock note",
+              active: locked,
+              onClick: () => onLock(meta.id),
+              children: /* @__PURE__ */ jsx3(Icon, { name: locked ? "lock" : "unlock", size: 15 })
+            }
+          ),
           /* @__PURE__ */ jsx3("div", { className: "nt-spacer" }),
-          /* @__PURE__ */ jsx3(IconBtn, { title: "Delete", danger: true, onClick: () => onDelete(meta.id), children: /* @__PURE__ */ jsx3(Icon, { name: "trash", size: 15 }) })
+          /* @__PURE__ */ jsx3(
+            IconBtn,
+            {
+              title: locked ? "Unlock to delete" : "Delete",
+              danger: true,
+              disabled: locked,
+              onClick: () => onDelete(meta.id),
+              children: /* @__PURE__ */ jsx3(Icon, { name: "trash", size: 15 })
+            }
+          )
         ] })
       ]
     }
@@ -2104,7 +2195,7 @@ function Card({ note, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
 
 // src/ui/Grid.jsx
 import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
-function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
+function Grid({ notes, onOpen, onPin, onColor, onLock, onDelete, resolveAttachment }) {
   const pinned = notes.filter((n) => n.meta.pinned);
   const others = notes.filter((n) => !n.meta.pinned);
   const header = (txt, count) => /* @__PURE__ */ jsxs3("h2", { className: "nt-section-head", children: [
@@ -2121,6 +2212,7 @@ function Grid({ notes, onOpen, onPin, onColor, onDelete, resolveAttachment }) {
       onOpen,
       onPin,
       onColor,
+      onLock,
       onDelete,
       resolveAttachment
     },
@@ -2239,12 +2331,13 @@ async function toSdrImage(file) {
 
 // src/editor/Editor.jsx
 import { useRef as useRef2, useEffect as useEffect3 } from "react";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState as EditorState2 } from "@codemirror/state";
 import { EditorView as EditorView3 } from "@codemirror/view";
 
 // src/editor/extensions.js
 import {
-  EditorSelection
+  EditorSelection,
+  EditorState
 } from "@codemirror/state";
 import {
   history,
@@ -2504,7 +2597,16 @@ function livePreview({ resolveAttachment } = {}) {
               enter: (node) => {
                 if (inMath(node.from, node.to)) return;
                 const name = node.name;
-                if (name === "TaskMarker") {
+                if (name === "ListItem") {
+                  const taskMarker = node.node.getChild("Task")?.getChild("TaskMarker");
+                  if (taskMarker) {
+                    out.push({
+                      from: node.from,
+                      to: taskMarker.from,
+                      deco: Decoration.replace({})
+                    });
+                  }
+                } else if (name === "TaskMarker") {
                   if (!onActive(node.from, node.to)) {
                     const text = state.sliceDoc(node.from, node.to);
                     out.push({ from: node.from, to: node.to, deco: Decoration.replace({ widget: new CheckboxWidget(/x/i.test(text), node.from) }) });
@@ -2577,12 +2679,12 @@ var theme = EditorView2.theme({
   // 16px (not 15px): a focusable text surface below 16px triggers iOS Safari
   // zoom-on-focus, which then leaves the whole app frame zoomed. Matches .nt-search.
   ".cm-scroller": { overflow: "auto", overscrollBehavior: "contain", fontFamily: "var(--font)", lineHeight: "1.66", fontSize: "16px" },
-  ".cm-content": { padding: "12px 18px 34vh", caretColor: "var(--accent)", maxWidth: "var(--nt-measure)", margin: "0 auto", width: "100%" },
+  ".cm-content": { boxSizing: "border-box", padding: "12px 18px 34vh", caretColor: "var(--accent)", maxWidth: "var(--nt-measure)", margin: "0 auto", width: "100%" },
   "&.cm-focused": { outline: "none" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
   ".cm-selectionBackground": { backgroundColor: "color-mix(in srgb, var(--accent) 22%, transparent)" },
   "&.cm-focused .cm-selectionBackground": { backgroundColor: "color-mix(in srgb, var(--accent) 30%, transparent)" },
-  ".cm-line": { padding: "0" }
+  ".cm-line": { padding: "0", overflowWrap: "anywhere", wordBreak: "break-word" }
 }, { dark: true });
 function wrap(mark, markEnd = mark) {
   return (view) => {
@@ -2603,8 +2705,10 @@ var mdKeymap = [
   { key: "Mod-e", run: wrap("`") },
   { key: "Mod-Shift-x", run: wrap("~~") }
 ];
-function buildExtensions({ onDocChange, resolveAttachment }) {
+function buildExtensions({ onDocChange, resolveAttachment, editableCompartment, readOnlyCompartment, readOnly = false }) {
   return [
+    editableCompartment.of(EditorView2.editable.of(!readOnly)),
+    readOnlyCompartment.of(EditorState.readOnly.of(!!readOnly)),
     history(),
     markdown({ base: markdownLanguage }),
     syntaxHighlighting(highlightStyle),
@@ -2622,21 +2726,27 @@ function buildExtensions({ onDocChange, resolveAttachment }) {
 
 // src/editor/Editor.jsx
 import { jsx as jsx5 } from "react/jsx-runtime";
-function Editor({ value, onChange, resolveAttachment, viewRef, syncKey }) {
+function Editor({ value, onChange, resolveAttachment, viewRef, syncKey, readOnly = false }) {
   const host = useRef2(null);
   const view = useRef2(null);
+  const editableCompartment = useRef2(new Compartment());
+  const readOnlyCompartment = useRef2(new Compartment());
+  const readOnlyRef = useRef2(readOnly);
   const onChangeRef = useRef2(onChange);
   const resolveRef = useRef2(resolveAttachment);
   onChangeRef.current = onChange;
   resolveRef.current = resolveAttachment;
   useEffect3(() => {
-    const state = EditorState.create({
+    const state = EditorState2.create({
       doc: value || "",
       extensions: buildExtensions({
         onDocChange: (t) => {
           if (onChangeRef.current) onChangeRef.current(t);
         },
-        resolveAttachment: (p) => resolveRef.current ? resolveRef.current(p) : Promise.resolve(null)
+        resolveAttachment: (p) => resolveRef.current ? resolveRef.current(p) : Promise.resolve(null),
+        editableCompartment: editableCompartment.current,
+        readOnlyCompartment: readOnlyCompartment.current,
+        readOnly
       })
     });
     const v = new EditorView3({ state, parent: host.current });
@@ -2651,12 +2761,24 @@ function Editor({ value, onChange, resolveAttachment, viewRef, syncKey }) {
   useEffect3(() => {
     const v = view.current;
     if (!v) return;
+    if (readOnlyRef.current === readOnly) return;
+    readOnlyRef.current = readOnly;
+    v.dispatch({
+      effects: [
+        editableCompartment.current.reconfigure(EditorView3.editable.of(!readOnly)),
+        readOnlyCompartment.current.reconfigure(EditorState2.readOnly.of(!!readOnly))
+      ]
+    });
+  }, [readOnly]);
+  useEffect3(() => {
+    const v = view.current;
+    if (!v) return;
     const cur = v.state.doc.toString();
     if (value != null && value !== cur) {
       v.dispatch({ changes: { from: 0, to: cur.length, insert: value } });
     }
   }, [syncKey]);
-  return /* @__PURE__ */ jsx5("div", { ref: host, style: { height: "100%" } });
+  return /* @__PURE__ */ jsx5("div", { ref: host, className: "nt-cm-host" });
 }
 
 // src/ui/EditorPanel.jsx
@@ -2712,6 +2834,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
   const externalConflictRef = useRef3(false);
   const externalConflictKey = useRef3("");
   const isChecklist = note.meta.type === "checklist";
+  const locked = !!note.meta.locked;
   useEffect4(() => {
     if (latest.current.note.meta.id === note.meta.id) {
       latest.current = { note, title, body };
@@ -2752,6 +2875,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
   const flushSave = useCallback2(() => {
     const cur = latest.current;
     if (!cur?.note) return Promise.resolve();
+    if (cur.note.meta.locked && !forceSave) return Promise.resolve();
     const currentBody = liveBody();
     if (!forceSave && cur.title === (cur.note.meta.title || "") && currentBody === (cur.note.body || "")) {
       return Promise.resolve();
@@ -2763,6 +2887,14 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
     ]));
     return saveCurrentNote({ ...cur.note.meta, title: cur.title, attachments }, currentBody);
   }, [saveCurrentNote, forceSave, liveBody]);
+  const closeEditor = useCallback2(async () => {
+    try {
+      await flushSave();
+    } catch {
+      return;
+    }
+    onBack();
+  }, [flushSave, onBack]);
   useEffect4(() => {
     if (timer.current) clearTimeout(timer.current);
     flushSave().catch(() => {
@@ -2842,6 +2974,10 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
     }
   }, [note.body]);
   useEffect4(() => {
+    if (locked) {
+      if (timer.current) clearTimeout(timer.current);
+      return void 0;
+    }
     if (title === (note.meta.title || "") && body === (note.body || "")) return;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
@@ -2849,7 +2985,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
       });
     }, AUTOSAVE_MS);
     return () => clearTimeout(timer.current);
-  }, [title, body, flushSave]);
+  }, [title, body, flushSave, locked]);
   useEffect4(() => {
     const flushOnHide = () => {
       if (document.visibilityState === "hidden") flushSave().catch(() => {
@@ -2867,6 +3003,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
     };
   }, [flushSave]);
   const toggleType = useCallback2(() => {
+    if (locked) return;
     const nextType = isChecklist ? "note" : "checklist";
     const currentBody = liveBody();
     let nextBody = currentBody;
@@ -2878,8 +3015,9 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
     if (nextBody !== currentBody) replaceEditorBody(nextBody);
     saveMetaPatch({ type: nextType }, nextBody).catch(() => {
     });
-  }, [isChecklist, liveBody, replaceEditorBody, saveMetaPatch]);
+  }, [isChecklist, liveBody, replaceEditorBody, saveMetaPatch, locked]);
   function insertMarkdown(md) {
+    if (locked) return liveBody();
     const v = viewRef.current;
     if (v) {
       v.dispatch(v.state.replaceSelection(md));
@@ -2893,6 +3031,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
   async function handleFile(e) {
     const f = e.target.files && e.target.files[0];
     e.target.value = "";
+    if (locked) return;
     if (!f || !putAttachment2) return;
     if (timer.current) clearTimeout(timer.current);
     const isImage = (f.type || "").startsWith("image/");
@@ -2951,156 +3090,182 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
       urls.forEach((u) => URL.revokeObjectURL(u));
     };
   }, [strandedKey, resolveAttachment]);
-  const tone = normalizeColorName(note.meta.color);
   const count = wordCount(body);
   const tasks = taskSummary(body);
-  return /* @__PURE__ */ jsxs4("div", { className: "nt-editor-root", children: [
-    /* @__PURE__ */ jsxs4("header", { className: "nt-editor-hdr", children: [
-      /* @__PURE__ */ jsxs4("div", { className: "nt-editor-row1", children: [
-        /* @__PURE__ */ jsx6(
-          "button",
-          {
-            onClick: async () => {
-              try {
-                await flushSave();
-              } catch {
-                return;
+  return /* @__PURE__ */ jsx6("div", { className: "nt-editor-root", onClick: (e) => {
+    if (e.target === e.currentTarget) closeEditor();
+  }, children: /* @__PURE__ */ jsxs4(
+    "section",
+    {
+      className: `nt-editor-sheet${locked ? " is-locked" : ""}`,
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": title || "Untitled note",
+      onClick: (e) => e.stopPropagation(),
+      children: [
+        /* @__PURE__ */ jsxs4("header", { className: "nt-editor-hdr", children: [
+          /* @__PURE__ */ jsxs4("div", { className: "nt-editor-toolbar", children: [
+            /* @__PURE__ */ jsx6(
+              "button",
+              {
+                type: "button",
+                onClick: closeEditor,
+                "aria-label": "Back",
+                className: "nt-hdr-btn",
+                children: /* @__PURE__ */ jsx6(Icon, { name: "back", size: 18 })
               }
-              onBack();
-            },
-            "aria-label": "Back",
-            className: "nt-hdr-btn",
-            children: /* @__PURE__ */ jsx6(Icon, { name: "back", size: 18 })
-          }
-        ),
-        tone && /* @__PURE__ */ jsx6("span", { className: `nt-color-dot nt-color-dot--${tone}` }),
-        /* @__PURE__ */ jsx6("span", { className: "nt-editor-back-label", children: "Notes" }),
-        /* @__PURE__ */ jsx6("div", { className: "nt-hdr-spacer" }),
-        status && /* @__PURE__ */ jsx6("span", { className: `nt-status ${statusClass(status)}`, children: status })
-      ] }),
-      /* @__PURE__ */ jsxs4("div", { className: "nt-editor-row2", children: [
-        /* @__PURE__ */ jsx6(
-          "button",
-          {
-            onClick: () => {
-              const current = latest.current?.note?.meta?.pinned;
-              saveMetaPatch({ pinned: !current }).catch(() => {
-              });
-            },
-            "aria-label": note.meta.pinned ? "Unpin" : "Pin",
-            "aria-pressed": note.meta.pinned,
-            title: note.meta.pinned ? "Unpin" : "Pin",
-            className: `nt-hdr-btn${note.meta.pinned ? " is-active" : ""}`,
-            children: /* @__PURE__ */ jsx6(Icon, { name: "pin", size: 16 })
-          }
-        ),
-        /* @__PURE__ */ jsxs4("div", { ref: colorBtnRef, style: { position: "relative", flexShrink: 0 }, children: [
-          /* @__PURE__ */ jsx6(
-            "button",
-            {
-              onClick: () => setShowColors((v) => !v),
-              "aria-label": "Color",
-              title: "Color",
-              className: "nt-hdr-btn",
-              children: /* @__PURE__ */ jsx6(Icon, { name: "palette", size: 17 })
-            }
-          ),
-          showColors && /* @__PURE__ */ jsx6(
-            ColorPicker,
-            {
-              anchorRef: colorBtnRef,
-              placement: "below",
-              align: "start",
-              current: note.meta.color,
-              onPick: (c) => {
-                saveMetaPatch({ color: c }).catch(() => {
-                });
-                setShowColors(false);
-              },
-              onDismiss: () => setShowColors(false)
-            }
-          )
+            ),
+            /* @__PURE__ */ jsxs4("div", { className: "nt-editor-actions", children: [
+              /* @__PURE__ */ jsx6(
+                "button",
+                {
+                  type: "button",
+                  onClick: () => {
+                    const current = latest.current?.note?.meta?.pinned;
+                    saveMetaPatch({ pinned: !current }).catch(() => {
+                    });
+                  },
+                  "aria-label": note.meta.pinned ? "Unpin" : "Pin",
+                  "aria-pressed": note.meta.pinned,
+                  title: note.meta.pinned ? "Unpin" : "Pin",
+                  className: `nt-hdr-btn${note.meta.pinned ? " is-active" : ""}`,
+                  children: /* @__PURE__ */ jsx6(Icon, { name: "pin", size: 16 })
+                }
+              ),
+              /* @__PURE__ */ jsxs4("div", { ref: colorBtnRef, className: "nt-color-anchor", children: [
+                /* @__PURE__ */ jsx6(
+                  "button",
+                  {
+                    type: "button",
+                    onClick: () => setShowColors((v) => !v),
+                    "aria-label": "Color",
+                    title: "Color",
+                    className: "nt-hdr-btn",
+                    children: /* @__PURE__ */ jsx6(Icon, { name: "palette", size: 17 })
+                  }
+                ),
+                showColors && /* @__PURE__ */ jsx6(
+                  ColorPicker,
+                  {
+                    anchorRef: colorBtnRef,
+                    placement: "below",
+                    align: "start",
+                    current: note.meta.color,
+                    onPick: (c) => {
+                      saveMetaPatch({ color: c }).catch(() => {
+                      });
+                      setShowColors(false);
+                    },
+                    onDismiss: () => setShowColors(false)
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsx6(
+                "button",
+                {
+                  type: "button",
+                  onClick: () => saveMetaPatch({ locked: !locked }).catch(() => {
+                  }),
+                  "aria-label": locked ? "Unlock note" : "Lock note",
+                  "aria-pressed": locked,
+                  title: locked ? "Unlock note" : "Lock note",
+                  className: `nt-hdr-btn${locked ? " is-active" : ""}`,
+                  children: /* @__PURE__ */ jsx6(Icon, { name: locked ? "lock" : "unlock", size: 16 })
+                }
+              ),
+              /* @__PURE__ */ jsx6(
+                "button",
+                {
+                  type: "button",
+                  onClick: toggleType,
+                  "aria-label": isChecklist ? "Switch to note" : "Switch to checklist",
+                  "aria-pressed": isChecklist,
+                  disabled: locked,
+                  title: isChecklist ? "Switch to note" : "Switch to checklist",
+                  className: `nt-hdr-btn${isChecklist ? " is-active" : ""}`,
+                  children: /* @__PURE__ */ jsx6(Icon, { name: isChecklist ? "checklist" : "note", size: 16 })
+                }
+              ),
+              /* @__PURE__ */ jsx6(
+                "button",
+                {
+                  type: "button",
+                  onClick: () => imageRef.current && imageRef.current.click(),
+                  "aria-label": "Insert image",
+                  title: "Insert image",
+                  disabled: locked,
+                  className: "nt-hdr-btn",
+                  children: /* @__PURE__ */ jsx6(Icon, { name: "image", size: 16 })
+                }
+              ),
+              /* @__PURE__ */ jsx6(
+                "button",
+                {
+                  type: "button",
+                  onClick: () => fileRef.current && fileRef.current.click(),
+                  "aria-label": "Attach file",
+                  title: "Attach file",
+                  disabled: locked,
+                  className: "nt-hdr-btn",
+                  children: /* @__PURE__ */ jsx6(Icon, { name: "file", size: 16 })
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsx6("div", { className: "nt-hdr-spacer" }),
+            status && /* @__PURE__ */ jsx6("span", { className: `nt-status ${statusClass(status)}`, children: status }),
+            /* @__PURE__ */ jsx6(
+              "button",
+              {
+                type: "button",
+                onClick: () => onDelete(note.meta.id),
+                "aria-label": "Delete",
+                title: locked ? "Unlock to delete" : "Delete",
+                disabled: locked,
+                className: "nt-hdr-btn is-danger",
+                children: /* @__PURE__ */ jsx6(Icon, { name: "trash", size: 16 })
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsx6("input", { ref: imageRef, type: "file", name: "note-image-attachment", accept: "image/*", onChange: handleFile, disabled: locked, className: "nt-file-input" }),
+          /* @__PURE__ */ jsx6("input", { ref: fileRef, type: "file", name: "note-file-attachment", onChange: handleFile, disabled: locked, className: "nt-file-input" })
         ] }),
-        /* @__PURE__ */ jsx6(
-          "button",
+        (conflict || externalConflict) && /* @__PURE__ */ jsxs4("div", { className: "nt-conflict-bar", children: [
+          /* @__PURE__ */ jsx6("span", { className: "nt-conflict-msg", children: "Edited in two places \u2014 merging\u2026" }),
+          conflict && /* @__PURE__ */ jsx6("button", { type: "button", onClick: () => resolveNow(note, appId), className: "nt-conflict-btn", children: "Resolve now" })
+        ] }),
+        attachErr && /* @__PURE__ */ jsx6("div", { className: "nt-attach-err", children: attachErr }),
+        /* @__PURE__ */ jsx6("div", { className: "nt-editor-title-band", children: /* @__PURE__ */ jsx6(
+          "input",
           {
-            onClick: toggleType,
-            "aria-label": isChecklist ? "Switch to note" : "Switch to checklist",
-            "aria-pressed": isChecklist,
-            title: isChecklist ? "Switch to note" : "Switch to checklist",
-            className: `nt-hdr-btn${isChecklist ? " is-active" : ""}`,
-            children: /* @__PURE__ */ jsx6(Icon, { name: isChecklist ? "checklist" : "note", size: 16 })
+            name: "note-title",
+            autoComplete: "off",
+            value: title,
+            readOnly: locked,
+            onChange: (e) => {
+              if (!locked) setTitle(e.target.value);
+            },
+            placeholder: "Title",
+            "aria-label": "Note title",
+            className: "nt-title-input"
           }
-        ),
-        /* @__PURE__ */ jsxs4(
-          "button",
-          {
-            onClick: () => imageRef.current && imageRef.current.click(),
-            "aria-label": "Insert image",
-            title: "Insert image",
-            className: "nt-label-btn",
-            children: [
-              /* @__PURE__ */ jsx6(Icon, { name: "image", size: 16 }),
-              "Image"
-            ]
-          }
-        ),
-        /* @__PURE__ */ jsxs4(
-          "button",
-          {
-            onClick: () => fileRef.current && fileRef.current.click(),
-            "aria-label": "Attach file",
-            title: "Attach file",
-            className: "nt-label-btn",
-            children: [
-              /* @__PURE__ */ jsx6(Icon, { name: "file", size: 16 }),
-              "File"
-            ]
-          }
-        ),
-        /* @__PURE__ */ jsx6("div", { className: "nt-hdr-spacer" }),
-        /* @__PURE__ */ jsx6(
-          "button",
-          {
-            onClick: () => onDelete(note.meta.id),
-            "aria-label": "Delete",
-            title: "Delete",
-            className: "nt-hdr-btn is-danger",
-            children: /* @__PURE__ */ jsx6(Icon, { name: "trash", size: 16 })
-          }
-        )
-      ] }),
-      /* @__PURE__ */ jsx6("input", { ref: imageRef, type: "file", accept: "image/*", onChange: handleFile, style: { display: "none" } }),
-      /* @__PURE__ */ jsx6("input", { ref: fileRef, type: "file", onChange: handleFile, style: { display: "none" } })
-    ] }),
-    (conflict || externalConflict) && /* @__PURE__ */ jsxs4("div", { className: "nt-conflict-bar", children: [
-      /* @__PURE__ */ jsx6("span", { className: "nt-conflict-msg", children: "Edited in two places \u2014 merging\u2026" }),
-      conflict && /* @__PURE__ */ jsx6("button", { onClick: () => resolveNow(note, appId), className: "nt-conflict-btn", children: "Resolve now" })
-    ] }),
-    attachErr && /* @__PURE__ */ jsx6("div", { className: "nt-attach-err", children: attachErr }),
-    /* @__PURE__ */ jsx6("div", { className: "nt-editor-title-band", children: /* @__PURE__ */ jsx6(
-      "input",
-      {
-        value: title,
-        onChange: (e) => setTitle(e.target.value),
-        placeholder: "Title",
-        "aria-label": "Note title",
-        className: "nt-title-input"
-      }
-    ) }),
-    /* @__PURE__ */ jsx6("div", { className: "nt-editor-body", children: /* @__PURE__ */ jsx6(Editor, { value: body, onChange: setBody, resolveAttachment, viewRef, syncKey: note.meta.id }) }),
-    /* @__PURE__ */ jsxs4("footer", { className: "nt-editor-foot", "aria-label": "Note metadata", children: [
-      /* @__PURE__ */ jsx6("span", { children: editorDate(note.meta) }),
-      /* @__PURE__ */ jsxs4("span", { children: [
-        count,
-        " word",
-        count === 1 ? "" : "s"
-      ] }),
-      tasks && /* @__PURE__ */ jsx6("span", { children: tasks }),
-      status && /* @__PURE__ */ jsx6("span", { children: status })
-    ] }),
-    strandedUrls.length > 0 && /* @__PURE__ */ jsx6("div", { className: "nt-attach-strip", "aria-label": "Attached images", children: strandedUrls.map((u) => /* @__PURE__ */ jsx6("img", { src: u, alt: "", className: "nt-attach-thumb" }, u)) })
-  ] });
+        ) }),
+        /* @__PURE__ */ jsx6("div", { className: "nt-editor-body", children: /* @__PURE__ */ jsx6(Editor, { value: body, onChange: locked ? () => {
+        } : setBody, resolveAttachment, viewRef, syncKey: note.meta.id, readOnly: locked }) }),
+        /* @__PURE__ */ jsxs4("footer", { className: "nt-editor-foot", "aria-label": "Note metadata", children: [
+          /* @__PURE__ */ jsx6("span", { children: editorDate(note.meta) }),
+          /* @__PURE__ */ jsxs4("span", { children: [
+            count,
+            " word",
+            count === 1 ? "" : "s"
+          ] }),
+          tasks && /* @__PURE__ */ jsx6("span", { children: tasks }),
+          locked && /* @__PURE__ */ jsx6("span", { children: "Locked" }),
+          status && /* @__PURE__ */ jsx6("span", { children: status })
+        ] }),
+        strandedUrls.length > 0 && /* @__PURE__ */ jsx6("div", { className: "nt-attach-strip", "aria-label": "Attached images", children: strandedUrls.map((u) => /* @__PURE__ */ jsx6("img", { src: u, alt: "", className: "nt-attach-thumb" }, u)) })
+      ]
+    }
+  ) });
 }
 
 // src/ui/ConfirmModal.jsx
@@ -3111,6 +3276,7 @@ function ConfirmModal({ open, title, message, confirmLabel = "Confirm", danger, 
   const cancelRef = useRef4(null);
   const openerRef = useRef4(null);
   const titleId = useId();
+  const messageId = useId();
   useEffect5(() => {
     if (!open) return;
     openerRef.current = document.activeElement;
@@ -3150,9 +3316,6 @@ function ConfirmModal({ open, title, message, confirmLabel = "Confirm", danger, 
   return /* @__PURE__ */ jsx7(
     "div",
     {
-      role: "dialog",
-      "aria-modal": "true",
-      "aria-labelledby": title ? titleId : void 0,
       onClick: onCancel,
       onKeyDown,
       className: "nt-modal-scrim",
@@ -3160,16 +3323,21 @@ function ConfirmModal({ open, title, message, confirmLabel = "Confirm", danger, 
         "div",
         {
           ref: dialogRef,
+          role: "dialog",
+          "aria-modal": "true",
+          "aria-labelledby": title ? titleId : void 0,
+          "aria-describedby": message ? messageId : void 0,
           onClick: (e) => e.stopPropagation(),
           className: "nt-modal",
           children: [
             title && /* @__PURE__ */ jsx7("h2", { id: titleId, className: "nt-modal-title", children: title }),
-            message && /* @__PURE__ */ jsx7("p", { className: "nt-modal-msg", children: message }),
+            message && /* @__PURE__ */ jsx7("p", { id: messageId, className: "nt-modal-msg", children: message }),
             /* @__PURE__ */ jsxs5("div", { className: "nt-modal-actions", children: [
-              /* @__PURE__ */ jsx7("button", { ref: cancelRef, onClick: onCancel, className: "nt-modal-btn nt-modal-cancel", children: "Cancel" }),
+              /* @__PURE__ */ jsx7("button", { type: "button", ref: cancelRef, onClick: onCancel, className: "nt-modal-btn nt-modal-cancel", children: "Cancel" }),
               /* @__PURE__ */ jsx7(
                 "button",
                 {
+                  type: "button",
                   onClick: onConfirm,
                   className: `nt-modal-btn nt-modal-confirm${danger ? " is-danger" : ""}`,
                   children: confirmLabel
@@ -3192,9 +3360,10 @@ var NO_DOC = { value: null, status: "idle", lastError: null, update: async () =>
 var HAS_RUNTIME_DOC = typeof window !== "undefined" && !!(window.mobius && window.mobius.createUseDocument);
 var useDocument = HAS_RUNTIME_DOC ? window.mobius.createUseDocument(React) : () => NO_DOC;
 function TopBar({ appId, query, onQuery }) {
+  const [iconOk, setIconOk] = useState4(true);
   return /* @__PURE__ */ jsxs6("header", { className: "nt-topbar", children: [
     /* @__PURE__ */ jsxs6("div", { className: "nt-topbar-row", children: [
-      /* @__PURE__ */ jsx8(
+      iconOk ? /* @__PURE__ */ jsx8(
         "img",
         {
           src: `/api/apps/${appId}/icon?size=128`,
@@ -3202,14 +3371,9 @@ function TopBar({ appId, query, onQuery }) {
           width: 34,
           height: 34,
           className: "nt-brand-icon",
-          onError: (e) => {
-            e.currentTarget.style.display = "none";
-            const f = e.currentTarget.nextElementSibling;
-            if (f) f.style.display = "flex";
-          }
+          onError: () => setIconOk(false)
         }
-      ),
-      /* @__PURE__ */ jsx8("span", { className: "nt-brand-fallback", style: { display: "none" }, "aria-hidden": "true", children: "\xB7" }),
+      ) : /* @__PURE__ */ jsx8("span", { className: "nt-brand-fallback", "aria-hidden": "true", children: "\xB7" }),
       /* @__PURE__ */ jsx8("h1", { className: "nt-app-title", children: "Notes" })
     ] }),
     /* @__PURE__ */ jsxs6("label", { className: "nt-search-wrap", children: [
@@ -3219,12 +3383,28 @@ function TopBar({ appId, query, onQuery }) {
         {
           value: query,
           onChange: (e) => onQuery(e.target.value),
-          placeholder: "Search notes",
+          name: "notes-search",
+          autoComplete: "off",
+          placeholder: "Search notes\u2026",
           "aria-label": "Search notes",
           className: "nt-search"
         }
       )
     ] })
+  ] });
+}
+function LoadingGrid() {
+  return /* @__PURE__ */ jsxs6("div", { className: "nt-loading-grid", role: "status", "aria-live": "polite", "aria-label": "Loading notes", children: [
+    /* @__PURE__ */ jsxs6("div", { className: "nt-loading-label", children: [
+      /* @__PURE__ */ jsx8("span", { className: "nt-spinner", "aria-hidden": "true" }),
+      /* @__PURE__ */ jsx8("span", { children: "Loading notes\u2026" })
+    ] }),
+    /* @__PURE__ */ jsx8("div", { className: "nt-skeleton-grid", "aria-hidden": "true", children: Array.from({ length: 6 }, (_, i) => /* @__PURE__ */ jsxs6("div", { className: "nt-skeleton-card", children: [
+      /* @__PURE__ */ jsx8("span", { className: "nt-skeleton-line is-title" }),
+      /* @__PURE__ */ jsx8("span", { className: "nt-skeleton-line" }),
+      /* @__PURE__ */ jsx8("span", { className: "nt-skeleton-line" }),
+      /* @__PURE__ */ jsx8("span", { className: "nt-skeleton-line is-short" })
+    ] }, i)) })
   ] });
 }
 function EmptyState({ filtered }) {
@@ -3602,6 +3782,15 @@ function App({ appId, token }) {
     if (n) persist({ ...n.meta, color }, n.body).catch(() => {
     });
   }, [draft, ensureAuthoritative, persist, setDraftNow]);
+  const toggleLock = useCallback4(async (id) => {
+    if (draft && draft.meta.id === id) {
+      setDraftNow((d) => ({ ...d, meta: { ...d.meta, locked: !d.meta.locked } }));
+      return;
+    }
+    const n = await ensureAuthoritative(id);
+    if (n) persist({ ...n.meta, locked: !n.meta.locked }, n.body).catch(() => {
+    });
+  }, [draft, ensureAuthoritative, persist, setDraftNow]);
   const queueDelete = useCallback4(async (id) => {
     const result = await collection.remove(id);
     setConflicts((prev) => {
@@ -3621,6 +3810,10 @@ function App({ appId, token }) {
       return;
     }
     const n = notes.find((x) => x.meta.id === id);
+    if (n?.meta?.locked) {
+      setSaveError({ id, kind: "delete", message: "Unlock this note before deleting it." });
+      return;
+    }
     if (n) {
       try {
         await queueDelete(id);
@@ -3697,6 +3890,7 @@ function App({ appId, token }) {
         /* @__PURE__ */ jsx8(
           "button",
           {
+            type: "button",
             className: "nt-save-err-btn",
             onClick: () => setSaveError(null),
             "aria-label": "Dismiss save error",
@@ -3704,10 +3898,7 @@ function App({ appId, token }) {
           }
         )
       ] }),
-      /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsxs6("div", { className: "nt-loading", role: "status", "aria-live": "polite", children: [
-        /* @__PURE__ */ jsx8("span", { className: "nt-spinner", "aria-hidden": "true" }),
-        /* @__PURE__ */ jsx8("span", { children: "Loading\u2026" })
-      ] }) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(
+      /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsx8(LoadingGrid, {}) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(
         Grid,
         {
           notes: visible,
@@ -3716,6 +3907,7 @@ function App({ appId, token }) {
           },
           onPin: togglePin,
           onColor: setColor,
+          onLock: toggleLock,
           onDelete: setConfirmId,
           resolveAttachment: attachmentURL
         }
@@ -3723,6 +3915,7 @@ function App({ appId, token }) {
       view.mode !== "editor" && /* @__PURE__ */ jsx8(
         "button",
         {
+          type: "button",
           className: "nt-fab",
           onClick: createNote,
           "aria-label": "New note",

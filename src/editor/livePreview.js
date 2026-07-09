@@ -4,8 +4,9 @@
 //   - hide emphasis/heading/strikethrough MARKERS on lines the cursor isn't on
 //     (so text just looks bold/italic/big), revealing the raw source when you
 //     move into the line to edit it;
-//   - replace task `[ ]`/`[x]` with a real checkbox, images with <img>, file
-//     refs with a chip, and `$…$`/`$$…$$` with KaTeX.
+//   - replace task `[ ]`/`[x]` with a real checkbox and hide the redundant
+//     task-list `- ` marker, images with inline image widgets, file refs with a chip, and
+//     `$…$`/`$$…$$` with KaTeX.
 //
 // The whole build is wrapped in try/catch returning Decoration.none, so a
 // decoration bug degrades to a plain (still excellent) CodeMirror markdown
@@ -80,7 +81,16 @@ export function livePreview({ resolveAttachment } = {}) {
               enter: (node) => {
                 if (inMath(node.from, node.to)) return
                 const name = node.name
-                if (name === 'TaskMarker') {
+                if (name === 'ListItem') {
+                  const taskMarker = node.node.getChild('Task')?.getChild('TaskMarker')
+                  if (taskMarker) {
+                    out.push({
+                      from: node.from,
+                      to: taskMarker.from,
+                      deco: Decoration.replace({}),
+                    })
+                  }
+                } else if (name === 'TaskMarker') {
                   // Show the raw `[ ]` on the cursor's line so typing isn't
                   // corrupted by an atomic replace-widget; render the checkbox
                   // only on inactive lines (Obsidian's Live Preview behavior).
