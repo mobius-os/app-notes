@@ -107,6 +107,7 @@ export const CSS = `
 }
 .nt-search {
   flex: 1; min-width: 0;
+  min-height: 44px;
   padding: 0; border: 0; border-radius: 0;
   background: transparent; color: var(--text);
   /* 16px stops iOS Safari zoom-on-focus (don't drop below on a focusable field) */
@@ -128,7 +129,7 @@ export const CSS = `
   border-radius: 18px;
   /* --accent-fg is the one legal foreground on an accent fill — a custom light
      accent theme may set it dark, so do not add a fallback literal. */
-  border: none; background: var(--accent); color: var(--accent-fg);
+  border: none; background: var(--accent-hover, var(--accent)); color: var(--accent-fg);
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; font-family: var(--font);
   box-shadow: 0 6px 12px color-mix(in srgb, var(--accent) 18%, transparent),
@@ -137,7 +138,7 @@ export const CSS = `
   touch-action: manipulation; user-select: none;
   transition: filter 0.14s ease, transform 0.12s ease, box-shadow 0.14s ease;
 }
-@media (hover: hover) { .nt-fab:hover { filter: brightness(1.08); transform: scale(1.04); } }
+@media (hover: hover) { .nt-fab:hover { filter: brightness(0.94); transform: scale(1.04); } }
 .nt-fab:active { transform: scale(0.93); }
 /* /mobius-ui:Header */
 
@@ -460,7 +461,7 @@ export const CSS = `
   border: 1px solid var(--border); background: transparent; color: var(--text);
 }
 .nt-modal-confirm {
-  border: none; color: var(--accent-fg); background: var(--accent); font-weight: 600;
+  border: none; color: var(--accent-fg); background: var(--accent-hover, var(--accent)); font-weight: 600;
   /* --accent-fg is the legal foreground on the platform's filled action tokens
      (no hex fallback — a custom light theme may set it dark). */
 }
