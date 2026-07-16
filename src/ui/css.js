@@ -98,7 +98,7 @@ export const CSS = `
 }
 /* Search field — full-width quiet inset */
 .nt-search-wrap {
-  width: 100%; height: 40px;
+  width: 100%; min-height: 44px;
   display: flex; align-items: center; gap: 9px;
   padding: 0 12px; border-radius: 11px;
   border: 1px solid transparent;
