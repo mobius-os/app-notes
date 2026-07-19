@@ -1,8 +1,8 @@
 // Pure 3-way merge for note bodies and frontmatter.
 //
-// The only runtime dependency is node-diff3 (vendored via esm.sh at runtime,
-// devDependency in tests). This module is IO-free so Phase C/D stay testable in
-// isolation — the caller injects everything else.
+// The only runtime dependency is node-diff3, which the app build embeds in the
+// intermediate index.jsx artifact. This module is IO-free so Phase C/D stay
+// testable in isolation — the caller injects everything else.
 
 import { mergeDigIn, diffIndices } from 'node-diff3'
 

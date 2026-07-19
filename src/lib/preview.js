@@ -1,8 +1,8 @@
 // Read-only markdown render for note CARDS (the editor itself uses CodeMirror).
-// Lazy-loads marked + DOMPurify via the app frame's import map, which resolves
-// the bare specifiers to the self-hosted /vendor bundles (no longer esm.sh).
-// The SW precaches both, so previews render offline-deterministically. All
-// rendered HTML is sanitized before it reaches the DOM.
+// Lazy-loads marked + DOMPurify as bare imports. The platform compiler embeds
+// both dependency graphs in Notes' self-contained module, so previews render
+// offline-deterministically. All rendered HTML is sanitized before it reaches
+// the DOM.
 
 let _libs
 async function libs() {

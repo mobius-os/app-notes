@@ -1,11 +1,10 @@
 // Notes — a markdown notes app for Möbius.
 //
 // Source entry. esbuild bundles this + src/{lib,ui,editor}/* into the single
-// index.jsx the platform installs (npm run build). React comes from the import
-// map (/vendor/react); the live-inline editor from `codemirror`; math from
-// `katex`; card previews lazy-load marked + DOMPurify from esm.sh. Pure logic
-// (frontmatter, hashing, merge) lives in src/lib/* and is unit-tested with
-// `node --test`.
+// index.jsx the platform installs (npm run build). The platform compiler then
+// embeds React, CodeMirror, KaTeX, Marked, DOMPurify, and their dependency
+// graphs into the installed module. Pure logic (frontmatter, hashing, merge)
+// lives in src/lib/* and is unit-tested with `node --test`.
 //
 // PERSISTENCE (migrated to the platform useDocument primitive): each note is a
 // JSON document at notes/<id>.json holding { meta, body } (body is the markdown
@@ -149,38 +148,23 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-export default function App({ appId, token }) {
+export default function App({ appId }) {
   // KaTeX's renderToString output (used by the live-preview editor for $…$ and
   // $$…$$ math) needs katex.min.css for its fraction/sizing/positioning rules;
-  // without it every formula renders as overlapping fallback glyphs. A plain CDN
-  // <link> is blocked by the prod CSP (style-src does not allow jsdelivr), so we
-  // fetch the stylesheet through the same-origin /api/proxy and inject it as an
-  // inline <style> (style-src allows 'unsafe-inline'). Pinned to the importmap's
-  // katex version. The @font-face URLs inside the sheet stay CDN-relative and are
-  // blocked by font-src, so the glyphs fall back to the system math font —
-  // readable and correctly laid out, which is the bug being fixed; bundling the
-  // woff2 fonts same-origin would be a platform change.
+  // without it every formula renders as overlapping fallback glyphs. Load the
+  // platform's versioned same-origin stylesheet directly: its relative font
+  // URLs stay under the same /vendor tree, satisfy CSP/CORS, and are available
+  // from the platform's offline precache. No proxy or third-party network hop is
+  // part of rendering.
   useEffect(() => {
-    if (document.querySelector('style[data-nt-katex]')) return undefined
-    let cancelled = false
-    const CSS_URL = 'https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css'
-    fetch(`/api/proxy?url=${encodeURIComponent(CSS_URL)}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    }).then((r) => {
-      if (!r.ok) throw new Error(`KaTeX CSS proxy failed (${r.status})`)
-      return r.text()
-    }).then((css) => {
-      if (cancelled || document.querySelector('style[data-nt-katex]')) return
-      const style = document.createElement('style')
-      style.setAttribute('data-nt-katex', '1')
-      style.textContent = css
-      document.head.appendChild(style)
-    }).catch(() => {
-      // No math styling — KaTeX still renders, just without its layout rules.
-      // Better than a blocked-resource console error loop.
-    })
-    return () => { cancelled = true }
-  }, [token])
+    if (document.querySelector('link[data-nt-katex]')) return undefined
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = '/vendor/katex@0.17.0/katex.min.css'
+    link.setAttribute('data-nt-katex', '1')
+    document.head.appendChild(link)
+    return undefined
+  }, [])
 
   const [notes, setNotes] = useState([])
   const [loading, setLoading] = useState(true)

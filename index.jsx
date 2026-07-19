@@ -3436,28 +3436,16 @@ var ErrorBoundary = class extends React.Component {
     return this.props.children;
   }
 };
-function App({ appId, token }) {
+function App({ appId }) {
   useEffect6(() => {
-    if (document.querySelector("style[data-nt-katex]")) return void 0;
-    let cancelled = false;
-    const CSS_URL = "https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css";
-    fetch(`/api/proxy?url=${encodeURIComponent(CSS_URL)}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
-    }).then((r) => {
-      if (!r.ok) throw new Error(`KaTeX CSS proxy failed (${r.status})`);
-      return r.text();
-    }).then((css) => {
-      if (cancelled || document.querySelector("style[data-nt-katex]")) return;
-      const style = document.createElement("style");
-      style.setAttribute("data-nt-katex", "1");
-      style.textContent = css;
-      document.head.appendChild(style);
-    }).catch(() => {
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+    if (document.querySelector("link[data-nt-katex]")) return void 0;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "/vendor/katex@0.17.0/katex.min.css";
+    link.setAttribute("data-nt-katex", "1");
+    document.head.appendChild(link);
+    return void 0;
+  }, []);
   const [notes, setNotes] = useState4([]);
   const [loading, setLoading] = useState4(true);
   const [query, setQuery] = useState4("");

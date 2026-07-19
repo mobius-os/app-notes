@@ -196,7 +196,7 @@ function installMobius() {
   globalThis.window.removeEventListener = () => {}
   globalThis.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} })
   globalThis.window.mobius = { storage, online: true, signal() {}, createUseDocument }
-  // KaTeX-CSS effect does fetch('/api/proxy?...'); reject fast so it never hangs.
+  // Keep unexpected network access deterministic in the render harness.
   globalThis.fetch = async () => { throw new Error('no network in harness') }
   globalThis.document = {
     addEventListener() {}, removeEventListener() {}, visibilityState: 'visible',

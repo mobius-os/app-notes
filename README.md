@@ -16,7 +16,7 @@ unit-tested multi-file source under `src/` and **builds** it into the deployable
 ```
 npm install      # esbuild + node-diff3 (dev only)
 npm run build    # bundle src/app.jsx -> index.jsx (single file, react/codemirror/
-                 # katex/esm.sh kept external for the app frame's import map)
+                 # katex/marked kept as bare imports for the platform compiler)
 npm test         # node --test over the pure logic in src/lib/*
 ```
 
