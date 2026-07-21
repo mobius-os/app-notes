@@ -3588,6 +3588,12 @@ function ConfirmModal({ open, title, message, confirmLabel = "Confirm", danger, 
   );
 }
 
+// src/lib/runtime-compat.js
+var LEGACY_IDLE_DOCUMENT_PATH = "__notes_no_open__.json";
+function idleDocumentPath(runtimeFeatures) {
+  return runtimeFeatures?.idleDocument === true ? null : LEGACY_IDLE_DOCUMENT_PATH;
+}
+
 // src/app.jsx
 import { jsx as jsx8, jsxs as jsxs6 } from "react/jsx-runtime";
 var NO_DOC = { value: null, status: "idle", lastError: null, update: async () => {
@@ -3597,6 +3603,9 @@ var NO_DOC = { value: null, status: "idle", lastError: null, update: async () =>
 var NOTE_DOC_IDENTITY = (doc) => doc && doc.meta ? doc.meta.id : void 0;
 var HAS_RUNTIME_DOC = typeof window !== "undefined" && !!(window.mobius && window.mobius.createUseDocument);
 var useDocument = HAS_RUNTIME_DOC ? window.mobius.createUseDocument(React) : () => NO_DOC;
+var IDLE_DOCUMENT_PATH = idleDocumentPath(
+  HAS_RUNTIME_DOC ? window.mobius.runtimeFeatures : null
+);
 function TopBar({ appId, query, onQuery }) {
   const [iconOk, setIconOk] = useState4(true);
   return /* @__PURE__ */ jsxs6("header", { className: "nt-topbar", children: [
@@ -3742,7 +3751,7 @@ function App({ appId }) {
   const collection = useMemo3(() => makeNoteCollection({ onConflict }), [onConflict]);
   const openId = view.mode === "editor" ? view.id : null;
   const openNote = openId ? notes.find((n) => n.meta.id === openId && !n.placeholder) : null;
-  const openPath = openId ? openNote?.storagePath || notePath(openId) : null;
+  const openPath = openId ? openNote?.storagePath || notePath(openId) : IDLE_DOCUMENT_PATH;
   useEffect6(() => {
     openIdRef.current = openId;
   }, [openId]);

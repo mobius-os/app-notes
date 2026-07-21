@@ -31,6 +31,7 @@ import Grid from './ui/Grid.jsx'
 import EditorPanel from './ui/EditorPanel.jsx'
 import ConfirmModal from './ui/ConfirmModal.jsx'
 import { Icon } from './ui/icons.jsx'
+import { idleDocumentPath } from './lib/runtime-compat.js'
 
 // A no-op document handle: the value the open-note hook returns under the
 // unit-test harness, where window.mobius
@@ -50,6 +51,9 @@ const HAS_RUNTIME_DOC =
 const useDocument = HAS_RUNTIME_DOC
   ? window.mobius.createUseDocument(React)
   : () => NO_DOC
+const IDLE_DOCUMENT_PATH = idleDocumentPath(
+  HAS_RUNTIME_DOC ? window.mobius.runtimeFeatures : null,
+)
 
 function TopBar({ appId, query, onQuery }) {
   const [iconOk, setIconOk] = useState(true)
@@ -291,16 +295,20 @@ export default function App({ appId }) {
   // mode 'lww' (per-note files avoid same-path clobber; backend CAS isn't live).
   const openId = view.mode === 'editor' ? view.id : null
   const openNote = openId ? notes.find((n) => n.meta.id === openId && !n.placeholder) : null
-  const openPath = openId ? (openNote?.storagePath || notePath(openId)) : null
+  const openPath = openId
+    ? (openNote?.storagePath || notePath(openId))
+    : IDLE_DOCUMENT_PATH
   // Keep the debounced-gc mirrors current (read in scheduleGc's setTimeout body).
   useEffect(() => { openIdRef.current = openId }, [openId])
   useEffect(() => { notesRef.current = notes }, [notes])
   useEffect(() => { draftRef.current = draft }, [draft])
   useEffect(() => { failedSaveIdsRef.current = failedSaveIds }, [failedSaveIds])
   const mergeNote = useMemo(() => makeMergeNote(onConflict), [onConflict])
-  // A null path is the runtime's explicit idle document state: no read,
-  // subscription, or write. Keeping the live options stable also prevents an
-  // unrelated render from re-arming an open note's subscription.
+  // A null path is the current runtime's explicit idle document state: no read,
+  // subscription, or write. Older embedded runtimes keep the prior sentinel
+  // fallback until the app is recompiled, avoiding a bogus "null" document.
+  // Keeping the live options stable also prevents an unrelated render from
+  // re-arming an open note's subscription.
   const openDocOptions = useMemo(() => ({
     initial: null,
     identity: NOTE_DOC_IDENTITY,
