@@ -104,6 +104,22 @@ async function renderDoc(storage, path, opts) {
   }
 }
 
+test('runtime useDocument: a null path is idle and performs no storage work', { skip: !HAVE_RUNTIME ? 'platform runtime not present' : false }, async () => {
+  const calls = []
+  const storage = {
+    async get() { calls.push('get'); return null },
+    async getWithVersion() { calls.push('getWithVersion'); return { value: null, version: null } },
+    async durableWrite() { calls.push('durableWrite'); return { durability: 'synced' } },
+    subscribe() { calls.push('subscribe'); return () => {} },
+  }
+  const doc = await renderDoc(storage, null, { initial: null })
+  assert.equal(doc.get().status, 'idle')
+  assert.deepEqual(calls, [])
+  await assert.rejects(doc.get().update(() => ({ body: 'must not write' })), /document path/)
+  assert.deepEqual(calls, [])
+  doc.cleanup()
+})
+
 test('runtime useDocument + app mergeNote: an edit on an existing note lands durably (loads base, writes through the real writer)', { skip: !HAVE_RUNTIME ? 'platform runtime not present' : false }, async () => {
   const { freshEnv, waitFor } = await import(HARNESS)
   const { server } = freshEnv()
