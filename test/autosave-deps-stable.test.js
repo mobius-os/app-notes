@@ -102,7 +102,13 @@ function installMobius() {
     location: { origin: 'http://localhost', search: '' },
     addEventListener() {}, removeEventListener() {},
     matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
-    mobius: { storage, online: true, signal() {}, createUseDocument },
+    mobius: {
+      storage,
+      online: true,
+      signal() {},
+      createUseDocument,
+      runtimeFeatures: { idleDocument: true },
+    },
   }
   globalThis.fetch = async () => { throw new Error('no network') }
   globalThis.document = {
