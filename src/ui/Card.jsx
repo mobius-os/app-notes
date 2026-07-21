@@ -1,11 +1,57 @@
 // A single note card: tone-class background, on-demand footer toolbar
 // (hover/focus/long-press), rendered markdown preview.
 // Tapping the body opens the editor.
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react'
 import { normalizeColorName } from './colors.js'
 import { localImageRefs, renderPreviewHTML } from '../lib/preview.js'
 import ColorPicker from './ColorPicker.jsx'
 import { Icon } from './icons.jsx'
+
+// Card previews are useful before they enter the viewport, but parsing/sanitizing
+// every note and resolving every thumbnail during the first grid paint is not.
+// One observer is shared by the entire grid so a large notebook does not create
+// one native observer per card. Parsed HTML stays cached after first view, while
+// offscreen DOM and object URLs are released so memory stays bounded as users
+// scroll through a large notebook.
+const nearCardCallbacks = new WeakMap()
+let nearCardObserver = null
+
+function observeNearCard(node, callback) {
+  if (typeof window === 'undefined' || typeof window.IntersectionObserver !== 'function') {
+    callback(true)
+    return () => {}
+  }
+  if (!nearCardObserver) {
+    nearCardObserver = new window.IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const show = nearCardCallbacks.get(entry.target)
+        show?.(entry.isIntersecting)
+      }
+    }, { rootMargin: '720px 0px' })
+  }
+  nearCardCallbacks.set(node, callback)
+  nearCardObserver.observe(node)
+  return () => {
+    nearCardCallbacks.delete(node)
+    nearCardObserver?.unobserve(node)
+  }
+}
+
+function useNearViewport(ref) {
+  const [near, setNear] = useState(() =>
+    typeof window === 'undefined' || typeof window.IntersectionObserver !== 'function')
+  useEffect(() => {
+    const node = ref.current
+    if (!node) {
+      // Non-DOM renderers and unusual mount races should show content, never leave
+      // a permanently blank card because there was nothing observable yet.
+      setNear(true)
+      return undefined
+    }
+    return observeNearCard(node, setNear)
+  }, [ref])
+  return near
+}
 
 function IconBtn({ children, title, onClick, active, danger, disabled }) {
   return (
@@ -31,34 +77,54 @@ function formatCardDate(meta) {
   return DATE_FORMATTER.format(d)
 }
 
-export default function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachment }) {
+function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachment }) {
   const { meta, body } = note
   const [html, setHtml] = useState('')
   const [showColors, setShowColors] = useState(false)
   const [thumbUrls, setThumbUrls] = useState([])
   const [toolsOpen, setToolsOpen] = useState(false)
+  const renderedPreviewBody = useRef(null)
   const colorBtnRef = useRef(null)
   const longPressTimer = useRef(null)
   const cardRef = useRef(null)
+  const nearViewport = useNearViewport(cardRef)
   // Set true the instant a long-press opens the tools, so the finger-up click that
   // fires next (the pointerup → click sequence a touch always produces) is consumed
   // by the body handler instead of opening the editor over the just-revealed tools.
   const suppressNextClick = useRef(false)
 
+  const previewBody = (body || '').slice(0, 700)
   useEffect(() => {
+    if (!nearViewport) return undefined
+    if (renderedPreviewBody.current === previewBody) return undefined
     let live = true
-    renderPreviewHTML((body || '').slice(0, 700))
-      .then((h) => { if (live) setHtml(h) })
+    renderPreviewHTML(previewBody)
+      .then((h) => {
+        if (!live) return
+        renderedPreviewBody.current = previewBody
+        setHtml(h)
+      })
       .catch(() => {})
     return () => { live = false }
-  }, [body])
+  }, [nearViewport, previewBody])
+
+  useEffect(() => {
+    if (nearViewport) return
+    // A portaled picker cannot follow an anchor after its offscreen toolbar is
+    // released. Dismiss transient card tools before that happens.
+    setShowColors(false)
+    setToolsOpen(false)
+  }, [nearViewport])
 
   // Only the image refs (not the whole meta object) drive thumbnail resolution.
   // Keying the effect on a stable serialization of the refs stops it re-running
   // — and re-reading blobs / re-creating object URLs (a visible flash) — on
   // unrelated metadata changes like pin/color toggles, which mint a new `meta`
   // object reference every time.
-  const imageRefs = useMemo(() => localImageRefs(meta, body, 4), [meta, body])
+  const imageRefs = useMemo(
+    () => nearViewport ? localImageRefs(meta, body, 4) : [],
+    [nearViewport, meta, body],
+  )
   const imageRefsKey = imageRefs.join('\n')
 
   useEffect(() => {
@@ -163,46 +229,50 @@ export default function Card({ note, onOpen, onPin, onColor, onLock, onDelete, r
             }
           }}
         >
-          {thumbUrls.length > 0 && (
-            <div className={`nt-card-thumbs nt-card-thumbs--${thumbUrls.length}`}>
-              {thumbUrls.map((url, index) => (
-                <img
-                  key={url}
-                  src={url}
-                  alt=""
-                  className={`nt-card-thumb${thumbUrls.length === 3 && index === 0 ? ' is-wide' : ''}`}
-                />
-              ))}
-            </div>
-          )}
-          <div className="nt-card-main">
-            {meta.title && (
-              <div className="nt-card-title">
-                <span>{meta.title}</span>
+          {nearViewport && (
+            <>
+              {thumbUrls.length > 0 && (
+                <div className={`nt-card-thumbs nt-card-thumbs--${thumbUrls.length}`} aria-hidden="true">
+                  {thumbUrls.map((url, index) => (
+                    <img
+                      key={url}
+                      src={url}
+                      alt=""
+                      className={`nt-card-thumb${thumbUrls.length === 3 && index === 0 ? ' is-wide' : ''}`}
+                    />
+                  ))}
+                </div>
+              )}
+              <div className="nt-card-main" aria-hidden="true">
+                {meta.title && (
+                  <div className="nt-card-title">
+                    <span>{meta.title}</span>
+                  </div>
+                )}
+                {!meta.title && isChecklist && (
+                  <div className="nt-card-kicker">
+                    Checklist
+                  </div>
+                )}
+                {empty
+                  ? <div className="nt-card-empty">Empty note</div>
+                  : <div
+                      className="note-preview nt-card-preview"
+                      dangerouslySetInnerHTML={{ __html: html }}
+                    />}
               </div>
-            )}
-            {!meta.title && isChecklist && (
-              <div className="nt-card-kicker">
-                Checklist
-              </div>
-            )}
-            {empty
-              ? <div className="nt-card-empty">Empty note</div>
-              : <div
-                  className="note-preview nt-card-preview"
-                  dangerouslySetInnerHTML={{ __html: html }}
-                />}
-          </div>
-          {(tone || cardDate) && (
-            <div className="nt-card-meta">
-              {tone && <span className="nt-card-tone-dot" aria-hidden="true" />}
-              {cardDate && <span className="nt-card-date">{cardDate}</span>}
-            </div>
+              {(tone || cardDate) && (
+                <div className="nt-card-meta" aria-hidden="true">
+                  {tone && <span className="nt-card-tone-dot" aria-hidden="true" />}
+                  {cardDate && <span className="nt-card-date">{cardDate}</span>}
+                </div>
+              )}
+            </>
           )}
         </div>
 
         {/* Footer toolbar: pin + color + lock + delete */}
-        <div className="nt-card-footer">
+        {nearViewport && <div className="nt-card-footer">
           <IconBtn
             title={meta.pinned ? 'Unpin' : 'Pin'}
             active={meta.pinned}
@@ -231,8 +301,10 @@ export default function Card({ note, onOpen, onPin, onColor, onLock, onDelete, r
             disabled={locked}
             onClick={() => onDelete(meta.id)}
           ><Icon name="trash" size={15} /></IconBtn>
-        </div>
+        </div>}
       </div>
     </div>
   )
 }
+
+export default memo(Card)

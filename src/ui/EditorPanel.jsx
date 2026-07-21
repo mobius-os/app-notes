@@ -74,8 +74,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   const focusTimer = useRef(null)
   const closeInFlight = useRef(null)
   const pendingSaves = useRef(new Set())
-  const imageRef = useRef(null)
-  const fileRef = useRef(null)
+  const attachmentRef = useRef(null)
   const colorBtnRef = useRef(null)
   // `latest` always names the note the title/body BUFFER currently belongs to.
   // It is only re-pointed at a new note AFTER that note's edits have been
@@ -222,7 +221,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   }, [closeEditor, closeRequestRef])
 
   // Treat the editor as the modal its ARIA contract advertises: move focus into
-  // it on open and restore the card/FAB that launched it on close.
+  // it on open and restore the card/new-note action that launched it on close.
   useEffect(() => {
     const active = typeof document !== 'undefined' ? document.activeElement : null
     openerRef.current = active && active !== document.body ? active : null
@@ -246,7 +245,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
       const stillMounted = typeof document === 'undefined' || typeof document.contains !== 'function' || document.contains(opener)
       if (opener && stillMounted && typeof opener.focus === 'function') opener.focus()
       else {
-        const focusFallback = () => document.querySelector?.('.nt-fab:not([hidden])')?.focus?.()
+        const focusFallback = () => document.querySelector?.('.nt-new-note-btn, .nt-empty-action')?.focus?.()
         if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
           window.requestAnimationFrame(focusFallback)
         } else {
@@ -593,6 +592,14 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
               title={note.meta.pinned ? 'Unpin' : 'Pin'}
               className={`nt-hdr-btn${note.meta.pinned ? ' is-active' : ''}`}
             ><Icon name="pin" size={16} /></button>
+            <button
+              type="button"
+              onClick={() => attachmentRef.current && attachmentRef.current.click()}
+              aria-label="Attach image or file"
+              title="Attach image or file"
+              disabled={locked || closing}
+              className="nt-hdr-btn"
+            ><Icon name="paperclip" size={16} /></button>
             <div ref={colorBtnRef} className="nt-color-anchor">
               <button
                 type="button"
@@ -631,22 +638,6 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
               title={isChecklist ? 'Switch to note' : 'Switch to checklist'}
               className={`nt-hdr-btn${isChecklist ? ' is-active' : ''}`}
             ><Icon name={isChecklist ? 'checklist' : 'note'} size={16} /></button>
-            <button
-              type="button"
-              onClick={() => imageRef.current && imageRef.current.click()}
-              aria-label="Insert image"
-              title="Insert image"
-              disabled={locked || closing}
-              className="nt-hdr-btn"
-            ><Icon name="image" size={16} /></button>
-            <button
-              type="button"
-              onClick={() => fileRef.current && fileRef.current.click()}
-              aria-label="Attach file"
-              title="Attach file"
-              disabled={locked || closing}
-              className="nt-hdr-btn"
-            ><Icon name="file" size={16} /></button>
           </div>
           <div className="nt-hdr-spacer" />
           {(closing || status) && (
@@ -663,8 +654,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
             className="nt-hdr-btn is-danger"
           ><Icon name="trash" size={16} /></button>
         </div>
-        <input ref={imageRef} type="file" name="note-image-attachment" accept="image/*" onChange={handleFile} disabled={locked} className="nt-file-input" />
-        <input ref={fileRef} type="file" name="note-file-attachment" onChange={handleFile} disabled={locked} className="nt-file-input" />
+        <input ref={attachmentRef} type="file" name="note-attachment" onChange={handleFile} disabled={locked} className="nt-file-input" />
       </header>
 
       {(conflict || externalConflict) && (

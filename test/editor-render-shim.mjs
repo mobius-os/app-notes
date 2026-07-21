@@ -48,6 +48,8 @@ export function useMemo(fn, deps) {
   return slot.value
 }
 export function useCallback(fn, deps) { return useMemo(() => fn, deps) }
+export function useDeferredValue(value) { return useMemo(() => value, [value]) }
+export function memo(component) { return component }
 export function useEffect(fn, deps) {
   const i = hi++
   const slot = hookSlots[i] || (hookSlots[i] = {})
@@ -81,7 +83,7 @@ export class Component {
   render() { return null }
 }
 
-const React = { useState, useRef, useCallback, useMemo, useEffect, Fragment, Component }
+const React = { useState, useRef, useCallback, useMemo, useDeferredValue, memo, useEffect, Fragment, Component }
 export default React
 
 let dirty = false

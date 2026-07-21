@@ -2,8 +2,9 @@
 // scannable while still wrapping down to one column on narrow phones.
 // Pinned notes get their own section above the rest.
 import Card from './Card.jsx'
+import { memo } from 'react'
 
-export default function Grid({ notes, onOpen, onPin, onColor, onLock, onDelete, resolveAttachment }) {
+function Grid({ notes, onOpen, onPin, onColor, onLock, onDelete, resolveAttachment }) {
   const pinned = notes.filter((n) => n.meta.pinned)
   const others = notes.filter((n) => !n.meta.pinned)
 
@@ -37,3 +38,5 @@ export default function Grid({ notes, onOpen, onPin, onColor, onLock, onDelete, 
     </div>
   )
 }
+
+export default memo(Grid)

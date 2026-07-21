@@ -17,7 +17,7 @@
 // exactly); a real conflict still emits the immutable conflicts/<id>/…json
 // descriptor the in-app agent resolver reads. See DESIGN.md for the model.
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react'
 import { CSS } from './ui/css.js'
 import { newNote, bumpRev, contentHash, isBlankNote } from './lib/note.js'
 import { notesFromIndex } from './lib/index-cache.js'
@@ -55,36 +55,45 @@ const IDLE_DOCUMENT_PATH = idleDocumentPath(
   HAS_RUNTIME_DOC ? window.mobius.runtimeFeatures : null,
 )
 
-function TopBar({ appId, query, onQuery }) {
+function TopBar({ appId, query, onQuery, onCreate }) {
   const [iconOk, setIconOk] = useState(true)
 
   return (
     <header className="nt-topbar">
-      <div className="nt-topbar-row">
-        {/* Brand mark: the app's own glossy icon (downscaled + cached by the
-            backend). Falls back to the accent dot if this install has no custom
-            icon (the route 404s). */}
-        {iconOk
-          ? <img
-              src={`/api/apps/${appId}/icon?size=128`}
-              alt=""
-              width={34} height={34}
-              className="nt-brand-icon"
-              onError={() => setIconOk(false)}
-            />
-          : <span className="nt-brand-fallback" aria-hidden="true">·</span>}
-        <h1 className="nt-app-title">Notes</h1>
+      <div className="nt-topbar-inner">
+        <div className="nt-topbar-row">
+          {/* Brand mark: the app's own glossy icon (downscaled + cached by the
+              backend). Falls back to the accent dot if this install has no custom
+              icon (the route 404s). */}
+          {iconOk
+            ? <img
+                src={`/api/apps/${appId}/icon?size=128`}
+                alt=""
+                width={34} height={34}
+                className="nt-brand-icon"
+                onError={() => setIconOk(false)}
+              />
+            : <span className="nt-brand-fallback" aria-hidden="true">·</span>}
+          <h1 className="nt-app-title">Notes</h1>
+          <button
+            type="button"
+            className="nt-new-note-btn"
+            onClick={onCreate}
+            aria-label="New note"
+            title="New note"
+          ><Icon name="plus" size={20} /></button>
+        </div>
+        <label className="nt-search-wrap">
+          <Icon name="search" size={17} />
+          <input
+            value={query} onChange={(e) => onQuery(e.target.value)}
+            name="notes-search"
+            autoComplete="off"
+            placeholder="Search notes…" aria-label="Search notes"
+            className="nt-search"
+          />
+        </label>
       </div>
-      <label className="nt-search-wrap">
-        <Icon name="search" size={17} />
-        <input
-          value={query} onChange={(e) => onQuery(e.target.value)}
-          name="notes-search"
-          autoComplete="off"
-          placeholder="Search notes…" aria-label="Search notes"
-          className="nt-search"
-        />
-      </label>
     </header>
   )
 }
@@ -110,7 +119,7 @@ function LoadingGrid() {
   )
 }
 
-function EmptyState({ filtered }) {
+function EmptyState({ filtered, onCreate }) {
   return (
     <div className="nt-empty">
       <div className="nt-empty-icon"><Icon name={filtered ? 'search' : 'note'} size={26} /></div>
@@ -120,6 +129,11 @@ function EmptyState({ filtered }) {
           ? 'Try another word or clear search to return to your notes.'
           : 'Jot a thought, a list, or a draft. Your agent can read and tidy them later.'}
       </div>
+      {!filtered && (
+        <button type="button" className="nt-empty-action" onClick={onCreate}>
+          New note
+        </button>
+      )}
     </div>
   )
 }
@@ -593,6 +607,10 @@ export default function App({ appId }) {
     openEditor(meta.id).catch(() => setView({ mode: 'editor', id: meta.id }))
   }, [openEditor, setDraftNow])
 
+  const handleOpen = useCallback((id) => {
+    openEditor(id).catch(() => setView({ mode: 'editor', id }))
+  }, [openEditor])
+
   // Persist a note's full document ({ meta, body }). EXACTLY ONE writer touches a
   // given note path: the OPEN editor note writes through its live useDocument
   // hook (liveDoc.update — the literal per-note document); every other note (grid
@@ -803,19 +821,23 @@ export default function App({ appId }) {
     return () => window.removeEventListener('message', onMessage)
   }, [])
 
-  const visible = useMemo(() => visibleNotes(notes, query), [notes, query])
+  // Keep the controlled search field immediate while the potentially large grid
+  // update is interruptible. Combined with near-viewport card hydration, clearing
+  // a search no longer blocks the next keystroke on large local notebooks.
+  const deferredQuery = useDeferredValue(query)
+  const visible = useMemo(() => visibleNotes(notes, deferredQuery), [notes, deferredQuery])
 
   // A search that lands on zero results, debounced so we emit once per STABLE query
   // (not per keystroke). Only the query LENGTH is sent — never the query text (no
   // PII). Reflection can propose tags/fuzzy search from real failed retrievals.
   useEffect(() => {
-    const q = query.trim()
+    const q = deferredQuery.trim()
     if (loading || !q || visible.length > 0) return undefined
     const h = setTimeout(() => {
       window.mobius?.signal?.('search_no_results', { query_len: q.length })
     }, 700)
     return () => clearTimeout(h)
-  }, [query, visible.length, loading])
+  }, [deferredQuery, visible.length, loading])
 
   // The editor only ever mounts an authoritative note (or an in-memory draft) —
   // never a cold-load placeholder; openEditor swaps placeholders out first.
@@ -839,7 +861,7 @@ export default function App({ appId }) {
         aria-hidden={editing ? 'true' : undefined}
         inert={editing ? true : undefined}
       >
-      <TopBar appId={appId} query={query} onQuery={setQuery} />
+      <TopBar appId={appId} query={query} onQuery={setQuery} onCreate={createNote} />
       {/* Closed-note save failure (a grid pin/color, or a back-out after a refused
           save) has no editor to show a status banner — surface it here so a
           dead-lettered write is never silently lost. The edit is kept in memory;
@@ -861,10 +883,10 @@ export default function App({ appId }) {
         {loading
           ? <LoadingGrid />
           : visible.length === 0
-            ? <EmptyState filtered={!!query.trim()} />
+            ? <EmptyState filtered={!!deferredQuery.trim()} onCreate={createNote} />
             : <Grid
                 notes={visible}
-                onOpen={(id) => { openEditor(id).catch(() => setView({ mode: 'editor', id })) }}
+                onOpen={handleOpen}
                 onPin={togglePin}
                 onColor={setColor}
                 onLock={toggleLock}
@@ -873,16 +895,6 @@ export default function App({ appId }) {
               />}
       </main>
 
-      {/* Keep the FAB node mounted while hidden so modal focus can return to the
-          same opener after a new-note editor closes. */}
-      <button
-        type="button"
-        className="nt-fab"
-        onClick={createNote}
-        aria-label="New note"
-        title="New note"
-        hidden={view.mode === 'editor'}
-      ><Icon name="plus" size={24} /></button>
       </div>
 
       {editing && (

@@ -75,15 +75,20 @@ export const CSS = `
 /* ── TopBar ─────────────────────────────────────────────────────────────── */
 /* mobius-ui:Header v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-topbar {
-  display: flex; flex-direction: column; gap: 12px;
   /* top-pinned bar: pad past the notch/status bar on notched phones */
-  padding: max(14px, var(--nt-safe-top)) max(18px, var(--nt-safe-right)) 12px max(18px, var(--nt-safe-left));
+  padding: max(14px, var(--nt-safe-top)) 0 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   position: sticky; top: 0;
   background: color-mix(in srgb, var(--bg) 86%, transparent); z-index: 5;
   backdrop-filter: saturate(1.35) blur(14px);
   -webkit-backdrop-filter: saturate(1.35) blur(14px);
   flex: 0 0 auto;
+}
+.nt-topbar-inner {
+  box-sizing: border-box;
+  width: 100%; max-width: 1040px; margin: 0 auto;
+  padding: 0 max(18px, var(--nt-safe-right)) 0 max(18px, var(--nt-safe-left));
+  display: flex; flex-direction: column; gap: 12px;
 }
 .nt-topbar-row {
   display: flex; align-items: center; gap: 11px; min-width: 0;
@@ -129,28 +134,19 @@ export const CSS = `
   background: var(--surface);
 }
 .nt-search::placeholder { color: color-mix(in srgb, var(--text) 14%, var(--muted)); }
-/* FAB — floating action button, bottom-right, above gesture bar */
-.nt-fab {
-  position: fixed;
-  right: max(20px, var(--nt-safe-right));
-  bottom: max(24px, var(--nt-safe-bottom));
-  z-index: 20;
-  width: 54px; height: 54px;
-  border-radius: 18px;
-  /* --accent-fg is the one legal foreground on an accent fill — a custom light
-     accent theme may set it dark, so do not add a fallback literal. */
+.nt-new-note-btn {
+  width: 44px; height: 44px; flex: 0 0 auto;
+  border-radius: 11px;
   border: none; background: var(--accent-hover, var(--accent)); color: var(--accent-fg);
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; font-family: var(--font);
-  box-shadow: 0 6px 12px color-mix(in srgb, var(--accent) 18%, transparent),
-              0 1px 2px color-mix(in srgb, var(--text) 16%, transparent);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 18%, transparent);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation; user-select: none;
-  transition: filter 0.14s ease, transform 0.12s ease, box-shadow 0.14s ease;
+  transition: filter 0.14s ease, transform 0.12s ease;
 }
-.nt-fab[hidden] { display: none; }
-@media (hover: hover) { .nt-fab:hover { filter: brightness(0.94); transform: scale(1.04); } }
-.nt-fab:active { transform: scale(0.93); }
+@media (hover: hover) { .nt-new-note-btn:hover { filter: brightness(0.94); } }
+.nt-new-note-btn:active { transform: scale(0.94); }
 /* /mobius-ui:Header */
 
 /* ── Loading / Empty ────────────────────────────────────────────────────── */
@@ -162,7 +158,8 @@ export const CSS = `
 }
 @keyframes nt-spin { to { transform: rotate(360deg); } }
 .nt-loading-grid {
-  padding: 18px max(18px, var(--nt-safe-right)) max(126px, calc(102px + var(--nt-safe-bottom))) max(18px, var(--nt-safe-left));
+  box-sizing: border-box;
+  padding: 18px max(18px, var(--nt-safe-right)) max(72px, calc(52px + var(--nt-safe-bottom))) max(18px, var(--nt-safe-left));
   max-width: 1040px; margin: 0 auto;
 }
 .nt-loading-label {
@@ -213,12 +210,23 @@ export const CSS = `
   max-width: 270px;
   font-size: 13.5px; line-height: 1.5; color: var(--muted);
 }
+.nt-empty-action {
+  min-height: 44px; margin-top: 18px; padding: 9px 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 10px;
+  background: var(--accent-hover, var(--accent)); color: var(--accent-fg);
+  font: 650 14px/1 var(--font); cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: filter 0.14s ease, transform 0.12s ease;
+}
+@media (hover: hover) { .nt-empty-action:hover { filter: brightness(0.94); } }
+.nt-empty-action:active { transform: scale(0.97); }
 /* /mobius-ui:Empty */
 
 /* ── Grid ───────────────────────────────────────────────────────────────── */
 .nt-grid-wrap {
-  /* bottom pad clears the gesture bar and FAB on Android/notched iPhones */
-  padding: 18px max(18px, var(--nt-safe-right)) max(126px, calc(102px + var(--nt-safe-bottom))) max(18px, var(--nt-safe-left));
+  box-sizing: border-box;
+  padding: 18px max(18px, var(--nt-safe-right)) max(72px, calc(52px + var(--nt-safe-bottom))) max(18px, var(--nt-safe-left));
   max-width: 1040px; margin: 0 auto;
 }
 .nt-section { margin-bottom: 26px; }
@@ -245,6 +253,8 @@ export const CSS = `
 /* mobius-ui:Card v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-card-wrap {
   min-width: 0; /* grid item — no extra margin needed with gap */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px;
 }
 .nt-card {
   position: relative;
@@ -619,6 +629,31 @@ export const CSS = `
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+.nt-cm-checkbox-hit {
+  width: 44px; height: 44px; margin-right: 2px;
+  display: inline-flex; align-items: center; justify-content: center;
+  vertical-align: middle; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.nt-cm-checkbox {
+  width: 24px; height: 24px; margin: 0;
+  cursor: pointer; accent-color: var(--accent);
+}
+.nt-cm-file-chip {
+  min-height: 44px; max-width: min(100%, 320px);
+  display: inline-flex; align-items: center; gap: 5px;
+  margin: 2px; padding: 6px 10px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface2, var(--surface)); color: var(--text);
+  font: 500 13px/1.25 var(--font); cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease, transform 0.1s ease;
+}
+@media (hover: hover) {
+  .nt-cm-file-chip:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface2, var(--surface))); }
+}
+.nt-cm-file-chip:active { transform: scale(0.98); }
 .nt-editor-sheet.is-locked .cm-content { cursor: default; }
 /* mobius-ui:SyncPill v1 (editor variant) — keep in sync; library candidate. */
 .nt-status {
@@ -682,9 +717,8 @@ export const CSS = `
 
 /* ── Grid offline pill (mobius-ui:SyncPill v2) ──────────────────────────── */
 /* SILENT WHEN HEALTHY: mounted ONLY while offline (never "Saving"/pending
-   counts), plain "Offline" copy. Positioned bottom-LEFT so it never collides
-   with the bottom-right FAB. Absolute to .nt-root (which is position:relative),
-   never fixed — a fixed overlay could paint over the shell chrome. */
+   counts), plain "Offline" copy. Absolute to .nt-root (which is
+   position:relative), never fixed — a fixed overlay could paint over shell chrome. */
 .nt-sync-pill {
   position: absolute; left: 50%; bottom: max(22px, var(--nt-safe-bottom));
   transform: translateX(-50%);

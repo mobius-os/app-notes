@@ -85,9 +85,14 @@ sits above **Others**. Each card shows:
 title, a **read-only markdown preview** (truncated, with checkboxes + a first
 inline image thumbnail), color accent, and a bottom action strip. Tap a card →
 editor. A top bar holds **search** (instant,
-client-side over title+body) and a floating **+** button creates a note —
+client-side over title+body) and a persistent **+** button creates a note —
 there is no inline capture row and no view toggle. Empty state is a friendly
-prompt, not a blank screen.
+prompt with a direct New note action, not a blank screen.
+
+Large notebooks keep lightweight card shells in the grid but hydrate markdown,
+thumbnails, and action toolbars only near the viewport. One shared observer plus
+CSS `content-visibility` bounds CPU/DOM work without a virtualization dependency;
+parsed preview HTML stays cached while offscreen DOM and object URLs are released.
 
 **Card actions** (no native dialogs): pin/unpin, color picker (muted ink-tone
 palette: slate / moss / sand / clay / plum + default, mixed from theme
@@ -97,8 +102,8 @@ archive and there are no tags (legacy notes carrying either still open fine;
 the fields are ignored).
 
 **Editor (note open).** Over-grid note surface, Keep-style, with the
-**live-inline markdown** editor (§4). Header: back, pin, color, lock, type,
-icon-only image/file attachment buttons, delete, and status when needed; the
+**live-inline markdown** editor (§4). Header: back, pin, one image/file
+attachment action, color, lock, type, delete, and status when needed; the
 open note does not repeat the app title. Auto-saves (debounced) — no save
 button; opening (or a no-op flush) never bumps `updated`, only a real edit
 does, and the grid sorts by last edit. Back or outside-click returns to grid.

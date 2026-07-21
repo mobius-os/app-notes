@@ -17,15 +17,17 @@ const CARD = readFileSync(resolve(HERE, '..', 'src', 'ui', 'Card.jsx'), 'utf8')
 const EDITOR = readFileSync(resolve(HERE, '..', 'src', 'editor', 'Editor.jsx'), 'utf8')
 const LIVE_PREVIEW = readFileSync(resolve(HERE, '..', 'src', 'editor', 'livePreview.js'), 'utf8')
 const EDITOR_PANEL = readFileSync(resolve(HERE, '..', 'src', 'ui', 'EditorPanel.jsx'), 'utf8')
+const WIDGETS = readFileSync(resolve(HERE, '..', 'src', 'editor', 'widgets.js'), 'utf8')
 const COLOR_PICKER = readFileSync(resolve(HERE, '..', 'src', 'ui', 'ColorPicker.jsx'), 'utf8')
 const CONFIRM_MODAL = readFileSync(resolve(HERE, '..', 'src', 'ui', 'ConfirmModal.jsx'), 'utf8')
 
 // Match the declarations WITHIN one rule block (up to the next `}`), so an assertion
-// about `.nt-fab` can't be satisfied by an unrelated rule elsewhere.
+// about `.nt-new-note-btn` can't be satisfied by an unrelated rule elsewhere.
 const inBlock = (selector) => new RegExp(`\\${selector}\\s*\\{[^}]*`)
 
 test('accent/danger fills use var(--accent-fg) with no hardcoded white', () => {
-  assert.match(CSS, new RegExp(inBlock('.nt-fab').source + 'color:\\s*var\\(--accent-fg\\)'), '.nt-fab foreground is --accent-fg')
+  assert.match(CSS, new RegExp(inBlock('.nt-new-note-btn').source + 'color:\\s*var\\(--accent-fg\\)'), '.nt-new-note-btn foreground is --accent-fg')
+  assert.match(CSS, new RegExp(inBlock('.nt-empty-action').source + 'color:\\s*var\\(--accent-fg\\)'), '.nt-empty-action foreground is --accent-fg')
   assert.match(CSS, new RegExp(inBlock('.nt-modal-confirm').source + 'color:\\s*var\\(--accent-fg\\)'), '.nt-modal-confirm foreground is --accent-fg')
   assert.doesNotMatch(CSS, /color:\s*#f/i, 'no `color: #fff/#ffffff` hardcoded fill foreground remains')
 })
@@ -35,6 +37,13 @@ test('small icon/alert/modal buttons meet the 44px touch floor', () => {
   assert.match(CSS, new RegExp(inBlock('.nt-modal-btn').source + 'min-height:\\s*44px'), '.nt-modal-btn is >= 44px')
   assert.match(CSS, new RegExp(inBlock('.nt-conflict-btn').source + 'min-height:\\s*44px'), '.nt-conflict-btn is >= 44px')
   assert.match(CSS, new RegExp(inBlock('.nt-save-err-btn').source + 'min-height:\\s*44px'), '.nt-save-err-btn is >= 44px')
+  assert.match(CSS, new RegExp(inBlock('.nt-new-note-btn').source + 'height:\\s*44px'), '.nt-new-note-btn is 44px')
+  assert.match(CSS, new RegExp(inBlock('.nt-empty-action').source + 'min-height:\\s*44px'), '.nt-empty-action is >= 44px')
+  assert.match(CSS, new RegExp(inBlock('.nt-cm-checkbox-hit').source + 'height:\\s*44px'), 'editor checkbox hit target is 44px')
+  assert.match(CSS, new RegExp(inBlock('.nt-cm-file-chip').source + 'min-height:\\s*44px'), 'editor file chip is >= 44px')
+  assert.match(WIDGETS, /className = 'nt-cm-checkbox-hit'/, 'checkbox widget uses the 44px hit-target class')
+  assert.match(WIDGETS, /hit\.setAttribute\('role', 'presentation'\)/, 'checkbox hit-area wrapper stays out of the accessibility tree')
+  assert.match(WIDGETS, /className = 'nt-cm-file-chip'/, 'file widget uses the 44px chip class')
 })
 
 test('focusable text fields are 16px (no iOS zoom-on-focus)', () => {
@@ -87,6 +96,35 @@ test('the card grid uses the documented fluid auto-fill tracks', () => {
     /grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(min\(100%,\s*190px\),\s*1fr\)\)/,
     'Notes grid uses auto-fill minmax(190px, 1fr)',
   )
+})
+
+test('large notebooks defer offscreen card work and non-urgent search rendering', () => {
+  assert.match(CSS, new RegExp(inBlock('.nt-card-wrap').source + 'content-visibility:\\s*auto'), 'card wrappers skip offscreen layout and paint')
+  assert.match(CSS, new RegExp(inBlock('.nt-card-wrap').source + 'contain-intrinsic-size:\\s*auto 180px'), 'offscreen cards reserve a stable intrinsic size')
+  assert.match(CARD, /nearCardObserver = new window\.IntersectionObserver/, 'all cards share one near-viewport observer')
+  assert.match(CARD, /show\?\.\(entry\.isIntersecting\)/, 'cards release offscreen DOM when they leave the observer margin')
+  assert.match(CARD, /if \(!nearViewport\) return undefined[\s\S]*renderPreviewHTML/, 'markdown parsing waits until a card is near the viewport')
+  assert.match(CARD, /export default memo\(Card\)/, 'unchanged cards skip unrelated parent renders')
+  assert.match(APP, /const handleOpen = useCallback[\s\S]*onOpen=\{handleOpen\}/, 'the memoized grid receives a stable open callback')
+  assert.match(APP, /const deferredQuery = useDeferredValue\(query\)[\s\S]*visibleNotes\(notes, deferredQuery\)/, 'grid filtering follows a deferred query')
+})
+
+test('card visual previews do not leak headings or controls into the accessibility tree', () => {
+  assert.match(CARD, /className="nt-card-main" aria-hidden="true"/, 'card markdown and title visuals are hidden behind the card accessible name')
+  assert.match(CARD, /className="nt-card-meta" aria-hidden="true"/, 'visual card metadata is not announced twice')
+})
+
+test('new-note actions stay visible without a footer-obscuring floating overlay', () => {
+  assert.match(APP, /className="nt-new-note-btn"[\s\S]*aria-label="New note"/, 'sticky header exposes New note')
+  assert.match(APP, /className="nt-empty-action"[\s\S]*New note/, 'empty state exposes a direct New note action')
+  assert.doesNotMatch(APP, /nt-fab/, 'the overlapping floating action button is removed')
+  assert.doesNotMatch(CSS, /\.nt-fab\b/, 'floating action button CSS is removed')
+})
+
+test('narrow editor toolbar prioritizes one combined attachment action', () => {
+  assert.match(EDITOR_PANEL, /aria-label=\{note\.meta\.pinned[\s\S]*aria-label="Attach image or file"[\s\S]*aria-label="Color"/, 'Attach follows Pin before secondary styling controls')
+  assert.match(EDITOR_PANEL, /<input ref=\{attachmentRef\} type="file" name="note-attachment"/, 'one file input accepts both image and file attachments')
+  assert.doesNotMatch(EDITOR_PANEL, /imageRef|fileRef|Insert image|Attach file/, 'separate hidden attachment controls stay removed')
 })
 
 test('the loading state is a shaped skeleton, not a bare text screen', () => {

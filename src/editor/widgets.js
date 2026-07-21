@@ -9,16 +9,20 @@ export class CheckboxWidget extends WidgetType {
   constructor(checked, pos) { super(); this.checked = checked; this.pos = pos }
   eq(o) { return o.checked === this.checked && o.pos === this.pos }
   toDOM(view) {
+    const hit = document.createElement('span')
+    hit.className = 'nt-cm-checkbox-hit'
+    hit.setAttribute('role', 'presentation')
     const box = document.createElement('input')
     box.type = 'checkbox'
     box.checked = this.checked
-    box.style.cssText = 'min-width:24px; min-height:24px; margin:0 6px 0 0; cursor:pointer; vertical-align:middle; accent-color:var(--accent)'
+    box.className = 'nt-cm-checkbox'
+    box.setAttribute('aria-label', this.checked ? 'Mark task incomplete' : 'Mark task complete')
     let pointerHandled = false
     const toggle = () => {
       const insert = this.checked ? '[ ]' : '[x]'
       view.dispatch({ changes: { from: this.pos, to: this.pos + 3, insert } })
     }
-    box.addEventListener('mousedown', (e) => {
+    hit.addEventListener('mousedown', (e) => {
       e.preventDefault()
       pointerHandled = true
       toggle()
@@ -29,7 +33,8 @@ export class CheckboxWidget extends WidgetType {
       if (pointerHandled) return
       toggle()
     })
-    return box
+    hit.appendChild(box)
+    return hit
   }
   ignoreEvent() { return false }
 }
@@ -74,7 +79,7 @@ export class FileChipWidget extends WidgetType {
     a.type = 'button'
     a.textContent = `📎 ${this.name}`
     a.title = this.name
-    a.style.cssText = 'display:inline-flex; align-items:center; gap:4px; padding:2px 8px; margin:0 2px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font:inherit; font-size:13px; cursor:pointer;'
+    a.className = 'nt-cm-file-chip'
     // Open the blob in a new tab rather than synthesizing an <a download> click.
     // The app iframe sandbox grants allow-popups but NOT allow-downloads, so the
     // `download` attribute is blocked (silent no-op) and iOS Safari ignores it

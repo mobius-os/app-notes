@@ -2,7 +2,7 @@
 // Edit src/app.jsx + src/{lib,ui,editor}/*, then run `npm run build`.
 
 // src/app.jsx
-import React, { useState as useState4, useEffect as useEffect6, useMemo as useMemo3, useCallback as useCallback4, useRef as useRef6 } from "react";
+import React, { useState as useState4, useEffect as useEffect6, useMemo as useMemo3, useCallback as useCallback4, useRef as useRef6, useDeferredValue } from "react";
 
 // src/ui/colors.js
 var NOTE_COLORS = [
@@ -90,15 +90,20 @@ var CSS = `
 /* \u2500\u2500 TopBar \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 /* mobius-ui:Header v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
 .nt-topbar {
-  display: flex; flex-direction: column; gap: 12px;
   /* top-pinned bar: pad past the notch/status bar on notched phones */
-  padding: max(14px, var(--nt-safe-top)) max(18px, var(--nt-safe-right)) 12px max(18px, var(--nt-safe-left));
+  padding: max(14px, var(--nt-safe-top)) 0 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   position: sticky; top: 0;
   background: color-mix(in srgb, var(--bg) 86%, transparent); z-index: 5;
   backdrop-filter: saturate(1.35) blur(14px);
   -webkit-backdrop-filter: saturate(1.35) blur(14px);
   flex: 0 0 auto;
+}
+.nt-topbar-inner {
+  box-sizing: border-box;
+  width: 100%; max-width: 1040px; margin: 0 auto;
+  padding: 0 max(18px, var(--nt-safe-right)) 0 max(18px, var(--nt-safe-left));
+  display: flex; flex-direction: column; gap: 12px;
 }
 .nt-topbar-row {
   display: flex; align-items: center; gap: 11px; min-width: 0;
@@ -144,28 +149,19 @@ var CSS = `
   background: var(--surface);
 }
 .nt-search::placeholder { color: color-mix(in srgb, var(--text) 14%, var(--muted)); }
-/* FAB \u2014 floating action button, bottom-right, above gesture bar */
-.nt-fab {
-  position: fixed;
-  right: max(20px, var(--nt-safe-right));
-  bottom: max(24px, var(--nt-safe-bottom));
-  z-index: 20;
-  width: 54px; height: 54px;
-  border-radius: 18px;
-  /* --accent-fg is the one legal foreground on an accent fill \u2014 a custom light
-     accent theme may set it dark, so do not add a fallback literal. */
+.nt-new-note-btn {
+  width: 44px; height: 44px; flex: 0 0 auto;
+  border-radius: 11px;
   border: none; background: var(--accent-hover, var(--accent)); color: var(--accent-fg);
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; font-family: var(--font);
-  box-shadow: 0 6px 12px color-mix(in srgb, var(--accent) 18%, transparent),
-              0 1px 2px color-mix(in srgb, var(--text) 16%, transparent);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 18%, transparent);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation; user-select: none;
-  transition: filter 0.14s ease, transform 0.12s ease, box-shadow 0.14s ease;
+  transition: filter 0.14s ease, transform 0.12s ease;
 }
-.nt-fab[hidden] { display: none; }
-@media (hover: hover) { .nt-fab:hover { filter: brightness(0.94); transform: scale(1.04); } }
-.nt-fab:active { transform: scale(0.93); }
+@media (hover: hover) { .nt-new-note-btn:hover { filter: brightness(0.94); } }
+.nt-new-note-btn:active { transform: scale(0.94); }
 /* /mobius-ui:Header */
 
 /* \u2500\u2500 Loading / Empty \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
@@ -177,7 +173,8 @@ var CSS = `
 }
 @keyframes nt-spin { to { transform: rotate(360deg); } }
 .nt-loading-grid {
-  padding: 18px max(18px, var(--nt-safe-right)) max(126px, calc(102px + var(--nt-safe-bottom))) max(18px, var(--nt-safe-left));
+  box-sizing: border-box;
+  padding: 18px max(18px, var(--nt-safe-right)) max(72px, calc(52px + var(--nt-safe-bottom))) max(18px, var(--nt-safe-left));
   max-width: 1040px; margin: 0 auto;
 }
 .nt-loading-label {
@@ -228,12 +225,23 @@ var CSS = `
   max-width: 270px;
   font-size: 13.5px; line-height: 1.5; color: var(--muted);
 }
+.nt-empty-action {
+  min-height: 44px; margin-top: 18px; padding: 9px 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 10px;
+  background: var(--accent-hover, var(--accent)); color: var(--accent-fg);
+  font: 650 14px/1 var(--font); cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: filter 0.14s ease, transform 0.12s ease;
+}
+@media (hover: hover) { .nt-empty-action:hover { filter: brightness(0.94); } }
+.nt-empty-action:active { transform: scale(0.97); }
 /* /mobius-ui:Empty */
 
 /* \u2500\u2500 Grid \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 .nt-grid-wrap {
-  /* bottom pad clears the gesture bar and FAB on Android/notched iPhones */
-  padding: 18px max(18px, var(--nt-safe-right)) max(126px, calc(102px + var(--nt-safe-bottom))) max(18px, var(--nt-safe-left));
+  box-sizing: border-box;
+  padding: 18px max(18px, var(--nt-safe-right)) max(72px, calc(52px + var(--nt-safe-bottom))) max(18px, var(--nt-safe-left));
   max-width: 1040px; margin: 0 auto;
 }
 .nt-section { margin-bottom: 26px; }
@@ -260,6 +268,8 @@ var CSS = `
 /* mobius-ui:Card v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
 .nt-card-wrap {
   min-width: 0; /* grid item \u2014 no extra margin needed with gap */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px;
 }
 .nt-card {
   position: relative;
@@ -634,6 +644,31 @@ var CSS = `
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+.nt-cm-checkbox-hit {
+  width: 44px; height: 44px; margin-right: 2px;
+  display: inline-flex; align-items: center; justify-content: center;
+  vertical-align: middle; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.nt-cm-checkbox {
+  width: 24px; height: 24px; margin: 0;
+  cursor: pointer; accent-color: var(--accent);
+}
+.nt-cm-file-chip {
+  min-height: 44px; max-width: min(100%, 320px);
+  display: inline-flex; align-items: center; gap: 5px;
+  margin: 2px; padding: 6px 10px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface2, var(--surface)); color: var(--text);
+  font: 500 13px/1.25 var(--font); cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease, transform 0.1s ease;
+}
+@media (hover: hover) {
+  .nt-cm-file-chip:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface2, var(--surface))); }
+}
+.nt-cm-file-chip:active { transform: scale(0.98); }
 .nt-editor-sheet.is-locked .cm-content { cursor: default; }
 /* mobius-ui:SyncPill v1 (editor variant) \u2014 keep in sync; library candidate. */
 .nt-status {
@@ -697,9 +732,8 @@ var CSS = `
 
 /* \u2500\u2500 Grid offline pill (mobius-ui:SyncPill v2) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 /* SILENT WHEN HEALTHY: mounted ONLY while offline (never "Saving"/pending
-   counts), plain "Offline" copy. Positioned bottom-LEFT so it never collides
-   with the bottom-right FAB. Absolute to .nt-root (which is position:relative),
-   never fixed \u2014 a fixed overlay could paint over the shell chrome. */
+   counts), plain "Offline" copy. Absolute to .nt-root (which is
+   position:relative), never fixed \u2014 a fixed overlay could paint over shell chrome. */
 .nt-sync-pill {
   position: absolute; left: 50%; bottom: max(22px, var(--nt-safe-bottom));
   transform: translateX(-50%);
@@ -1794,7 +1828,7 @@ async function migrateLegacyNotes() {
 }
 
 // src/ui/Card.jsx
-import { useState as useState2, useEffect as useEffect2, useRef as useRef2, useMemo, useCallback } from "react";
+import { useState as useState2, useEffect as useEffect2, useRef as useRef2, useMemo, useCallback, memo } from "react";
 
 // src/lib/preview.js
 var _libs;
@@ -2063,7 +2097,42 @@ function Icon({ name, size = 17 }) {
 }
 
 // src/ui/Card.jsx
-import { jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
+import { Fragment, jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
+var nearCardCallbacks = /* @__PURE__ */ new WeakMap();
+var nearCardObserver = null;
+function observeNearCard(node, callback) {
+  if (typeof window === "undefined" || typeof window.IntersectionObserver !== "function") {
+    callback(true);
+    return () => {
+    };
+  }
+  if (!nearCardObserver) {
+    nearCardObserver = new window.IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const show = nearCardCallbacks.get(entry.target);
+        show?.(entry.isIntersecting);
+      }
+    }, { rootMargin: "720px 0px" });
+  }
+  nearCardCallbacks.set(node, callback);
+  nearCardObserver.observe(node);
+  return () => {
+    nearCardCallbacks.delete(node);
+    nearCardObserver?.unobserve(node);
+  };
+}
+function useNearViewport(ref) {
+  const [near, setNear] = useState2(() => typeof window === "undefined" || typeof window.IntersectionObserver !== "function");
+  useEffect2(() => {
+    const node = ref.current;
+    if (!node) {
+      setNear(true);
+      return void 0;
+    }
+    return observeNearCard(node, setNear);
+  }, [ref]);
+  return near;
+}
 function IconBtn({ children, title, onClick, active, danger, disabled }) {
   return /* @__PURE__ */ jsx3(
     "button",
@@ -2096,21 +2165,36 @@ function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachmen
   const [showColors, setShowColors] = useState2(false);
   const [thumbUrls, setThumbUrls] = useState2([]);
   const [toolsOpen, setToolsOpen] = useState2(false);
+  const renderedPreviewBody = useRef2(null);
   const colorBtnRef = useRef2(null);
   const longPressTimer = useRef2(null);
   const cardRef = useRef2(null);
+  const nearViewport = useNearViewport(cardRef);
   const suppressNextClick = useRef2(false);
+  const previewBody = (body || "").slice(0, 700);
   useEffect2(() => {
+    if (!nearViewport) return void 0;
+    if (renderedPreviewBody.current === previewBody) return void 0;
     let live = true;
-    renderPreviewHTML((body || "").slice(0, 700)).then((h) => {
-      if (live) setHtml(h);
+    renderPreviewHTML(previewBody).then((h) => {
+      if (!live) return;
+      renderedPreviewBody.current = previewBody;
+      setHtml(h);
     }).catch(() => {
     });
     return () => {
       live = false;
     };
-  }, [body]);
-  const imageRefs = useMemo(() => localImageRefs(meta, body, 4), [meta, body]);
+  }, [nearViewport, previewBody]);
+  useEffect2(() => {
+    if (nearViewport) return;
+    setShowColors(false);
+    setToolsOpen(false);
+  }, [nearViewport]);
+  const imageRefs = useMemo(
+    () => nearViewport ? localImageRefs(meta, body, 4) : [],
+    [nearViewport, meta, body]
+  );
   const imageRefsKey = imageRefs.join("\n");
   useEffect2(() => {
     let live = true;
@@ -2175,7 +2259,7 @@ function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachmen
       onPointerCancel: cancelLongPress,
       onPointerLeave: cancelLongPress,
       children: [
-        /* @__PURE__ */ jsxs2(
+        /* @__PURE__ */ jsx3(
           "div",
           {
             className: "nt-card-body",
@@ -2195,8 +2279,8 @@ function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachmen
                 onOpen(meta.id);
               }
             },
-            children: [
-              thumbUrls.length > 0 && /* @__PURE__ */ jsx3("div", { className: `nt-card-thumbs nt-card-thumbs--${thumbUrls.length}`, children: thumbUrls.map((url, index) => /* @__PURE__ */ jsx3(
+            children: nearViewport && /* @__PURE__ */ jsxs2(Fragment, { children: [
+              thumbUrls.length > 0 && /* @__PURE__ */ jsx3("div", { className: `nt-card-thumbs nt-card-thumbs--${thumbUrls.length}`, "aria-hidden": "true", children: thumbUrls.map((url, index) => /* @__PURE__ */ jsx3(
                 "img",
                 {
                   src: url,
@@ -2205,7 +2289,7 @@ function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachmen
                 },
                 url
               )) }),
-              /* @__PURE__ */ jsxs2("div", { className: "nt-card-main", children: [
+              /* @__PURE__ */ jsxs2("div", { className: "nt-card-main", "aria-hidden": "true", children: [
                 meta.title && /* @__PURE__ */ jsx3("div", { className: "nt-card-title", children: /* @__PURE__ */ jsx3("span", { children: meta.title }) }),
                 !meta.title && isChecklist && /* @__PURE__ */ jsx3("div", { className: "nt-card-kicker", children: "Checklist" }),
                 empty ? /* @__PURE__ */ jsx3("div", { className: "nt-card-empty", children: "Empty note" }) : /* @__PURE__ */ jsx3(
@@ -2216,14 +2300,14 @@ function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachmen
                   }
                 )
               ] }),
-              (tone || cardDate) && /* @__PURE__ */ jsxs2("div", { className: "nt-card-meta", children: [
+              (tone || cardDate) && /* @__PURE__ */ jsxs2("div", { className: "nt-card-meta", "aria-hidden": "true", children: [
                 tone && /* @__PURE__ */ jsx3("span", { className: "nt-card-tone-dot", "aria-hidden": "true" }),
                 cardDate && /* @__PURE__ */ jsx3("span", { className: "nt-card-date", children: cardDate })
               ] })
-            ]
+            ] })
           }
         ),
-        /* @__PURE__ */ jsxs2("div", { className: "nt-card-footer", children: [
+        nearViewport && /* @__PURE__ */ jsxs2("div", { className: "nt-card-footer", children: [
           /* @__PURE__ */ jsx3(
             IconBtn,
             {
@@ -2273,8 +2357,10 @@ function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachmen
     }
   ) });
 }
+var Card_default = memo(Card);
 
 // src/ui/Grid.jsx
+import { memo as memo2 } from "react";
 import { jsx as jsx4, jsxs as jsxs3 } from "react/jsx-runtime";
 function Grid({ notes, onOpen, onPin, onColor, onLock, onDelete, resolveAttachment }) {
   const pinned = notes.filter((n) => n.meta.pinned);
@@ -2287,7 +2373,7 @@ function Grid({ notes, onOpen, onPin, onColor, onLock, onDelete, resolveAttachme
     ] })
   ] });
   const cards = (list) => /* @__PURE__ */ jsx4("div", { className: "nt-cards", children: list.map((n) => /* @__PURE__ */ jsx4(
-    Card,
+    Card_default,
     {
       note: n,
       onOpen,
@@ -2310,6 +2396,7 @@ function Grid({ notes, onOpen, onPin, onColor, onLock, onDelete, resolveAttachme
     ] })
   ] });
 }
+var Grid_default = memo2(Grid);
 
 // src/ui/EditorPanel.jsx
 import { useState as useState3, useEffect as useEffect4, useRef as useRef4, useCallback as useCallback2, useMemo as useMemo2 } from "react";
@@ -2453,16 +2540,20 @@ var CheckboxWidget = class extends WidgetType {
     return o.checked === this.checked && o.pos === this.pos;
   }
   toDOM(view) {
+    const hit = document.createElement("span");
+    hit.className = "nt-cm-checkbox-hit";
+    hit.setAttribute("role", "presentation");
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = this.checked;
-    box.style.cssText = "min-width:24px; min-height:24px; margin:0 6px 0 0; cursor:pointer; vertical-align:middle; accent-color:var(--accent)";
+    box.className = "nt-cm-checkbox";
+    box.setAttribute("aria-label", this.checked ? "Mark task incomplete" : "Mark task complete");
     let pointerHandled = false;
     const toggle = () => {
       const insert = this.checked ? "[ ]" : "[x]";
       view.dispatch({ changes: { from: this.pos, to: this.pos + 3, insert } });
     };
-    box.addEventListener("mousedown", (e) => {
+    hit.addEventListener("mousedown", (e) => {
       e.preventDefault();
       pointerHandled = true;
       toggle();
@@ -2475,7 +2566,8 @@ var CheckboxWidget = class extends WidgetType {
       if (pointerHandled) return;
       toggle();
     });
-    return box;
+    hit.appendChild(box);
+    return hit;
   }
   ignoreEvent() {
     return false;
@@ -2544,7 +2636,7 @@ var FileChipWidget = class extends WidgetType {
     a.type = "button";
     a.textContent = `\u{1F4CE} ${this.name}`;
     a.title = this.name;
-    a.style.cssText = "display:inline-flex; align-items:center; gap:4px; padding:2px 8px; margin:0 2px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font:inherit; font-size:13px; cursor:pointer;";
+    a.className = "nt-cm-file-chip";
     a.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -2950,8 +3042,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
   const focusTimer = useRef4(null);
   const closeInFlight = useRef4(null);
   const pendingSaves = useRef4(/* @__PURE__ */ new Set());
-  const imageRef = useRef4(null);
-  const fileRef = useRef4(null);
+  const attachmentRef = useRef4(null);
   const colorBtnRef = useRef4(null);
   const latest = useRef4({ note, title: note.meta.title || "", body: note.body || "" });
   const reconciledBody = useRef4(note.body || "");
@@ -3076,7 +3167,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
       const stillMounted = typeof document === "undefined" || typeof document.contains !== "function" || document.contains(opener);
       if (opener && stillMounted && typeof opener.focus === "function") opener.focus();
       else {
-        const focusFallback = () => document.querySelector?.(".nt-fab:not([hidden])")?.focus?.();
+        const focusFallback = () => document.querySelector?.(".nt-new-note-btn, .nt-empty-action")?.focus?.();
         if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
           window.requestAnimationFrame(focusFallback);
         } else {
@@ -3365,6 +3456,18 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
                       children: /* @__PURE__ */ jsx6(Icon, { name: "pin", size: 16 })
                     }
                   ),
+                  /* @__PURE__ */ jsx6(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: () => attachmentRef.current && attachmentRef.current.click(),
+                      "aria-label": "Attach image or file",
+                      title: "Attach image or file",
+                      disabled: locked || closing,
+                      className: "nt-hdr-btn",
+                      children: /* @__PURE__ */ jsx6(Icon, { name: "paperclip", size: 16 })
+                    }
+                  ),
                   /* @__PURE__ */ jsxs4("div", { ref: colorBtnRef, className: "nt-color-anchor", children: [
                     /* @__PURE__ */ jsx6(
                       "button",
@@ -3420,30 +3523,6 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
                       className: `nt-hdr-btn${isChecklist ? " is-active" : ""}`,
                       children: /* @__PURE__ */ jsx6(Icon, { name: isChecklist ? "checklist" : "note", size: 16 })
                     }
-                  ),
-                  /* @__PURE__ */ jsx6(
-                    "button",
-                    {
-                      type: "button",
-                      onClick: () => imageRef.current && imageRef.current.click(),
-                      "aria-label": "Insert image",
-                      title: "Insert image",
-                      disabled: locked || closing,
-                      className: "nt-hdr-btn",
-                      children: /* @__PURE__ */ jsx6(Icon, { name: "image", size: 16 })
-                    }
-                  ),
-                  /* @__PURE__ */ jsx6(
-                    "button",
-                    {
-                      type: "button",
-                      onClick: () => fileRef.current && fileRef.current.click(),
-                      "aria-label": "Attach file",
-                      title: "Attach file",
-                      disabled: locked || closing,
-                      className: "nt-hdr-btn",
-                      children: /* @__PURE__ */ jsx6(Icon, { name: "file", size: 16 })
-                    }
                   )
                 ] }),
                 /* @__PURE__ */ jsx6("div", { className: "nt-hdr-spacer" }),
@@ -3461,8 +3540,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsx6("input", { ref: imageRef, type: "file", name: "note-image-attachment", accept: "image/*", onChange: handleFile, disabled: locked, className: "nt-file-input" }),
-              /* @__PURE__ */ jsx6("input", { ref: fileRef, type: "file", name: "note-file-attachment", onChange: handleFile, disabled: locked, className: "nt-file-input" })
+              /* @__PURE__ */ jsx6("input", { ref: attachmentRef, type: "file", name: "note-attachment", onChange: handleFile, disabled: locked, className: "nt-file-input" })
             ] }),
             (conflict || externalConflict) && /* @__PURE__ */ jsxs4("div", { className: "nt-conflict-bar", role: "status", children: [
               /* @__PURE__ */ jsx6("span", { className: "nt-conflict-msg", children: "Edited in two places \u2014 merging\u2026" }),
@@ -3606,9 +3684,9 @@ var useDocument = HAS_RUNTIME_DOC ? window.mobius.createUseDocument(React) : () 
 var IDLE_DOCUMENT_PATH = idleDocumentPath(
   HAS_RUNTIME_DOC ? window.mobius.runtimeFeatures : null
 );
-function TopBar({ appId, query, onQuery }) {
+function TopBar({ appId, query, onQuery, onCreate }) {
   const [iconOk, setIconOk] = useState4(true);
-  return /* @__PURE__ */ jsxs6("header", { className: "nt-topbar", children: [
+  return /* @__PURE__ */ jsx8("header", { className: "nt-topbar", children: /* @__PURE__ */ jsxs6("div", { className: "nt-topbar-inner", children: [
     /* @__PURE__ */ jsxs6("div", { className: "nt-topbar-row", children: [
       iconOk ? /* @__PURE__ */ jsx8(
         "img",
@@ -3621,7 +3699,18 @@ function TopBar({ appId, query, onQuery }) {
           onError: () => setIconOk(false)
         }
       ) : /* @__PURE__ */ jsx8("span", { className: "nt-brand-fallback", "aria-hidden": "true", children: "\xB7" }),
-      /* @__PURE__ */ jsx8("h1", { className: "nt-app-title", children: "Notes" })
+      /* @__PURE__ */ jsx8("h1", { className: "nt-app-title", children: "Notes" }),
+      /* @__PURE__ */ jsx8(
+        "button",
+        {
+          type: "button",
+          className: "nt-new-note-btn",
+          onClick: onCreate,
+          "aria-label": "New note",
+          title: "New note",
+          children: /* @__PURE__ */ jsx8(Icon, { name: "plus", size: 20 })
+        }
+      )
     ] }),
     /* @__PURE__ */ jsxs6("label", { className: "nt-search-wrap", children: [
       /* @__PURE__ */ jsx8(Icon, { name: "search", size: 17 }),
@@ -3638,7 +3727,7 @@ function TopBar({ appId, query, onQuery }) {
         }
       )
     ] })
-  ] });
+  ] }) });
 }
 function LoadingGrid() {
   return /* @__PURE__ */ jsxs6("div", { className: "nt-loading-grid", role: "status", "aria-live": "polite", "aria-label": "Loading notes", children: [
@@ -3654,11 +3743,12 @@ function LoadingGrid() {
     ] }, i)) })
   ] });
 }
-function EmptyState({ filtered }) {
+function EmptyState({ filtered, onCreate }) {
   return /* @__PURE__ */ jsxs6("div", { className: "nt-empty", children: [
     /* @__PURE__ */ jsx8("div", { className: "nt-empty-icon", children: /* @__PURE__ */ jsx8(Icon, { name: filtered ? "search" : "note", size: 26 }) }),
     /* @__PURE__ */ jsx8("div", { className: "nt-empty-msg", children: filtered ? "No matching notes" : "No notes yet" }),
-    /* @__PURE__ */ jsx8("div", { className: "nt-empty-hint", children: filtered ? "Try another word or clear search to return to your notes." : "Jot a thought, a list, or a draft. Your agent can read and tidy them later." })
+    /* @__PURE__ */ jsx8("div", { className: "nt-empty-hint", children: filtered ? "Try another word or clear search to return to your notes." : "Jot a thought, a list, or a draft. Your agent can read and tidy them later." }),
+    !filtered && /* @__PURE__ */ jsx8("button", { type: "button", className: "nt-empty-action", onClick: onCreate, children: "New note" })
   ] });
 }
 var ErrorBoundary = class extends React.Component {
@@ -3958,6 +4048,9 @@ function App({ appId }) {
     setDraftNow({ meta, body: "" });
     openEditor(meta.id).catch(() => setView({ mode: "editor", id: meta.id }));
   }, [openEditor, setDraftNow]);
+  const handleOpen = useCallback4((id) => {
+    openEditor(id).catch(() => setView({ mode: "editor", id }));
+  }, [openEditor]);
   const writeNote = useCallback4(async (meta, body, { isDraftCommit = false, precomputedHash = null } = {}) => {
     const id = meta.id;
     const m = { ...meta, updated: meta.updated || (/* @__PURE__ */ new Date()).toISOString() };
@@ -4128,15 +4221,16 @@ function App({ appId }) {
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, []);
-  const visible = useMemo3(() => visibleNotes(notes, query), [notes, query]);
+  const deferredQuery = useDeferredValue(query);
+  const visible = useMemo3(() => visibleNotes(notes, deferredQuery), [notes, deferredQuery]);
   useEffect6(() => {
-    const q = query.trim();
+    const q = deferredQuery.trim();
     if (loading || !q || visible.length > 0) return void 0;
     const h = setTimeout(() => {
       window.mobius?.signal?.("search_no_results", { query_len: q.length });
     }, 700);
     return () => clearTimeout(h);
-  }, [query, visible.length, loading]);
+  }, [deferredQuery, visible.length, loading]);
   const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id && !n.placeholder) || (draft && draft.meta.id === view.id ? draft : null) : null;
   const status = saveError && editing && saveError.id === editing.meta.id ? saveError.kind === "delete" ? "Delete failed" : "Save failed" : !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : null;
   return /* @__PURE__ */ jsxs6("div", { className: "nt-root", children: [
@@ -4149,7 +4243,7 @@ function App({ appId }) {
           "aria-hidden": editing ? "true" : void 0,
           inert: editing ? true : void 0,
           children: [
-            /* @__PURE__ */ jsx8(TopBar, { appId, query, onQuery: setQuery }),
+            /* @__PURE__ */ jsx8(TopBar, { appId, query, onQuery: setQuery, onCreate: createNote }),
             !editing && saveError && /* @__PURE__ */ jsxs6("div", { className: "nt-save-err", role: "alert", "aria-live": "assertive", children: [
               /* @__PURE__ */ jsx8("span", { className: "nt-save-err-msg", children: saveError.message }),
               /* @__PURE__ */ jsx8(
@@ -4163,32 +4257,18 @@ function App({ appId }) {
                 }
               )
             ] }),
-            /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsx8(LoadingGrid, {}) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(
-              Grid,
+            /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsx8(LoadingGrid, {}) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!deferredQuery.trim(), onCreate: createNote }) : /* @__PURE__ */ jsx8(
+              Grid_default,
               {
                 notes: visible,
-                onOpen: (id) => {
-                  openEditor(id).catch(() => setView({ mode: "editor", id }));
-                },
+                onOpen: handleOpen,
                 onPin: togglePin,
                 onColor: setColor,
                 onLock: toggleLock,
                 onDelete: setConfirmId,
                 resolveAttachment: attachmentURL
               }
-            ) }),
-            /* @__PURE__ */ jsx8(
-              "button",
-              {
-                type: "button",
-                className: "nt-fab",
-                onClick: createNote,
-                "aria-label": "New note",
-                title: "New note",
-                hidden: view.mode === "editor",
-                children: /* @__PURE__ */ jsx8(Icon, { name: "plus", size: 24 })
-              }
-            )
+            ) })
           ]
         }
       ),
