@@ -199,6 +199,8 @@ test('a normal load persists the derived index.json (index write is an effect, n
 
   shim.mount(() => App({ appId: '1', token: 't' }))
   await flush()
+  // index.json is derived; rapid note changes are intentionally coalesced.
+  await new Promise((resolve) => setTimeout(resolve, 280))
 
   const idx = env.store.get('index.json')
   assert.ok(idx && Array.isArray(idx.notes), 'index.json was written from committed notes')

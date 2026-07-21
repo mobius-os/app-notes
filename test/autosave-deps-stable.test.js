@@ -36,6 +36,7 @@ function installMobius() {
   const store = new Map()
   const pathSubs = new Map()
   const docSubs = new Map()
+  let docEffectRuns = 0
   function notify(path) {
     const v = store.has(path) ? store.get(path) : null
     for (const cb of pathSubs.get(path) || []) { try { cb(v) } catch {} }
@@ -76,13 +77,14 @@ function installMobius() {
       const baseRef = React.useRef(null)
       React.useEffect(() => {
         if (!path || path.startsWith('__notes_no_open__')) return undefined
+        docEffectRuns++
         let s = docSubs.get(path); if (!s) { s = new Set(); docSubs.set(path, s) }
         const cb = (v) => { baseRef.current = v; setValue(v) }
         s.add(cb)
         const cur = store.has(path) ? store.get(path) : null
         baseRef.current = cur; setValue(cur)
         return () => docSubs.get(path)?.delete(cb)
-      }, [path])
+      }, [path, opts?.identity, opts?.merge, opts?.mode])
       const update = async (fn) => {
         const mine = fn(value)
         const theirs = store.has(path) ? store.get(path) : null
@@ -107,7 +109,11 @@ function installMobius() {
     createElement() { return { setAttribute() {}, set textContent(_) {}, get textContent() { return '' } } },
     head: { appendChild() {} },
   }
-  return { store, seed(path, val) { store.set(path, val) } }
+  return {
+    store,
+    seed(path, val) { store.set(path, val) },
+    get docEffectRuns() { return docEffectRuns },
+  }
 }
 
 before(async () => {
@@ -176,6 +182,7 @@ test('onSave (persist) keeps a stable identity across an unrelated re-render (au
   const p1 = editorProps()
   assert.ok(p1, 'editor mounted with an onSave')
   const onSave1 = p1.onSave
+  const effectsBefore = env.docEffectRuns
 
   // An UNRELATED state change: change the search query. This re-renders App (and
   // mints a fresh useDocument handle) but must not change persist's identity.
@@ -187,5 +194,28 @@ test('onSave (persist) keeps a stable identity across an unrelated re-render (au
   const p2 = editorProps()
   assert.ok(p2, 'editor still mounted after the re-render')
   assert.equal(p2.onSave, onSave1, 'onSave identity is stable across the unrelated re-render (no autosave-dep churn)')
+  assert.equal(env.docEffectRuns, effectsBefore, 'stable hook options do not refresh/re-subscribe the open document')
+  shim.unmount()
+})
+
+test('a real edit advances revision metadata once and stores its precomputed content hash', async () => {
+  env.seed(notePath('n2'), {
+    meta: { id: 'n2', title: 'T', type: 'note', attachments: [], mobius_rev: 4, parent_rev: 3, updated: '2026-01-01T00:00:00.000Z' },
+    body: 'before',
+  })
+  shim.mount(() => App({ appId: '1', token: 't' }))
+  await flush()
+  const grid = safeFind((n) => n.props && typeof n.props.onOpen === 'function')
+  grid.props.onOpen('n2')
+  await flush()
+
+  const p = editorProps()
+  await p.onSave(p.note.meta, 'after')
+  await flush()
+
+  const saved = env.store.get(notePath('n2'))
+  assert.equal(saved.meta.mobius_rev, 5)
+  assert.equal(saved.meta.parent_rev, 4)
+  assert.match(saved.meta.content_hash, /^[a-f0-9]{64}$/)
   shim.unmount()
 })

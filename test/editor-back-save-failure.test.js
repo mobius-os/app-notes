@@ -96,6 +96,26 @@ function clickBack() {
   return btn.props.onClick()
 }
 
+function findSafe(pred) {
+  const stack = [shim.tree()]
+  const seen = new Set()
+  while (stack.length) {
+    const node = stack.pop()
+    if (node == null || typeof node !== 'object' || seen.has(node)) continue
+    seen.add(node)
+    if (Array.isArray(node)) { stack.push(...node); continue }
+    if (pred(node)) return node
+    stack.push(node.children)
+  }
+  return null
+}
+
+function clickPin() {
+  const btn = findSafe((n) => n.props && n.props['aria-label'] === 'Pin')
+  assert.ok(btn && typeof btn.props.onClick === 'function', 'Pin button with onClick is rendered')
+  return btn.props.onClick()
+}
+
 test('Back keeps the editor open when the save is dead-lettered (no silent close-as-saved)', async () => {
   let backCalls = 0
   const onSave = () => Promise.reject(Object.assign(new Error('refused'), { name: 'DurableWriteError', code: 'dead_letter' }))
@@ -115,5 +135,62 @@ test('Back closes the editor when the save resolves (queued offline write is dur
   shim.mount(() => EditorPanel(p))
   await clickBack()
   assert.equal(backCalls, 1, 'onBack IS called when flushSave resolves — a queued/synced save closes normally')
+  shim.unmount()
+})
+
+test('shell Back uses the same flush-before-close path as the visible Back button', async () => {
+  let resolveSave
+  const save = new Promise((resolve) => { resolveSave = resolve })
+  const backArgs = []
+  const closeRequestRef = { current: null }
+  const p = { ...props(() => save, (fromShell) => backArgs.push(fromShell)), closeRequestRef }
+  shim.mount(() => EditorPanel(p))
+
+  assert.equal(typeof closeRequestRef.current, 'function', 'EditorPanel registers a shell close handler')
+  const close = closeRequestRef.current(true)
+  await Promise.resolve()
+  assert.deepEqual(backArgs, [], 'shell Back waits for the durable save')
+
+  resolveSave({ durability: 'synced' })
+  await close
+  assert.deepEqual(backArgs, [true], 'shell Back leaves only after save and preserves shell ownership')
+  shim.unmount()
+})
+
+test('Back waits for an optimistic save that is still durably in flight', async () => {
+  let resolveSave
+  const save = new Promise((resolve) => { resolveSave = resolve })
+  let backCalls = 0
+  const closeRequestRef = { current: null }
+  const p = { ...props(() => save, () => { backCalls++ }), forceSave: false, closeRequestRef }
+  shim.mount(() => EditorPanel(p))
+
+  clickPin() // starts a save and makes latest.current look optimistically current
+  const close = closeRequestRef.current(false)
+  await Promise.resolve()
+  assert.equal(backCalls, 0, 'matching optimistic content does not bypass the pending durable write')
+
+  resolveSave({ durability: 'synced' })
+  await close
+  assert.equal(backCalls, 1, 'the editor closes after the outstanding save settles')
+  shim.unmount()
+})
+
+test('Escape closes from CodeMirror even when the editor consumed the key first', async () => {
+  let backCalls = 0
+  const p = { ...props(() => Promise.resolve({ durability: 'synced' }), () => { backCalls++ }), forceSave: false }
+  shim.mount(() => EditorPanel(p))
+  const dialog = findSafe((n) => n.props && n.props.role === 'dialog')
+  assert.ok(dialog && typeof dialog.props.onKeyDown === 'function')
+
+  dialog.props.onKeyDown({
+    key: 'Escape',
+    defaultPrevented: true,
+    preventDefault() {},
+    stopPropagation() {},
+  })
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.equal(backCalls, 1, 'modal Escape wins over CodeMirror key handling')
   shim.unmount()
 })

@@ -2,7 +2,7 @@
 // Edit src/app.jsx + src/{lib,ui,editor}/*, then run `npm run build`.
 
 // src/app.jsx
-import React, { useState as useState4, useEffect as useEffect6, useMemo as useMemo3, useCallback as useCallback4, useRef as useRef5 } from "react";
+import React, { useState as useState4, useEffect as useEffect6, useMemo as useMemo3, useCallback as useCallback4, useRef as useRef6 } from "react";
 
 // src/ui/colors.js
 var NOTE_COLORS = [
@@ -41,6 +41,12 @@ var CSS = `
 /* mobius-ui:Root v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
 .nt-root {
   --nt-measure: 704px;
+  --nt-safe-top: var(--mobius-safe-top, env(safe-area-inset-top, 0px));
+  --nt-safe-right: var(--mobius-safe-right, env(safe-area-inset-right, 0px));
+  --nt-safe-bottom: var(--mobius-safe-bottom, env(safe-area-inset-bottom, 0px));
+  --nt-safe-left: var(--mobius-safe-left, env(safe-area-inset-left, 0px));
+  --nt-accent-ink: color-mix(in srgb, var(--accent) 72%, var(--text));
+  --nt-danger-ink: color-mix(in srgb, var(--danger) 68%, var(--text));
   position: relative;
   display: flex; flex-direction: column;
   height: 100%; width: 100%; max-width: 100%;
@@ -48,6 +54,10 @@ var CSS = `
   background: var(--bg); color: var(--text); font-family: var(--font);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+.nt-home {
+  display: flex; flex-direction: column;
+  flex: 1; min-width: 0; min-height: 0;
 }
 .nt-scroll {
   flex: 1; min-height: 0;
@@ -82,7 +92,7 @@ var CSS = `
 .nt-topbar {
   display: flex; flex-direction: column; gap: 12px;
   /* top-pinned bar: pad past the notch/status bar on notched phones */
-  padding: max(14px, env(safe-area-inset-top)) 18px 12px;
+  padding: max(14px, var(--nt-safe-top)) max(18px, var(--nt-safe-right)) 12px max(18px, var(--nt-safe-left));
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   position: sticky; top: 0;
   background: color-mix(in srgb, var(--bg) 86%, transparent); z-index: 5;
@@ -133,12 +143,12 @@ var CSS = `
   border-color: var(--accent);
   background: var(--surface);
 }
-.nt-search::placeholder { color: var(--muted); }
+.nt-search::placeholder { color: color-mix(in srgb, var(--text) 14%, var(--muted)); }
 /* FAB \u2014 floating action button, bottom-right, above gesture bar */
 .nt-fab {
   position: fixed;
-  right: max(20px, env(safe-area-inset-right, 0px));
-  bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  right: max(20px, var(--nt-safe-right));
+  bottom: max(24px, var(--nt-safe-bottom));
   z-index: 20;
   width: 54px; height: 54px;
   border-radius: 18px;
@@ -153,6 +163,7 @@ var CSS = `
   touch-action: manipulation; user-select: none;
   transition: filter 0.14s ease, transform 0.12s ease, box-shadow 0.14s ease;
 }
+.nt-fab[hidden] { display: none; }
 @media (hover: hover) { .nt-fab:hover { filter: brightness(0.94); transform: scale(1.04); } }
 .nt-fab:active { transform: scale(0.93); }
 /* /mobius-ui:Header */
@@ -166,7 +177,7 @@ var CSS = `
 }
 @keyframes nt-spin { to { transform: rotate(360deg); } }
 .nt-loading-grid {
-  padding: 18px 18px max(126px, calc(102px + env(safe-area-inset-bottom)));
+  padding: 18px max(18px, var(--nt-safe-right)) max(126px, calc(102px + var(--nt-safe-bottom))) max(18px, var(--nt-safe-left));
   max-width: 1040px; margin: 0 auto;
 }
 .nt-loading-label {
@@ -184,7 +195,7 @@ var CSS = `
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 5%, transparent),
-              0 8px 22px color-mix(in srgb, var(--text) 6%, transparent);
+              0 4px 8px color-mix(in srgb, var(--text) 6%, transparent);
   padding: 16px;
 }
 .nt-skeleton-line {
@@ -222,7 +233,7 @@ var CSS = `
 /* \u2500\u2500 Grid \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 .nt-grid-wrap {
   /* bottom pad clears the gesture bar and FAB on Android/notched iPhones */
-  padding: 18px 18px max(126px, calc(102px + env(safe-area-inset-bottom)));
+  padding: 18px max(18px, var(--nt-safe-right)) max(126px, calc(102px + var(--nt-safe-bottom))) max(18px, var(--nt-safe-left));
   max-width: 1040px; margin: 0 auto;
 }
 .nt-section { margin-bottom: 26px; }
@@ -256,17 +267,17 @@ var CSS = `
   background: var(--surface); border: 1px solid var(--border);
   min-height: 118px;
   box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 5%, transparent),
-              0 8px 22px color-mix(in srgb, var(--text) 6%, transparent);
+              0 4px 8px color-mix(in srgb, var(--text) 6%, transparent);
   transition: box-shadow 0.16s ease, transform 0.16s ease, border-color 0.16s ease;
 }
 .nt-card.is-locked {
   box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 4%, transparent),
-              0 8px 22px color-mix(in srgb, var(--text) 5%, transparent);
+              0 4px 8px color-mix(in srgb, var(--text) 5%, transparent);
 }
 @media (hover: hover) {
   .nt-card:hover {
-    box-shadow: 0 2px 6px color-mix(in srgb, var(--text) 7%, transparent),
-                0 16px 40px color-mix(in srgb, var(--text) 10%, transparent);
+    box-shadow: 0 2px 4px color-mix(in srgb, var(--text) 7%, transparent),
+                0 6px 8px color-mix(in srgb, var(--text) 10%, transparent);
     transform: translateY(-2px);
   }
 }
@@ -400,8 +411,8 @@ var CSS = `
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
   transition: background 0.12s ease, transform 0.1s ease;
 }
-.nt-icon-btn.is-active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); opacity: 1; }
-.nt-icon-btn.is-danger { color: var(--danger); }
+.nt-icon-btn.is-active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--nt-accent-ink); opacity: 1; }
+.nt-icon-btn.is-danger { color: var(--nt-danger-ink); }
 .nt-icon-btn:disabled,
 .nt-icon-btn:disabled:hover {
   background: transparent;
@@ -422,7 +433,7 @@ var CSS = `
 
 /* \u2500\u2500 ColorPicker \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 .nt-color-picker {
-  position: fixed; z-index: 1000;
+  position: fixed; z-index: 60;
   display: grid; grid-template-columns: repeat(4, 44px); gap: 8px;
   max-width: calc(100vw - 24px); padding: 8px;
   background: var(--surface2, var(--surface));
@@ -480,14 +491,17 @@ var CSS = `
   /* --accent-fg is the legal foreground on the platform's filled action tokens
      (no hex fallback \u2014 a custom light theme may set it dark). */
 }
-.nt-modal-confirm.is-danger { background: var(--danger); }
+.nt-modal-confirm.is-danger {
+  background: color-mix(in srgb, var(--danger) 78%, var(--text));
+  color: var(--bg);
+}
 /* /mobius-ui:Sheet */
 
 /* \u2500\u2500 EditorPanel \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 .nt-editor-root {
   position: absolute; inset: 0; z-index: 20;
   display: flex; align-items: center; justify-content: center;
-  padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+  padding: max(14px, var(--nt-safe-top)) max(14px, var(--nt-safe-right)) max(14px, var(--nt-safe-bottom)) max(14px, var(--nt-safe-left));
   background: color-mix(in srgb, var(--bg) 54%, transparent);
   backdrop-filter: blur(5px);
   -webkit-backdrop-filter: blur(5px);
@@ -507,7 +521,7 @@ var CSS = `
 @media (max-width: 640px) {
   .nt-editor-root {
     align-items: flex-end;
-    padding: max(10px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom));
+    padding: max(10px, var(--nt-safe-top)) max(8px, var(--nt-safe-right)) max(8px, var(--nt-safe-bottom)) max(8px, var(--nt-safe-left));
   }
   .nt-editor-sheet {
     width: 100%;
@@ -536,8 +550,18 @@ var CSS = `
   overflow-x: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
+  scroll-padding-inline: 4px 20px;
 }
 .nt-editor-actions::-webkit-scrollbar { display: none; }
+@media (max-width: 480px) {
+  .nt-editor-toolbar { gap: 2px; }
+  .nt-editor-actions {
+    gap: 2px;
+    padding-inline-end: 18px;
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
+  }
+}
 /* /mobius-ui:Header */
 /* mobius-ui:Button v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
 .nt-hdr-btn {
@@ -550,7 +574,7 @@ var CSS = `
   transition: background 0.12s ease, transform 0.1s ease;
 }
 .nt-hdr-btn.is-active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-.nt-hdr-btn.is-danger { color: var(--danger); }
+.nt-hdr-btn.is-danger { color: var(--nt-danger-ink); }
 .nt-hdr-btn:disabled {
   cursor: default;
   color: color-mix(in srgb, var(--text) 40%, var(--muted));
@@ -617,7 +641,7 @@ var CSS = `
   font-variant-numeric: tabular-nums;
 }
 /* Online+idle: nothing shown (standard). Resolving uses accent; others muted. */
-.nt-status.is-resolving { color: var(--accent); }
+.nt-status.is-resolving { color: var(--nt-accent-ink); }
 .nt-status.is-default { color: var(--muted); }
 /* /mobius-ui:SyncPill */
 .nt-hdr-spacer { flex: 1; min-width: 4px; }
@@ -631,7 +655,7 @@ var CSS = `
 .nt-conflict-btn {
   min-height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--accent); background: transparent; color: var(--accent);
+  border: 1px solid var(--nt-accent-ink); background: transparent; color: var(--nt-accent-ink);
   border-radius: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer;
   flex-shrink: 0; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
@@ -639,7 +663,7 @@ var CSS = `
 .nt-attach-err {
   padding: 8px 16px;
   background: color-mix(in srgb, var(--danger) 14%, transparent);
-  color: var(--danger); font-size: 13px; flex: 0 0 auto;
+  color: var(--nt-danger-ink); font-size: 13px; flex: 0 0 auto;
 }
 /* Grid-level save-failure banner \u2014 surfaces a refused (dead-lettered) write that
    happened with no editor open (a closed-note pin/color, or a back-out after a
@@ -648,13 +672,13 @@ var CSS = `
   display: flex; align-items: center; gap: 10px;
   padding: 9px 16px;
   background: color-mix(in srgb, var(--danger) 14%, transparent);
-  color: var(--danger); font-size: 13px; flex: 0 0 auto;
+  color: var(--nt-danger-ink); font-size: 13px; flex: 0 0 auto;
 }
 .nt-save-err-msg { flex: 1; }
 .nt-save-err-btn {
   min-height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--danger); background: transparent; color: var(--danger);
+  border: 1px solid var(--nt-danger-ink); background: transparent; color: var(--nt-danger-ink);
   border-radius: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer;
   flex-shrink: 0; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
@@ -665,7 +689,7 @@ var CSS = `
   flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
   gap: 8px 14px;
-  padding: 10px clamp(18px, 6vw, 40px) max(14px, env(safe-area-inset-bottom));
+  padding: 10px clamp(18px, 6vw, 40px) max(14px, var(--nt-safe-bottom));
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   color: color-mix(in srgb, var(--text) 54%, var(--muted));
   font: 500 12px/1.2 var(--mono);
@@ -677,7 +701,7 @@ var CSS = `
    with the bottom-right FAB. Absolute to .nt-root (which is position:relative),
    never fixed \u2014 a fixed overlay could paint over the shell chrome. */
 .nt-sync-pill {
-  position: absolute; left: 50%; bottom: max(22px, env(safe-area-inset-bottom));
+  position: absolute; left: 50%; bottom: max(22px, var(--nt-safe-bottom));
   transform: translateX(-50%);
   z-index: 15;
   display: inline-flex; align-items: center; padding: 9px 14px; border-radius: 999px;
@@ -693,7 +717,7 @@ var CSS = `
    while still showing on the card \u2014 stranded data. */
 .nt-attach-strip {
   display: flex; gap: 8px; align-items: flex-start;
-  padding: 8px 16px max(10px, env(safe-area-inset-bottom));
+  padding: 8px max(16px, var(--nt-safe-right)) max(10px, var(--nt-safe-bottom)) max(16px, var(--nt-safe-left));
   border-top: 1px solid var(--border);
   background: var(--surface2, var(--surface));
   overflow-x: auto; flex: 0 0 auto;
@@ -788,6 +812,15 @@ function isBlankNote(meta = {}, body = "") {
   const hasBody = Boolean(String(body || "").trim());
   const hasAttachments = Array.isArray(meta.attachments) && meta.attachments.length > 0;
   return !hasTitle && !hasBody && !hasAttachments;
+}
+function bumpRev(meta) {
+  const oldRev = meta.mobius_rev ?? 0;
+  return {
+    ...meta,
+    mobius_rev: oldRev + 1,
+    parent_rev: oldRev,
+    updated: nowIso()
+  };
 }
 
 // src/lib/index-cache.js
@@ -1469,6 +1502,23 @@ var isOnline = () => window.mobius ? window.mobius.online : true;
 
 // src/lib/collection.js
 var S2 = () => window.mobius.storage;
+var READ_BATCH_SIZE = 8;
+async function readJsonDocuments(entries) {
+  const files = (entries || []).filter((e) => e.type === "file" && e.name.endsWith(".json"));
+  const records = [];
+  for (let i = 0; i < files.length; i += READ_BATCH_SIZE) {
+    const batch = files.slice(i, i + READ_BATCH_SIZE);
+    const resolved = await Promise.all(batch.map(async (entry) => {
+      try {
+        return { path: entry.path, doc: await S2().get(entry.path) };
+      } catch {
+        return { path: entry.path, doc: null };
+      }
+    }));
+    records.push(...resolved);
+  }
+  return records;
+}
 function makeChains() {
   const chains = /* @__PURE__ */ new Map();
   return function withChain(key, fn) {
@@ -1527,17 +1577,10 @@ function makeNoteCollection({ onConflict } = {}) {
       return [];
     }
     const found = [];
-    for (const e of entries || []) {
-      if (e.type !== "file" || !e.name.endsWith(".json")) continue;
-      let doc;
-      try {
-        doc = await S2().get(e.path);
-      } catch {
-        doc = null;
-      }
+    for (const { path, doc } of await readJsonDocuments(entries)) {
       if (doc && doc.meta && doc.meta.id) {
-        rememberPath(doc.meta.id, e.path);
-        if (doc.meta.id === id) found.push(e.path);
+        rememberPath(doc.meta.id, path);
+        if (doc.meta.id === id) found.push(path);
       }
     }
     return found;
@@ -1551,18 +1594,11 @@ function makeNoteCollection({ onConflict } = {}) {
     }
     if (entries == null) return null;
     const out = [];
-    for (const e of entries) {
-      if (e.type !== "file" || !e.name.endsWith(".json")) continue;
-      let doc;
-      try {
-        doc = await S2().get(e.path);
-      } catch {
-        doc = null;
-      }
+    for (const { path, doc } of await readJsonDocuments(entries)) {
       if (doc && doc.meta && doc.meta.id) {
         bases.set(doc.meta.id, doc);
-        rememberPath(doc.meta.id, e.path);
-        out.push({ meta: doc.meta, body: doc.body ?? "", storagePath: e.path });
+        rememberPath(doc.meta.id, path);
+        out.push({ meta: doc.meta, body: doc.body ?? "", storagePath: path });
       }
     }
     return out;
@@ -1758,7 +1794,7 @@ async function migrateLegacyNotes() {
 }
 
 // src/ui/Card.jsx
-import { useState as useState2, useEffect as useEffect2, useRef, useMemo, useCallback } from "react";
+import { useState as useState2, useEffect as useEffect2, useRef as useRef2, useMemo, useCallback } from "react";
 
 // src/lib/preview.js
 var _libs;
@@ -1802,13 +1838,18 @@ async function renderPreviewHTML(md) {
 }
 
 // src/ui/ColorPicker.jsx
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { jsx } from "react/jsx-runtime";
 var MARGIN = 12;
 function ColorPicker({ anchorRef, current, onPick, onDismiss, placement = "above", align = "start" }) {
   const [pos, setPos] = useState(null);
+  const pickerRef = useRef(null);
+  const openerRef = useRef(null);
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
   const normalizedCurrent = normalizeColorName(current);
+  const ready = !!pos;
   const width = 4 * 44 + 3 * 8 + 2 * 8;
   const rows = Math.ceil(NOTE_COLORS.length / 4);
   const height = rows * 44 + (rows - 1) * 8 + 2 * 8;
@@ -1817,11 +1858,14 @@ function ColorPicker({ anchorRef, current, onPick, onDismiss, placement = "above
       const el = anchorRef && anchorRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      const top = placement === "below" ? r.bottom + 6 : r.top - 6 - height;
+      let top = placement === "below" ? r.bottom + 6 : r.top - 6 - height;
+      if (placement === "below" && top + height > window.innerHeight - MARGIN) top = r.top - 6 - height;
+      if (placement === "above" && top < MARGIN) top = r.bottom + 6;
       let left = align === "end" ? r.right - width : r.left;
       const maxLeft = window.innerWidth - width - MARGIN;
       left = Math.max(MARGIN, Math.min(left, maxLeft));
-      setPos({ top: Math.max(MARGIN, top), left });
+      const maxTop = Math.max(MARGIN, window.innerHeight - height - MARGIN);
+      setPos({ top: Math.max(MARGIN, Math.min(top, maxTop)), left });
     }
     place();
     window.addEventListener("scroll", place, true);
@@ -1832,20 +1876,54 @@ function ColorPicker({ anchorRef, current, onPick, onDismiss, placement = "above
     };
   }, [anchorRef, placement, align, height, width]);
   useEffect(() => {
-    if (!onDismiss) return void 0;
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") onDismiss();
+    if (!ready) return void 0;
+    const anchor = anchorRef?.current;
+    const trigger = anchor?.matches?.("button") ? anchor : anchor?.querySelector?.("button");
+    openerRef.current = trigger || document.activeElement;
+    const buttons = pickerRef.current?.querySelectorAll("button") || [];
+    const currentIndex = Math.max(0, NOTE_COLORS.findIndex((c) => c.name === normalizedCurrent));
+    buttons[currentIndex]?.focus?.();
+    const onPointerDown = (e) => {
+      if (pickerRef.current?.contains(e.target) || anchor?.contains?.(e.target)) return;
+      dismissRef.current?.();
     };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onDismiss]);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      const opener = openerRef.current;
+      const stillMounted = typeof document.contains !== "function" || document.contains(opener);
+      if (opener && stillMounted && typeof opener.focus === "function") opener.focus();
+    };
+  }, [anchorRef, normalizedCurrent, ready]);
+  const onKeyDown = (e) => {
+    const buttons = Array.from(pickerRef.current?.querySelectorAll("button") || []);
+    if (!buttons.length) return;
+    if (e.key === "Escape" || e.key === "Tab") {
+      e.preventDefault();
+      e.stopPropagation();
+      onDismiss?.();
+      return;
+    }
+    const currentIndex = Math.max(0, buttons.indexOf(document.activeElement));
+    let nextIndex = null;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") nextIndex = (currentIndex + 1) % buttons.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") nextIndex = (currentIndex - 1 + buttons.length) % buttons.length;
+    else if (e.key === "Home") nextIndex = 0;
+    else if (e.key === "End") nextIndex = buttons.length - 1;
+    if (nextIndex != null) {
+      e.preventDefault();
+      buttons[nextIndex].focus();
+    }
+  };
   if (!pos) return null;
   return createPortal(
     /* @__PURE__ */ jsx(
       "div",
       {
-        role: "group",
+        ref: pickerRef,
+        role: "radiogroup",
         "aria-label": "Note color",
+        onKeyDown,
         onClick: (e) => e.stopPropagation(),
         onPointerDown: (e) => e.stopPropagation(),
         className: "nt-color-picker",
@@ -1854,9 +1932,11 @@ function ColorPicker({ anchorRef, current, onPick, onDismiss, placement = "above
           "button",
           {
             type: "button",
+            role: "radio",
             title: c.label,
             "aria-label": c.label,
-            "aria-pressed": normalizedCurrent === c.name,
+            "aria-checked": normalizedCurrent === c.name,
+            tabIndex: normalizedCurrent === c.name ? 0 : -1,
             onClick: () => onPick(c.name),
             className: [
               "nt-swatch",
@@ -2016,10 +2096,10 @@ function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachmen
   const [showColors, setShowColors] = useState2(false);
   const [thumbUrls, setThumbUrls] = useState2([]);
   const [toolsOpen, setToolsOpen] = useState2(false);
-  const colorBtnRef = useRef(null);
-  const longPressTimer = useRef(null);
-  const cardRef = useRef(null);
-  const suppressNextClick = useRef(false);
+  const colorBtnRef = useRef2(null);
+  const longPressTimer = useRef2(null);
+  const cardRef = useRef2(null);
+  const suppressNextClick = useRef2(false);
   useEffect2(() => {
     let live = true;
     renderPreviewHTML((body || "").slice(0, 700)).then((h) => {
@@ -2232,7 +2312,7 @@ function Grid({ notes, onOpen, onPin, onColor, onLock, onDelete, resolveAttachme
 }
 
 // src/ui/EditorPanel.jsx
-import { useState as useState3, useEffect as useEffect4, useRef as useRef3, useCallback as useCallback2, useMemo as useMemo2 } from "react";
+import { useState as useState3, useEffect as useEffect4, useRef as useRef4, useCallback as useCallback2, useMemo as useMemo2 } from "react";
 
 // src/lib/sdr-image.js
 var MAX_DIMENSION = 2048;
@@ -2331,7 +2411,7 @@ async function toSdrImage(file) {
 }
 
 // src/editor/Editor.jsx
-import { useRef as useRef2, useEffect as useEffect3 } from "react";
+import { useRef as useRef3, useEffect as useEffect3 } from "react";
 import { Compartment, EditorState as EditorState2 } from "@codemirror/state";
 import { EditorView as EditorView3 } from "@codemirror/view";
 
@@ -2408,6 +2488,7 @@ var ImageWidget = class extends WidgetType {
     this.alt = alt || "";
     this.resolve = resolve;
     this.url = null;
+    this.destroyed = false;
   }
   eq(o) {
     return o.src === this.src && o.alt === this.alt;
@@ -2421,10 +2502,13 @@ var ImageWidget = class extends WidgetType {
     wrap2.appendChild(img);
     if (this.resolve && this.src.startsWith("attachments/")) {
       this.resolve(this.src).then((u) => {
-        if (u) {
-          this.url = u;
-          img.src = u;
+        if (!u) return;
+        if (this.destroyed) {
+          URL.revokeObjectURL(u);
+          return;
         }
+        this.url = u;
+        img.src = u;
       }).catch(() => {
       });
     } else {
@@ -2433,6 +2517,7 @@ var ImageWidget = class extends WidgetType {
     return wrap2;
   }
   destroy() {
+    this.destroyed = true;
     if (this.url) URL.revokeObjectURL(this.url);
   }
   get estimatedHeight() {
@@ -2449,6 +2534,7 @@ var FileChipWidget = class extends WidgetType {
     this.src = src;
     this.resolve = resolve;
     this.url = null;
+    this.destroyed = false;
   }
   eq(o) {
     return o.src === this.src && o.name === this.name;
@@ -2462,17 +2548,48 @@ var FileChipWidget = class extends WidgetType {
     a.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (this.url) {
+        window.open(this.url, "_blank", "noopener");
+        return;
+      }
       if (this.resolve && this.src.startsWith("attachments/")) {
+        const popup = window.open("about:blank", "_blank");
+        if (!popup) return;
+        try {
+          popup.opener = null;
+        } catch {
+        }
         const u = await this.resolve(this.src).catch(() => null);
         if (u) {
+          if (this.destroyed) {
+            URL.revokeObjectURL(u);
+            try {
+              popup.close();
+            } catch {
+            }
+            return;
+          }
           this.url = u;
-          window.open(u, "_blank", "noopener");
+          try {
+            popup.location.replace(u);
+          } catch {
+            try {
+              popup.close();
+            } catch {
+            }
+          }
+        } else {
+          try {
+            popup.close();
+          } catch {
+          }
         }
       }
     });
     return a;
   }
   destroy() {
+    this.destroyed = true;
     if (this.url) URL.revokeObjectURL(this.url);
   }
   ignoreEvent() {
@@ -2663,7 +2780,7 @@ var highlightStyle = HighlightStyle.define([
   { tag: tags.strong, fontWeight: "700" },
   { tag: tags.emphasis, fontStyle: "italic" },
   { tag: tags.strikethrough, textDecoration: "line-through" },
-  { tag: tags.link, color: "var(--accent)", textDecoration: "underline" },
+  { tag: tags.link, color: "var(--nt-accent-ink)", textDecoration: "underline" },
   { tag: tags.url, color: "var(--muted)" },
   { tag: [tags.monospace], fontFamily: "var(--mono)", fontSize: "0.92em", background: "var(--surface2)", borderRadius: "4px", padding: "0 3px" },
   { tag: tags.quote, color: "var(--muted)", fontStyle: "italic" },
@@ -2728,13 +2845,13 @@ function buildExtensions({ onDocChange, resolveAttachment, editableCompartment, 
 // src/editor/Editor.jsx
 import { jsx as jsx5 } from "react/jsx-runtime";
 function Editor({ value, onChange, resolveAttachment, viewRef, syncKey, readOnly = false }) {
-  const host = useRef2(null);
-  const view = useRef2(null);
-  const editableCompartment = useRef2(new Compartment());
-  const readOnlyCompartment = useRef2(new Compartment());
-  const readOnlyRef = useRef2(readOnly);
-  const onChangeRef = useRef2(onChange);
-  const resolveRef = useRef2(resolveAttachment);
+  const host = useRef3(null);
+  const view = useRef3(null);
+  const editableCompartment = useRef3(new Compartment());
+  const readOnlyCompartment = useRef3(new Compartment());
+  const readOnlyRef = useRef3(readOnly);
+  const onChangeRef = useRef3(onChange);
+  const resolveRef = useRef3(resolveAttachment);
   onChangeRef.current = onChange;
   resolveRef.current = resolveAttachment;
   useEffect3(() => {
@@ -2817,23 +2934,31 @@ function taskSummary(body) {
   const done = tasks.filter((task) => /\[[xX]\]/.test(task)).length;
   return `${tasks.length} task${tasks.length === 1 ? "" : "s"} \xB7 ${done} done`;
 }
-function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, onExternalConflict, resolveAttachment, putAttachment: putAttachment2, conflict, status, forceSave }) {
+function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, onExternalConflict, resolveAttachment, putAttachment: putAttachment2, conflict, status, forceSave, closeRequestRef, inactive = false }) {
   const [title, setTitle] = useState3(note.meta.title || "");
   const [body, setBody] = useState3(note.body || "");
   const [showColors, setShowColors] = useState3(false);
   const [attachErr, setAttachErr] = useState3("");
   const [externalConflict, setExternalConflict] = useState3(false);
-  const timer = useRef3(null);
-  const viewRef = useRef3(null);
-  const imageRef = useRef3(null);
-  const fileRef = useRef3(null);
-  const colorBtnRef = useRef3(null);
-  const latest = useRef3({ note, title: note.meta.title || "", body: note.body || "" });
-  const reconciledBody = useRef3(note.body || "");
-  const reconciledTitle = useRef3(note.meta.title || "");
-  const localSaveBodies = useRef3(/* @__PURE__ */ new Set());
-  const externalConflictRef = useRef3(false);
-  const externalConflictKey = useRef3("");
+  const [closing, setClosing] = useState3(false);
+  const timer = useRef4(null);
+  const viewRef = useRef4(null);
+  const sheetRef = useRef4(null);
+  const backRef = useRef4(null);
+  const titleRef = useRef4(null);
+  const openerRef = useRef4(null);
+  const focusTimer = useRef4(null);
+  const closeInFlight = useRef4(null);
+  const pendingSaves = useRef4(/* @__PURE__ */ new Set());
+  const imageRef = useRef4(null);
+  const fileRef = useRef4(null);
+  const colorBtnRef = useRef4(null);
+  const latest = useRef4({ note, title: note.meta.title || "", body: note.body || "" });
+  const reconciledBody = useRef4(note.body || "");
+  const reconciledTitle = useRef4(note.meta.title || "");
+  const localSaveBodies = useRef4(/* @__PURE__ */ new Set());
+  const externalConflictRef = useRef4(false);
+  const externalConflictKey = useRef4("");
   const isChecklist = note.meta.type === "checklist";
   const locked = !!note.meta.locked;
   useEffect4(() => {
@@ -2846,7 +2971,16 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
       return Promise.reject(new Error("Resolve the incoming edit before saving this note."));
     }
     localSaveBodies.current.add(nextBody ?? "");
-    return Promise.resolve(onSave(meta, nextBody));
+    let request;
+    try {
+      request = Promise.resolve(onSave(meta, nextBody));
+    } catch (err) {
+      request = Promise.reject(err);
+    }
+    pendingSaves.current.add(request);
+    const clear = () => pendingSaves.current.delete(request);
+    request.then(clear, clear);
+    return request;
   }, [onSave]);
   const liveBody = useCallback2(() => viewRef.current ? viewRef.current.state.doc.toString() : latest.current.body, []);
   const replaceEditorBody = useCallback2((nextBody) => {
@@ -2879,23 +3013,108 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
     if (cur.note.meta.locked && !forceSave) return Promise.resolve();
     const currentBody = liveBody();
     if (!forceSave && cur.title === (cur.note.meta.title || "") && currentBody === (cur.note.body || "")) {
-      return Promise.resolve();
+      return pendingSaves.current.size ? Promise.all([...pendingSaves.current]).then(() => void 0) : Promise.resolve();
     }
     if (timer.current) clearTimeout(timer.current);
     const attachments = Array.from(/* @__PURE__ */ new Set([
       ...cur.note.meta.attachments || [],
       ...bodyAttachmentRefs(currentBody)
     ]));
-    return saveCurrentNote({ ...cur.note.meta, title: cur.title, attachments }, currentBody);
+    const alreadyPending = [...pendingSaves.current];
+    const request = saveCurrentNote({ ...cur.note.meta, title: cur.title, attachments }, currentBody);
+    return Promise.all([...alreadyPending, request]).then(() => void 0);
   }, [saveCurrentNote, forceSave, liveBody]);
-  const closeEditor = useCallback2(async () => {
-    try {
-      await flushSave();
-    } catch {
+  const closeEditor = useCallback2((fromShell = false) => {
+    if (closeInFlight.current) return closeInFlight.current;
+    setShowColors(false);
+    setClosing(true);
+    const run = (async () => {
+      try {
+        await flushSave();
+      } catch {
+        setClosing(false);
+        return false;
+      }
+      setClosing(false);
+      await onBack(fromShell);
+      return true;
+    })();
+    closeInFlight.current = run;
+    const clear = () => {
+      if (closeInFlight.current === run) closeInFlight.current = null;
+    };
+    run.then(clear, clear);
+    return run;
+  }, [flushSave, onBack]);
+  useEffect4(() => {
+    if (!closeRequestRef) return void 0;
+    closeRequestRef.current = closeEditor;
+    return () => {
+      if (closeRequestRef.current === closeEditor) closeRequestRef.current = null;
+    };
+  }, [closeEditor, closeRequestRef]);
+  useEffect4(() => {
+    const active = typeof document !== "undefined" ? document.activeElement : null;
+    openerRef.current = active && active !== document.body ? active : null;
+    const focusEditor = () => {
+      focusTimer.current = null;
+      if (locked) backRef.current?.focus?.();
+      else if (viewRef.current?.focus) viewRef.current.focus();
+      else titleRef.current?.focus?.();
+    };
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      focusTimer.current = window.requestAnimationFrame(focusEditor);
+    } else {
+      focusTimer.current = setTimeout(focusEditor, 0);
+    }
+    return () => {
+      if (focusTimer.current != null) {
+        if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") window.cancelAnimationFrame(focusTimer.current);
+        else clearTimeout(focusTimer.current);
+      }
+      const opener = openerRef.current;
+      const stillMounted = typeof document === "undefined" || typeof document.contains !== "function" || document.contains(opener);
+      if (opener && stillMounted && typeof opener.focus === "function") opener.focus();
+      else {
+        const focusFallback = () => document.querySelector?.(".nt-fab:not([hidden])")?.focus?.();
+        if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+          window.requestAnimationFrame(focusFallback);
+        } else {
+          setTimeout(focusFallback, 0);
+        }
+      }
+    };
+  }, []);
+  const onDialogKeyDown = useCallback2((e) => {
+    if (inactive) return;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      if (showColors) setShowColors(false);
+      else closeEditor();
       return;
     }
-    onBack();
-  }, [flushSave, onBack]);
+    if (e.defaultPrevented) return;
+    if (e.key !== "Tab" || showColors) return;
+    const candidates = sheetRef.current?.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
+    );
+    const focusable = Array.from(candidates || []).filter((el) => typeof el.getClientRects !== "function" || el.getClientRects().length > 0);
+    if (!focusable.length) {
+      e.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }, [closeEditor, inactive, showColors]);
   useEffect4(() => {
     if (timer.current) clearTimeout(timer.current);
     flushSave().catch(() => {
@@ -3093,189 +3312,206 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
   }, [strandedKey, resolveAttachment]);
   const count = wordCount(body);
   const tasks = taskSummary(body);
-  return /* @__PURE__ */ jsx6("div", { className: "nt-editor-root", onClick: (e) => {
-    if (e.target === e.currentTarget) closeEditor();
-  }, children: /* @__PURE__ */ jsxs4(
-    "section",
+  return /* @__PURE__ */ jsx6(
+    "div",
     {
-      className: `nt-editor-sheet${locked ? " is-locked" : ""}`,
-      role: "dialog",
-      "aria-modal": "true",
-      "aria-label": title || "Untitled note",
-      onClick: (e) => e.stopPropagation(),
-      children: [
-        /* @__PURE__ */ jsxs4("header", { className: "nt-editor-hdr", children: [
-          /* @__PURE__ */ jsxs4("div", { className: "nt-editor-toolbar", children: [
-            /* @__PURE__ */ jsx6(
-              "button",
-              {
-                type: "button",
-                onClick: closeEditor,
-                "aria-label": "Back",
-                className: "nt-hdr-btn",
-                children: /* @__PURE__ */ jsx6(Icon, { name: "back", size: 18 })
-              }
-            ),
-            /* @__PURE__ */ jsxs4("div", { className: "nt-editor-actions", children: [
-              /* @__PURE__ */ jsx6(
-                "button",
-                {
-                  type: "button",
-                  onClick: () => {
-                    const current = latest.current?.note?.meta?.pinned;
-                    saveMetaPatch({ pinned: !current }).catch(() => {
-                    });
-                  },
-                  "aria-label": note.meta.pinned ? "Unpin" : "Pin",
-                  "aria-pressed": note.meta.pinned,
-                  title: note.meta.pinned ? "Unpin" : "Pin",
-                  className: `nt-hdr-btn${note.meta.pinned ? " is-active" : ""}`,
-                  children: /* @__PURE__ */ jsx6(Icon, { name: "pin", size: 16 })
-                }
-              ),
-              /* @__PURE__ */ jsxs4("div", { ref: colorBtnRef, className: "nt-color-anchor", children: [
+      className: "nt-editor-root",
+      "aria-hidden": inactive ? "true" : void 0,
+      inert: inactive ? true : void 0,
+      onClick: (e) => {
+        if (!inactive && e.target === e.currentTarget) closeEditor();
+      },
+      children: /* @__PURE__ */ jsxs4(
+        "section",
+        {
+          ref: sheetRef,
+          className: `nt-editor-sheet${locked ? " is-locked" : ""}`,
+          role: "dialog",
+          "aria-modal": "true",
+          "aria-busy": closing ? "true" : void 0,
+          "aria-label": title || "Untitled note",
+          onKeyDown: onDialogKeyDown,
+          onClick: (e) => e.stopPropagation(),
+          children: [
+            /* @__PURE__ */ jsxs4("header", { className: "nt-editor-hdr", children: [
+              /* @__PURE__ */ jsxs4("div", { className: "nt-editor-toolbar", children: [
+                /* @__PURE__ */ jsx6(
+                  "button",
+                  {
+                    ref: backRef,
+                    type: "button",
+                    onClick: () => closeEditor(),
+                    "aria-label": "Back",
+                    disabled: closing,
+                    className: "nt-hdr-btn",
+                    children: /* @__PURE__ */ jsx6(Icon, { name: "back", size: 18 })
+                  }
+                ),
+                /* @__PURE__ */ jsxs4("div", { className: "nt-editor-actions", role: "toolbar", "aria-label": "Note actions", children: [
+                  /* @__PURE__ */ jsx6(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: () => {
+                        const current = latest.current?.note?.meta?.pinned;
+                        saveMetaPatch({ pinned: !current }).catch(() => {
+                        });
+                      },
+                      "aria-label": note.meta.pinned ? "Unpin" : "Pin",
+                      "aria-pressed": note.meta.pinned,
+                      disabled: closing,
+                      title: note.meta.pinned ? "Unpin" : "Pin",
+                      className: `nt-hdr-btn${note.meta.pinned ? " is-active" : ""}`,
+                      children: /* @__PURE__ */ jsx6(Icon, { name: "pin", size: 16 })
+                    }
+                  ),
+                  /* @__PURE__ */ jsxs4("div", { ref: colorBtnRef, className: "nt-color-anchor", children: [
+                    /* @__PURE__ */ jsx6(
+                      "button",
+                      {
+                        type: "button",
+                        onClick: () => setShowColors((v) => !v),
+                        "aria-label": "Color",
+                        title: "Color",
+                        disabled: closing,
+                        className: "nt-hdr-btn",
+                        children: /* @__PURE__ */ jsx6(Icon, { name: "palette", size: 17 })
+                      }
+                    ),
+                    showColors && /* @__PURE__ */ jsx6(
+                      ColorPicker,
+                      {
+                        anchorRef: colorBtnRef,
+                        placement: "below",
+                        align: "start",
+                        current: note.meta.color,
+                        onPick: (c) => {
+                          saveMetaPatch({ color: c }).catch(() => {
+                          });
+                          setShowColors(false);
+                        },
+                        onDismiss: () => setShowColors(false)
+                      }
+                    )
+                  ] }),
+                  /* @__PURE__ */ jsx6(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: () => saveMetaPatch({ locked: !locked }).catch(() => {
+                      }),
+                      "aria-label": locked ? "Unlock note" : "Lock note",
+                      "aria-pressed": locked,
+                      disabled: closing,
+                      title: locked ? "Unlock note" : "Lock note",
+                      className: `nt-hdr-btn${locked ? " is-active" : ""}`,
+                      children: /* @__PURE__ */ jsx6(Icon, { name: locked ? "lock" : "unlock", size: 16 })
+                    }
+                  ),
+                  /* @__PURE__ */ jsx6(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: toggleType,
+                      "aria-label": isChecklist ? "Switch to note" : "Switch to checklist",
+                      "aria-pressed": isChecklist,
+                      disabled: locked || closing,
+                      title: isChecklist ? "Switch to note" : "Switch to checklist",
+                      className: `nt-hdr-btn${isChecklist ? " is-active" : ""}`,
+                      children: /* @__PURE__ */ jsx6(Icon, { name: isChecklist ? "checklist" : "note", size: 16 })
+                    }
+                  ),
+                  /* @__PURE__ */ jsx6(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: () => imageRef.current && imageRef.current.click(),
+                      "aria-label": "Insert image",
+                      title: "Insert image",
+                      disabled: locked || closing,
+                      className: "nt-hdr-btn",
+                      children: /* @__PURE__ */ jsx6(Icon, { name: "image", size: 16 })
+                    }
+                  ),
+                  /* @__PURE__ */ jsx6(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: () => fileRef.current && fileRef.current.click(),
+                      "aria-label": "Attach file",
+                      title: "Attach file",
+                      disabled: locked || closing,
+                      className: "nt-hdr-btn",
+                      children: /* @__PURE__ */ jsx6(Icon, { name: "file", size: 16 })
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsx6("div", { className: "nt-hdr-spacer" }),
+                (closing || status) && /* @__PURE__ */ jsx6("span", { className: `nt-status ${statusClass(closing ? null : status)}`, role: "status", "aria-live": "polite", children: closing ? "Saving\u2026" : status }),
                 /* @__PURE__ */ jsx6(
                   "button",
                   {
                     type: "button",
-                    onClick: () => setShowColors((v) => !v),
-                    "aria-label": "Color",
-                    title: "Color",
-                    className: "nt-hdr-btn",
-                    children: /* @__PURE__ */ jsx6(Icon, { name: "palette", size: 17 })
-                  }
-                ),
-                showColors && /* @__PURE__ */ jsx6(
-                  ColorPicker,
-                  {
-                    anchorRef: colorBtnRef,
-                    placement: "below",
-                    align: "start",
-                    current: note.meta.color,
-                    onPick: (c) => {
-                      saveMetaPatch({ color: c }).catch(() => {
-                      });
-                      setShowColors(false);
-                    },
-                    onDismiss: () => setShowColors(false)
+                    onClick: () => onDelete(note.meta.id),
+                    "aria-label": "Delete",
+                    title: locked ? "Unlock to delete" : "Delete",
+                    disabled: locked || closing,
+                    className: "nt-hdr-btn is-danger",
+                    children: /* @__PURE__ */ jsx6(Icon, { name: "trash", size: 16 })
                   }
                 )
               ] }),
-              /* @__PURE__ */ jsx6(
-                "button",
-                {
-                  type: "button",
-                  onClick: () => saveMetaPatch({ locked: !locked }).catch(() => {
-                  }),
-                  "aria-label": locked ? "Unlock note" : "Lock note",
-                  "aria-pressed": locked,
-                  title: locked ? "Unlock note" : "Lock note",
-                  className: `nt-hdr-btn${locked ? " is-active" : ""}`,
-                  children: /* @__PURE__ */ jsx6(Icon, { name: locked ? "lock" : "unlock", size: 16 })
-                }
-              ),
-              /* @__PURE__ */ jsx6(
-                "button",
-                {
-                  type: "button",
-                  onClick: toggleType,
-                  "aria-label": isChecklist ? "Switch to note" : "Switch to checklist",
-                  "aria-pressed": isChecklist,
-                  disabled: locked,
-                  title: isChecklist ? "Switch to note" : "Switch to checklist",
-                  className: `nt-hdr-btn${isChecklist ? " is-active" : ""}`,
-                  children: /* @__PURE__ */ jsx6(Icon, { name: isChecklist ? "checklist" : "note", size: 16 })
-                }
-              ),
-              /* @__PURE__ */ jsx6(
-                "button",
-                {
-                  type: "button",
-                  onClick: () => imageRef.current && imageRef.current.click(),
-                  "aria-label": "Insert image",
-                  title: "Insert image",
-                  disabled: locked,
-                  className: "nt-hdr-btn",
-                  children: /* @__PURE__ */ jsx6(Icon, { name: "image", size: 16 })
-                }
-              ),
-              /* @__PURE__ */ jsx6(
-                "button",
-                {
-                  type: "button",
-                  onClick: () => fileRef.current && fileRef.current.click(),
-                  "aria-label": "Attach file",
-                  title: "Attach file",
-                  disabled: locked,
-                  className: "nt-hdr-btn",
-                  children: /* @__PURE__ */ jsx6(Icon, { name: "file", size: 16 })
-                }
-              )
+              /* @__PURE__ */ jsx6("input", { ref: imageRef, type: "file", name: "note-image-attachment", accept: "image/*", onChange: handleFile, disabled: locked, className: "nt-file-input" }),
+              /* @__PURE__ */ jsx6("input", { ref: fileRef, type: "file", name: "note-file-attachment", onChange: handleFile, disabled: locked, className: "nt-file-input" })
             ] }),
-            /* @__PURE__ */ jsx6("div", { className: "nt-hdr-spacer" }),
-            status && /* @__PURE__ */ jsx6("span", { className: `nt-status ${statusClass(status)}`, children: status }),
-            /* @__PURE__ */ jsx6(
-              "button",
+            (conflict || externalConflict) && /* @__PURE__ */ jsxs4("div", { className: "nt-conflict-bar", role: "status", children: [
+              /* @__PURE__ */ jsx6("span", { className: "nt-conflict-msg", children: "Edited in two places \u2014 merging\u2026" }),
+              conflict && /* @__PURE__ */ jsx6("button", { type: "button", onClick: () => resolveNow(note, appId), className: "nt-conflict-btn", children: "Resolve now" })
+            ] }),
+            attachErr && /* @__PURE__ */ jsx6("div", { className: "nt-attach-err", role: "alert", children: attachErr }),
+            /* @__PURE__ */ jsx6("div", { className: "nt-editor-title-band", children: /* @__PURE__ */ jsx6(
+              "input",
               {
-                type: "button",
-                onClick: () => onDelete(note.meta.id),
-                "aria-label": "Delete",
-                title: locked ? "Unlock to delete" : "Delete",
-                disabled: locked,
-                className: "nt-hdr-btn is-danger",
-                children: /* @__PURE__ */ jsx6(Icon, { name: "trash", size: 16 })
+                ref: titleRef,
+                name: "note-title",
+                autoComplete: "off",
+                value: title,
+                readOnly: locked || closing,
+                onChange: (e) => {
+                  if (!locked && !closing) setTitle(e.target.value);
+                },
+                placeholder: "Title",
+                "aria-label": "Note title",
+                className: "nt-title-input"
               }
-            )
-          ] }),
-          /* @__PURE__ */ jsx6("input", { ref: imageRef, type: "file", name: "note-image-attachment", accept: "image/*", onChange: handleFile, disabled: locked, className: "nt-file-input" }),
-          /* @__PURE__ */ jsx6("input", { ref: fileRef, type: "file", name: "note-file-attachment", onChange: handleFile, disabled: locked, className: "nt-file-input" })
-        ] }),
-        (conflict || externalConflict) && /* @__PURE__ */ jsxs4("div", { className: "nt-conflict-bar", children: [
-          /* @__PURE__ */ jsx6("span", { className: "nt-conflict-msg", children: "Edited in two places \u2014 merging\u2026" }),
-          conflict && /* @__PURE__ */ jsx6("button", { type: "button", onClick: () => resolveNow(note, appId), className: "nt-conflict-btn", children: "Resolve now" })
-        ] }),
-        attachErr && /* @__PURE__ */ jsx6("div", { className: "nt-attach-err", children: attachErr }),
-        /* @__PURE__ */ jsx6("div", { className: "nt-editor-title-band", children: /* @__PURE__ */ jsx6(
-          "input",
-          {
-            name: "note-title",
-            autoComplete: "off",
-            value: title,
-            readOnly: locked,
-            onChange: (e) => {
-              if (!locked) setTitle(e.target.value);
-            },
-            placeholder: "Title",
-            "aria-label": "Note title",
-            className: "nt-title-input"
-          }
-        ) }),
-        /* @__PURE__ */ jsx6("div", { className: "nt-editor-body", children: /* @__PURE__ */ jsx6(Editor, { value: body, onChange: locked ? () => {
-        } : setBody, resolveAttachment, viewRef, syncKey: note.meta.id, readOnly: locked }) }),
-        /* @__PURE__ */ jsxs4("footer", { className: "nt-editor-foot", "aria-label": "Note metadata", children: [
-          /* @__PURE__ */ jsx6("span", { children: editorDate(note.meta) }),
-          /* @__PURE__ */ jsxs4("span", { children: [
-            count,
-            " word",
-            count === 1 ? "" : "s"
-          ] }),
-          tasks && /* @__PURE__ */ jsx6("span", { children: tasks }),
-          locked && /* @__PURE__ */ jsx6("span", { children: "Locked" }),
-          status && /* @__PURE__ */ jsx6("span", { children: status })
-        ] }),
-        strandedUrls.length > 0 && /* @__PURE__ */ jsx6("div", { className: "nt-attach-strip", "aria-label": "Attached images", children: strandedUrls.map((u) => /* @__PURE__ */ jsx6("img", { src: u, alt: "", className: "nt-attach-thumb" }, u)) })
-      ]
+            ) }),
+            /* @__PURE__ */ jsx6("div", { className: "nt-editor-body", children: /* @__PURE__ */ jsx6(Editor, { value: body, onChange: locked || closing ? () => {
+            } : setBody, resolveAttachment, viewRef, syncKey: note.meta.id, readOnly: locked || closing }) }),
+            /* @__PURE__ */ jsxs4("footer", { className: "nt-editor-foot", "aria-label": "Note metadata", children: [
+              /* @__PURE__ */ jsx6("span", { children: editorDate(note.meta) }),
+              /* @__PURE__ */ jsxs4("span", { children: [
+                count,
+                " word",
+                count === 1 ? "" : "s"
+              ] }),
+              tasks && /* @__PURE__ */ jsx6("span", { children: tasks }),
+              locked && /* @__PURE__ */ jsx6("span", { children: "Locked" })
+            ] }),
+            strandedUrls.length > 0 && /* @__PURE__ */ jsx6("div", { className: "nt-attach-strip", "aria-label": "Attached images", children: strandedUrls.map((u) => /* @__PURE__ */ jsx6("img", { src: u, alt: "", className: "nt-attach-thumb" }, u)) })
+          ]
+        }
+      )
     }
-  ) });
+  );
 }
 
 // src/ui/ConfirmModal.jsx
-import { useEffect as useEffect5, useId, useRef as useRef4, useCallback as useCallback3 } from "react";
+import { useEffect as useEffect5, useId, useRef as useRef5, useCallback as useCallback3 } from "react";
 import { jsx as jsx7, jsxs as jsxs5 } from "react/jsx-runtime";
 function ConfirmModal({ open, title, message, confirmLabel = "Confirm", danger, onConfirm, onCancel }) {
-  const dialogRef = useRef4(null);
-  const cancelRef = useRef4(null);
-  const openerRef = useRef4(null);
+  const dialogRef = useRef5(null);
+  const cancelRef = useRef5(null);
+  const openerRef = useRef5(null);
   const titleId = useId();
   const messageId = useId();
   useEffect5(() => {
@@ -3358,6 +3594,7 @@ var NO_DOC = { value: null, status: "idle", lastError: null, update: async () =>
 }, set: async () => {
 }, refresh: async () => {
 } };
+var NOTE_DOC_IDENTITY = (doc) => doc && doc.meta ? doc.meta.id : void 0;
 var HAS_RUNTIME_DOC = typeof window !== "undefined" && !!(window.mobius && window.mobius.createUseDocument);
 var useDocument = HAS_RUNTIME_DOC ? window.mobius.createUseDocument(React) : () => NO_DOC;
 function TopBar({ appId, query, onQuery }) {
@@ -3455,15 +3692,17 @@ function App({ appId }) {
   const [conflicts, setConflicts] = useState4(() => /* @__PURE__ */ new Set());
   const [saveError, setSaveError] = useState4(null);
   const [failedSaveIds, setFailedSaveIds] = useState4(() => /* @__PURE__ */ new Set());
-  const gcTimer = useRef5(null);
-  const editorNavOwned = useRef5(false);
-  const openIdRef = useRef5(null);
-  const notesRef = useRef5([]);
-  const draftRef = useRef5(null);
-  const failedSaveIdsRef = useRef5(/* @__PURE__ */ new Set());
-  const lastWrittenBodyRef = useRef5(/* @__PURE__ */ new Map());
+  const gcTimer = useRef6(null);
+  const indexTimer = useRef6(null);
+  const editorNavOwned = useRef6(false);
+  const editorCloseRef = useRef6(null);
+  const openIdRef = useRef6(null);
+  const notesRef = useRef6([]);
+  const draftRef = useRef6(null);
+  const failedSaveIdsRef = useRef6(/* @__PURE__ */ new Set());
+  const lastWrittenBodyRef = useRef6(/* @__PURE__ */ new Map());
   const [online, setOnline] = useState4(() => isOnline());
-  const conflictsRef = useRef5(conflicts);
+  const conflictsRef = useRef6(conflicts);
   useEffect6(() => {
     conflictsRef.current = conflicts;
   }, [conflicts]);
@@ -3517,13 +3756,14 @@ function App({ appId }) {
     failedSaveIdsRef.current = failedSaveIds;
   }, [failedSaveIds]);
   const mergeNote = useMemo3(() => makeMergeNote(onConflict), [onConflict]);
-  const liveDoc = useDocument(openPath, {
+  const openDocOptions = useMemo3(() => ({
     initial: null,
-    identity: (d) => d && d.meta ? d.meta.id : void 0,
+    identity: NOTE_DOC_IDENTITY,
     merge: mergeNote,
     mode: "lww"
-  });
-  const liveDocRef = useRef5(liveDoc);
+  }), [mergeNote]);
+  const liveDoc = useDocument(openPath, openDocOptions);
+  const liveDocRef = useRef6(liveDoc);
   liveDocRef.current = liveDoc;
   useEffect6(() => {
     if (openId && liveDoc.lastError) {
@@ -3630,11 +3870,20 @@ function App({ appId }) {
   }, [collection, setNotesNow]);
   useEffect6(() => {
     if (loading) return;
-    writeIndex(notes).catch(() => {
-    });
+    if (indexTimer.current) clearTimeout(indexTimer.current);
+    indexTimer.current = setTimeout(() => {
+      indexTimer.current = null;
+      writeIndex(notesRef.current).catch(() => {
+      });
+    }, 250);
+    return () => {
+      if (indexTimer.current) clearTimeout(indexTimer.current);
+      indexTimer.current = null;
+    };
   }, [notes, loading]);
   useEffect6(() => () => {
     if (gcTimer.current) clearTimeout(gcTimer.current);
+    if (indexTimer.current) clearTimeout(indexTimer.current);
   }, []);
   const pushEditorNav = useCallback4(() => {
     if (typeof window === "undefined" || !window.parent) return Promise.resolve(false);
@@ -3700,10 +3949,10 @@ function App({ appId }) {
     setDraftNow({ meta, body: "" });
     openEditor(meta.id).catch(() => setView({ mode: "editor", id: meta.id }));
   }, [openEditor, setDraftNow]);
-  const writeNote = useCallback4(async (meta, body, { isDraftCommit = false } = {}) => {
+  const writeNote = useCallback4(async (meta, body, { isDraftCommit = false, precomputedHash = null } = {}) => {
     const id = meta.id;
     const m = { ...meta, updated: meta.updated || (/* @__PURE__ */ new Date()).toISOString() };
-    m.content_hash = await contentHash(m, body);
+    m.content_hash = precomputedHash || await contentHash(m, body);
     lastWrittenBodyRef.current.set(id, body ?? "");
     upsert(m, body);
     const writeThroughHook = HAS_RUNTIME_DOC && openId === id;
@@ -3743,15 +3992,20 @@ function App({ appId }) {
       const next = { meta: { ...currentDraft.meta, ...meta }, body };
       setDraftNow(next);
       if (isBlankNote(next.meta, next.body)) return;
-      await writeNote(next.meta, next.body, { isDraftCommit: true });
+      const nextHash2 = await contentHash(next.meta, next.body);
+      await writeNote(next.meta, next.body, { isDraftCommit: true, precomputedHash: nextHash2 });
       return;
     }
     const prev = notesRef.current.find((n) => n.meta.id === meta.id);
     if (prev && prev.placeholder) return;
-    const nextHash = await contentHash(meta, body);
-    const prevHash = prev ? await contentHash(prev.meta, prev.body) : null;
+    const [nextHash, prevHash] = await Promise.all([
+      contentHash(meta, body),
+      prev ? contentHash(prev.meta, prev.body) : Promise.resolve(null)
+    ]);
+    const retryingFailedWrite = failedSaveIdsRef.current.has(meta.id) && prevHash === nextHash;
     if (!failedSaveIdsRef.current.has(meta.id) && prevHash != null && nextHash === prevHash) return;
-    await writeNote({ ...meta, updated: (/* @__PURE__ */ new Date()).toISOString() }, body);
+    const stamped = retryingFailedWrite ? { ...meta, updated: (/* @__PURE__ */ new Date()).toISOString() } : bumpRev(meta);
+    await writeNote(stamped, body, { precomputedHash: nextHash });
   }, [writeNote, setDraftNow]);
   const togglePin = useCallback4(async (id) => {
     if (draft && draft.meta.id === id) {
@@ -3851,14 +4105,20 @@ function App({ appId }) {
     leaveEditor(fromShell);
     setView({ mode: "grid" });
   }, [leaveEditor, view.id, queueDelete, setDraftNow, setNotesNow]);
+  const shellBackRef = useRef6(null);
+  shellBackRef.current = () => {
+    const closeEditor = editorCloseRef.current;
+    if (typeof closeEditor === "function") closeEditor(true);
+    else back(true);
+  };
   useEffect6(() => {
     const onMessage = (event) => {
       if (event.origin !== window.location.origin) return;
-      if (event.data?.type === "moebius:nav-back") back(true);
+      if (event.data?.type === "moebius:nav-back") shellBackRef.current?.();
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [back]);
+  }, []);
   const visible = useMemo3(() => visibleNotes(notes, query), [notes, query]);
   useEffect6(() => {
     const q = query.trim();
@@ -3873,43 +4133,54 @@ function App({ appId }) {
   return /* @__PURE__ */ jsxs6("div", { className: "nt-root", children: [
     /* @__PURE__ */ jsx8("style", { children: CSS }),
     /* @__PURE__ */ jsxs6(ErrorBoundary, { children: [
-      /* @__PURE__ */ jsx8(TopBar, { appId, query, onQuery: setQuery }),
-      !editing && saveError && /* @__PURE__ */ jsxs6("div", { className: "nt-save-err", role: "alert", "aria-live": "assertive", children: [
-        /* @__PURE__ */ jsx8("span", { className: "nt-save-err-msg", children: saveError.message }),
-        /* @__PURE__ */ jsx8(
-          "button",
-          {
-            type: "button",
-            className: "nt-save-err-btn",
-            onClick: () => setSaveError(null),
-            "aria-label": "Dismiss save error",
-            children: "Dismiss"
-          }
-        )
-      ] }),
-      /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsx8(LoadingGrid, {}) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(
-        Grid,
+      /* @__PURE__ */ jsxs6(
+        "div",
         {
-          notes: visible,
-          onOpen: (id) => {
-            openEditor(id).catch(() => setView({ mode: "editor", id }));
-          },
-          onPin: togglePin,
-          onColor: setColor,
-          onLock: toggleLock,
-          onDelete: setConfirmId,
-          resolveAttachment: attachmentURL
-        }
-      ) }),
-      view.mode !== "editor" && /* @__PURE__ */ jsx8(
-        "button",
-        {
-          type: "button",
-          className: "nt-fab",
-          onClick: createNote,
-          "aria-label": "New note",
-          title: "New note",
-          children: /* @__PURE__ */ jsx8(Icon, { name: "plus", size: 24 })
+          className: "nt-home",
+          "aria-hidden": editing ? "true" : void 0,
+          inert: editing ? true : void 0,
+          children: [
+            /* @__PURE__ */ jsx8(TopBar, { appId, query, onQuery: setQuery }),
+            !editing && saveError && /* @__PURE__ */ jsxs6("div", { className: "nt-save-err", role: "alert", "aria-live": "assertive", children: [
+              /* @__PURE__ */ jsx8("span", { className: "nt-save-err-msg", children: saveError.message }),
+              /* @__PURE__ */ jsx8(
+                "button",
+                {
+                  type: "button",
+                  className: "nt-save-err-btn",
+                  onClick: () => setSaveError(null),
+                  "aria-label": "Dismiss save error",
+                  children: "Dismiss"
+                }
+              )
+            ] }),
+            /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsx8(LoadingGrid, {}) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!query.trim() }) : /* @__PURE__ */ jsx8(
+              Grid,
+              {
+                notes: visible,
+                onOpen: (id) => {
+                  openEditor(id).catch(() => setView({ mode: "editor", id }));
+                },
+                onPin: togglePin,
+                onColor: setColor,
+                onLock: toggleLock,
+                onDelete: setConfirmId,
+                resolveAttachment: attachmentURL
+              }
+            ) }),
+            /* @__PURE__ */ jsx8(
+              "button",
+              {
+                type: "button",
+                className: "nt-fab",
+                onClick: createNote,
+                "aria-label": "New note",
+                title: "New note",
+                hidden: view.mode === "editor",
+                children: /* @__PURE__ */ jsx8(Icon, { name: "plus", size: 24 })
+              }
+            )
+          ]
         }
       ),
       editing && /* @__PURE__ */ jsx8(
@@ -3927,7 +4198,9 @@ function App({ appId }) {
           putAttachment,
           conflict: conflicts.has(editing.meta.id),
           status,
-          forceSave: failedSaveIds.has(editing.meta.id)
+          forceSave: failedSaveIds.has(editing.meta.id),
+          closeRequestRef: editorCloseRef,
+          inactive: !!confirmId
         }
       ),
       /* @__PURE__ */ jsx8(

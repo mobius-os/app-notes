@@ -7,7 +7,7 @@
 // clips BOTH axes — an absolutely-positioned child would mount but stay invisible.
 // A body-level fixed popover has no clipping ancestor, so it shows while the
 // toolbar keeps its horizontal scroll.
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { NOTE_COLORS, normalizeColorName } from './colors.js'
 
@@ -15,7 +15,12 @@ const MARGIN = 12 // keep the popover this far from the viewport edges
 
 export default function ColorPicker({ anchorRef, current, onPick, onDismiss, placement = 'above', align = 'start' }) {
   const [pos, setPos] = useState(null)
+  const pickerRef = useRef(null)
+  const openerRef = useRef(null)
+  const dismissRef = useRef(onDismiss)
+  dismissRef.current = onDismiss
   const normalizedCurrent = normalizeColorName(current)
+  const ready = !!pos
 
   // Estimate the rendered size so we can flip/clamp against the viewport. Must
   // match the .nt-color-picker CSS: repeat(4, 44px) swatches, gap 8, padding 8.
@@ -28,11 +33,14 @@ export default function ColorPicker({ anchorRef, current, onPick, onDismiss, pla
       const el = anchorRef && anchorRef.current
       if (!el) return
       const r = el.getBoundingClientRect()
-      const top = placement === 'below' ? r.bottom + 6 : r.top - 6 - height
+      let top = placement === 'below' ? r.bottom + 6 : r.top - 6 - height
+      if (placement === 'below' && top + height > window.innerHeight - MARGIN) top = r.top - 6 - height
+      if (placement === 'above' && top < MARGIN) top = r.bottom + 6
       let left = align === 'end' ? r.right - width : r.left
       const maxLeft = window.innerWidth - width - MARGIN
       left = Math.max(MARGIN, Math.min(left, maxLeft))
-      setPos({ top: Math.max(MARGIN, top), left })
+      const maxTop = Math.max(MARGIN, window.innerHeight - height - MARGIN)
+      setPos({ top: Math.max(MARGIN, Math.min(top, maxTop)), left })
     }
     place()
     window.addEventListener('scroll', place, true)
@@ -43,21 +51,58 @@ export default function ColorPicker({ anchorRef, current, onPick, onDismiss, pla
     }
   }, [anchorRef, placement, align, height, width])
 
+  // Move focus into the popover, dismiss on an outside press, and return focus
+  // to the trigger when the portaled content unmounts.
   useEffect(() => {
-    if (!onDismiss) return undefined
-    const onKeyDown = (e) => {
-      if (e.key === 'Escape') onDismiss()
+    if (!ready) return undefined
+    const anchor = anchorRef?.current
+    const trigger = anchor?.matches?.('button') ? anchor : anchor?.querySelector?.('button')
+    openerRef.current = trigger || document.activeElement
+    const buttons = pickerRef.current?.querySelectorAll('button') || []
+    const currentIndex = Math.max(0, NOTE_COLORS.findIndex((c) => c.name === normalizedCurrent))
+    buttons[currentIndex]?.focus?.()
+    const onPointerDown = (e) => {
+      if (pickerRef.current?.contains(e.target) || anchor?.contains?.(e.target)) return
+      dismissRef.current?.()
     }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [onDismiss])
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      const opener = openerRef.current
+      const stillMounted = typeof document.contains !== 'function' || document.contains(opener)
+      if (opener && stillMounted && typeof opener.focus === 'function') opener.focus()
+    }
+  }, [anchorRef, normalizedCurrent, ready])
+
+  const onKeyDown = (e) => {
+    const buttons = Array.from(pickerRef.current?.querySelectorAll('button') || [])
+    if (!buttons.length) return
+    if (e.key === 'Escape' || e.key === 'Tab') {
+      e.preventDefault()
+      e.stopPropagation()
+      onDismiss?.()
+      return
+    }
+    const currentIndex = Math.max(0, buttons.indexOf(document.activeElement))
+    let nextIndex = null
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextIndex = (currentIndex + 1) % buttons.length
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') nextIndex = (currentIndex - 1 + buttons.length) % buttons.length
+    else if (e.key === 'Home') nextIndex = 0
+    else if (e.key === 'End') nextIndex = buttons.length - 1
+    if (nextIndex != null) {
+      e.preventDefault()
+      buttons[nextIndex].focus()
+    }
+  }
 
   if (!pos) return null
 
   return createPortal(
     <div
-      role="group"
+      ref={pickerRef}
+      role="radiogroup"
       aria-label="Note color"
+      onKeyDown={onKeyDown}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
       className="nt-color-picker"
@@ -67,9 +112,11 @@ export default function ColorPicker({ anchorRef, current, onPick, onDismiss, pla
         <button
           key={c.name || 'default'}
           type="button"
+          role="radio"
           title={c.label}
           aria-label={c.label}
-          aria-pressed={normalizedCurrent === c.name}
+          aria-checked={normalizedCurrent === c.name}
+          tabIndex={normalizedCurrent === c.name ? 0 : -1}
           onClick={() => onPick(c.name)}
           className={[
             'nt-swatch',

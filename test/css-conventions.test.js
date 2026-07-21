@@ -59,15 +59,22 @@ test('scrollable Notes surfaces keep scrollbars hidden', () => {
 })
 
 test('the editor overlay insets for safe areas', () => {
-  assert.match(CSS, new RegExp(inBlock('.nt-editor-root').source + 'env\\(safe-area-inset-top\\)'), '.nt-editor-root pads for the notch')
+  assert.match(CSS, /--nt-safe-top:\s*var\(--mobius-safe-top,\s*env\(safe-area-inset-top,\s*0px\)\)/, 'shell safe-area token falls back to env()')
+  assert.match(CSS, new RegExp(inBlock('.nt-editor-root').source + 'var\\(--nt-safe-top\\)'), '.nt-editor-root pads for the notch')
   assert.match(CSS, /\.nt-editor-sheet\s*\{/, '.nt-editor-sheet is the over-grid editor surface')
 })
 
 test('editor opens as a click-out overlay with a single toolbar row', () => {
-  assert.match(EDITOR_PANEL, /className="nt-editor-root"[\s\S]*onClick=\{\(e\) => \{ if \(e\.target === e\.currentTarget\) closeEditor\(\) \}\}/, 'backdrop click closes the editor')
+  assert.match(EDITOR_PANEL, /className="nt-editor-root"[\s\S]*onClick=\{\(e\) => \{ if \(!inactive && e\.target === e\.currentTarget\) closeEditor\(\) \}\}/, 'backdrop click closes the active editor')
   assert.match(EDITOR_PANEL, /className="nt-editor-toolbar"[\s\S]*aria-label="Back"[\s\S]*aria-label=\{note\.meta\.pinned \? 'Unpin' : 'Pin'\}/, 'back shares the toolbar row with note actions')
   assert.doesNotMatch(EDITOR_PANEL, /nt-editor-row[12]/, 'two-row editor toolbar stays removed')
   assert.doesNotMatch(CSS, /\.nt-editor-row[12]\b/, 'two-row editor toolbar CSS stays removed')
+})
+
+test('shell Back is wired through the editor save-aware close handler', () => {
+  assert.match(APP, /closeRequestRef=\{editorCloseRef\}/, 'App gives EditorPanel the shell close ref')
+  assert.match(APP, /const closeEditor = editorCloseRef\.current[\s\S]*closeEditor\(true\)/, 'shell Back invokes the editor close path with shell ownership')
+  assert.match(EDITOR_PANEL, /closeRequestRef\.current = closeEditor/, 'EditorPanel registers its flush-before-close handler')
 })
 
 test('the grid Offline pill exists (SyncPill shape)', () => {
@@ -104,8 +111,9 @@ test('static layout has moved out of inline style props', () => {
 
 test('popover and dialog advertise implemented ARIA semantics only', () => {
   assert.doesNotMatch(COLOR_PICKER, /role="listbox"|role="option"|aria-selected/, 'color picker avoids listbox semantics without roving keyboard behavior')
-  assert.match(COLOR_PICKER, /role="group"/, 'color picker is a labelled button group')
-  assert.match(COLOR_PICKER, /aria-pressed=\{normalizedCurrent === c\.name\}/, 'current color is exposed as pressed')
+  assert.match(COLOR_PICKER, /role="radiogroup"/, 'color picker is a labelled radio group')
+  assert.match(COLOR_PICKER, /role="radio"[\s\S]*aria-checked=\{normalizedCurrent === c\.name\}/, 'current color is exposed as checked')
+  assert.match(COLOR_PICKER, /e\.key === 'ArrowRight'[\s\S]*buttons\[nextIndex\]\.focus\(\)/, 'color picker implements roving arrow-key focus')
   assert.match(CONFIRM_MODAL, /role="dialog"[\s\S]*aria-modal="true"[\s\S]*aria-describedby/, 'dialog semantics live on the modal panel')
   assert.match(CSS, new RegExp(inBlock('.nt-modal-scrim').source + 'overscroll-behavior:\\s*contain'), 'modal scrim contains overscroll')
 })
@@ -117,7 +125,7 @@ test('visible text inputs carry stable names and autocomplete policy', () => {
 
 test('locked notes expose read-only editor and protected delete controls', () => {
   assert.match(CARD, /title=\{locked \? 'Unlock to delete' : 'Delete'\}[\s\S]*disabled=\{locked\}/, 'locked cards disable delete')
-  assert.match(EDITOR_PANEL, /readOnly=\{locked\}/, 'locked editor title is read-only')
-  assert.match(EDITOR_PANEL, /<Editor[\s\S]*readOnly=\{locked\}/, 'locked editor body is read-only')
+  assert.match(EDITOR_PANEL, /readOnly=\{locked \|\| closing\}/, 'locked or closing editor title is read-only')
+  assert.match(EDITOR_PANEL, /<Editor[\s\S]*readOnly=\{locked \|\| closing\}/, 'locked or closing editor body is read-only')
   assert.match(EDITOR, /EditorView\.editable\.of\(!readOnly\)/, 'CodeMirror editable facet follows lock state')
 })

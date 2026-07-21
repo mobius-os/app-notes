@@ -35,7 +35,7 @@ export class CheckboxWidget extends WidgetType {
 }
 
 export class ImageWidget extends WidgetType {
-  constructor(src, alt, resolve) { super(); this.src = src; this.alt = alt || ''; this.resolve = resolve; this.url = null }
+  constructor(src, alt, resolve) { super(); this.src = src; this.alt = alt || ''; this.resolve = resolve; this.url = null; this.destroyed = false }
   eq(o) { return o.src === this.src && o.alt === this.alt }
   toDOM() {
     const wrap = document.createElement('div')
@@ -50,19 +50,24 @@ export class ImageWidget extends WidgetType {
     img.style.cssText = 'max-width:100%; max-height:360px; border-radius:10px; display:block; border:1px solid var(--border); dynamic-range-limit:standard;'
     wrap.appendChild(img)
     if (this.resolve && this.src.startsWith('attachments/')) {
-      this.resolve(this.src).then((u) => { if (u) { this.url = u; img.src = u } }).catch(() => {})
+      this.resolve(this.src).then((u) => {
+        if (!u) return
+        if (this.destroyed) { URL.revokeObjectURL(u); return }
+        this.url = u
+        img.src = u
+      }).catch(() => {})
     } else {
       img.src = this.src
     }
     return wrap
   }
-  destroy() { if (this.url) URL.revokeObjectURL(this.url) }
+  destroy() { this.destroyed = true; if (this.url) URL.revokeObjectURL(this.url) }
   get estimatedHeight() { return 220 }
   ignoreEvent() { return true }
 }
 
 export class FileChipWidget extends WidgetType {
-  constructor(name, src, resolve) { super(); this.name = name; this.src = src; this.resolve = resolve; this.url = null }
+  constructor(name, src, resolve) { super(); this.name = name; this.src = src; this.resolve = resolve; this.url = null; this.destroyed = false }
   eq(o) { return o.src === this.src && o.name === this.name }
   toDOM() {
     const a = document.createElement('button')
@@ -79,17 +84,33 @@ export class FileChipWidget extends WidgetType {
     a.addEventListener('click', async (e) => {
       e.preventDefault()
       e.stopPropagation()
+      if (this.url) {
+        window.open(this.url, '_blank', 'noopener')
+        return
+      }
       if (this.resolve && this.src.startsWith('attachments/')) {
+        // Open synchronously while the user activation is still live; waiting for
+        // getBlob() first causes mobile browsers to treat the popup as unsolicited.
+        const popup = window.open('about:blank', '_blank')
+        if (!popup) return
+        try { popup.opener = null } catch {}
         const u = await this.resolve(this.src).catch(() => null)
         if (u) {
+          if (this.destroyed) {
+            URL.revokeObjectURL(u)
+            try { popup.close() } catch {}
+            return
+          }
           this.url = u
-          window.open(u, '_blank', 'noopener')
+          try { popup.location.replace(u) } catch { try { popup.close() } catch {} }
+        } else {
+          try { popup.close() } catch {}
         }
       }
     })
     return a
   }
-  destroy() { if (this.url) URL.revokeObjectURL(this.url) }
+  destroy() { this.destroyed = true; if (this.url) URL.revokeObjectURL(this.url) }
   ignoreEvent() { return true }
 }
 

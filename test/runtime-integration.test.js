@@ -20,6 +20,11 @@ import { makeMergeNote, notePath } from '../src/lib/note-doc.js'
 
 if (!globalThis.crypto || !globalThis.crypto.subtle) globalThis.crypto = webcrypto
 
+function appToken(appId = '1') {
+  const payload = Buffer.from(JSON.stringify({ scope: 'app', app_id: appId, rev: '1' })).toString('base64url')
+  return `header.${payload}.signature`
+}
+
 // This suite runs against the REAL platform runtime, which lives in a Möbius
 // frontend checkout — NOT in this repo. Point `MOBIUS_FRONTEND` at a current
 // checkout's `frontend/` dir to run it; with the env var UNSET (a fresh clone,
@@ -27,7 +32,11 @@ if (!globalThis.crypto || !globalThis.crypto.subtle) globalThis.crypto = webcryp
 // NOT fall back to any contributor's absolute host path: a stale/drifted local
 // runtime would make these tests fail on an unrelated clone.
 const HERE = dirname(fileURLToPath(import.meta.url))
-const FRONTEND = process.env.MOBIUS_FRONTEND
+const FRONTEND = process.env.MOBIUS_FRONTEND || (
+  process.env.MOBIUS_FRONTEND_NODE_MODULES
+    ? dirname(process.env.MOBIUS_FRONTEND_NODE_MODULES)
+    : null
+)
 const RUNTIME = FRONTEND ? resolve(FRONTEND, 'public/mobius-runtime.js') : null
 const HARNESS = FRONTEND ? resolve(FRONTEND, 'src/lib/__tests__/mobiusRuntimeHarness.mjs') : null
 
@@ -39,8 +48,15 @@ const HAVE_RUNTIME = !!(FRONTEND && existsSync(RUNTIME) && existsSync(HARNESS))
 function makeReact() {
   const stateSlots = []
   const refSlots = []
+  const memoSlots = []
+  const callbackSlots = []
+  const effectSlots = []
   const effects = []
-  let si = 0, ri = 0, rerender = () => {}
+  let si = 0, ri = 0, mi = 0, ci = 0, ei = 0, rerender = () => {}
+  const sameDeps = (a, b) => (
+    Array.isArray(a) && Array.isArray(b) &&
+    a.length === b.length && a.every((value, index) => Object.is(value, b[index]))
+  )
   const React = {
     useState(init) {
       const i = si++
@@ -48,11 +64,29 @@ function makeReact() {
       return [stateSlots[i], (next) => { stateSlots[i] = typeof next === 'function' ? next(stateSlots[i]) : next; rerender() }]
     },
     useRef(init) { const i = ri++; if (!(i in refSlots)) refSlots[i] = { current: init }; return refSlots[i] },
-    useCallback(fn) { return fn },
-    useEffect(fn) { effects.push(fn) },
-    useMemo(fn) { return fn() },
+    useCallback(fn, deps) {
+      const i = ci++
+      if (!callbackSlots[i] || !sameDeps(callbackSlots[i].deps, deps)) callbackSlots[i] = { deps, value: fn }
+      return callbackSlots[i].value
+    },
+    useEffect(fn, deps) {
+      const i = ei++
+      if (effectSlots[i] && sameDeps(effectSlots[i].deps, deps)) return
+      effectSlots[i] = { deps }
+      effects.push(fn)
+    },
+    useMemo(fn, deps) {
+      const i = mi++
+      if (!memoSlots[i] || !sameDeps(memoSlots[i].deps, deps)) memoSlots[i] = { deps, value: fn() }
+      return memoSlots[i].value
+    },
   }
-  return { React, reset: () => { si = 0; ri = 0 }, effects, setRerender: (fn) => { rerender = fn } }
+  return {
+    React,
+    reset: () => { si = 0; ri = 0; mi = 0; ci = 0; ei = 0 },
+    effects,
+    setRerender: (fn) => { rerender = fn },
+  }
 }
 
 async function renderDoc(storage, path, opts) {
@@ -74,7 +108,7 @@ test('runtime useDocument + app mergeNote: an edit on an existing note lands dur
   const { freshEnv, waitFor } = await import(HARNESS)
   const { server } = freshEnv()
   const { makeStorage } = await import(RUNTIME)
-  const storage = makeStorage({ appId: '1', getToken: async () => 't' })
+  const storage = makeStorage({ appId: '1', getToken: async () => appToken() })
 
   // Seed the server canonical note, then open the doc — refresh() loads it as the
   // merge base. (NB: the runtime's get() is stale-while-revalidate, so a
@@ -93,7 +127,7 @@ test('runtime useDocument + app mergeNote: an edit on an existing note lands dur
     merge: mergeNote,
     mode: 'lww',
   })
-  await waitFor(() => doc.get().status === 'ready')
+  await waitFor(() => doc.get().status === 'ready' && doc.get().value?.body === 'one\ntwo\nthree')
   assert.equal(doc.get().value.body, 'one\ntwo\nthree')
 
   const res = await doc.get().update((prev) => ({ ...prev, body: 'ONE\ntwo\nthree' }))
@@ -109,7 +143,7 @@ test('runtime useDocument: a queued offline write is durable success, not an err
   const { freshEnv, waitFor } = await import(HARNESS)
   const { server } = freshEnv()
   const { makeStorage } = await import(RUNTIME)
-  const storage = makeStorage({ appId: '1', getToken: async () => 't' })
+  const storage = makeStorage({ appId: '1', getToken: async () => appToken() })
   const path = notePath('n2')
 
   const doc = await renderDoc(storage, path, {
@@ -130,7 +164,7 @@ test('runtime useDocument: a dead-lettered write surfaces lastError (no false sa
   const { freshEnv, waitFor } = await import(HARNESS)
   const { server } = freshEnv()
   const { makeStorage } = await import(RUNTIME)
-  const storage = makeStorage({ appId: '1', getToken: async () => 't' })
+  const storage = makeStorage({ appId: '1', getToken: async () => appToken() })
   const path = notePath('n3')
 
   const doc = await renderDoc(storage, path, {

@@ -22,6 +22,24 @@
 import { notePath, legacyPath, docId, mergeNoteDocs } from './note-doc.js'
 
 const S = () => window.mobius.storage
+const READ_BATCH_SIZE = 8
+
+// Note documents are independent reads. Small batches remove the serial
+// waterfall without creating an unbounded request/memory spike for users with
+// very large notebooks or locally-modified runtimes.
+async function readJsonDocuments(entries) {
+  const files = (entries || []).filter((e) => e.type === 'file' && e.name.endsWith('.json'))
+  const records = []
+  for (let i = 0; i < files.length; i += READ_BATCH_SIZE) {
+    const batch = files.slice(i, i + READ_BATCH_SIZE)
+    const resolved = await Promise.all(batch.map(async (entry) => {
+      try { return { path: entry.path, doc: await S().get(entry.path) } }
+      catch { return { path: entry.path, doc: null } }
+    }))
+    records.push(...resolved)
+  }
+  return records
+}
 
 // Serialize all writes to one path behind a per-path promise chain — the same
 // chainRef serialization useDocument.update() uses, so two overlapping saves of
@@ -99,13 +117,10 @@ export function makeNoteCollection({ onConflict } = {}) {
     let entries
     try { entries = await S().list('notes') } catch { return [] }
     const found = []
-    for (const e of entries || []) {
-      if (e.type !== 'file' || !e.name.endsWith('.json')) continue
-      let doc
-      try { doc = await S().get(e.path) } catch { doc = null }
+    for (const { path, doc } of await readJsonDocuments(entries)) {
       if (doc && doc.meta && doc.meta.id) {
-        rememberPath(doc.meta.id, e.path)
-        if (doc.meta.id === id) found.push(e.path)
+        rememberPath(doc.meta.id, path)
+        if (doc.meta.id === id) found.push(path)
       }
     }
     return found
@@ -123,14 +138,11 @@ export function makeNoteCollection({ onConflict } = {}) {
     try { entries = await S().list('notes') } catch { return null }
     if (entries == null) return null
     const out = []
-    for (const e of entries) {
-      if (e.type !== 'file' || !e.name.endsWith('.json')) continue
-      let doc
-      try { doc = await S().get(e.path) } catch { doc = null }
+    for (const { path, doc } of await readJsonDocuments(entries)) {
       if (doc && doc.meta && doc.meta.id) {
         bases.set(doc.meta.id, doc)
-        rememberPath(doc.meta.id, e.path)
-        out.push({ meta: doc.meta, body: doc.body ?? '', storagePath: e.path })
+        rememberPath(doc.meta.id, path)
+        out.push({ meta: doc.meta, body: doc.body ?? '', storagePath: path })
       }
     }
     return out

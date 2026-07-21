@@ -26,6 +26,12 @@ export const CSS = `
 /* mobius-ui:Root v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-root {
   --nt-measure: 704px;
+  --nt-safe-top: var(--mobius-safe-top, env(safe-area-inset-top, 0px));
+  --nt-safe-right: var(--mobius-safe-right, env(safe-area-inset-right, 0px));
+  --nt-safe-bottom: var(--mobius-safe-bottom, env(safe-area-inset-bottom, 0px));
+  --nt-safe-left: var(--mobius-safe-left, env(safe-area-inset-left, 0px));
+  --nt-accent-ink: color-mix(in srgb, var(--accent) 72%, var(--text));
+  --nt-danger-ink: color-mix(in srgb, var(--danger) 68%, var(--text));
   position: relative;
   display: flex; flex-direction: column;
   height: 100%; width: 100%; max-width: 100%;
@@ -33,6 +39,10 @@ export const CSS = `
   background: var(--bg); color: var(--text); font-family: var(--font);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+.nt-home {
+  display: flex; flex-direction: column;
+  flex: 1; min-width: 0; min-height: 0;
 }
 .nt-scroll {
   flex: 1; min-height: 0;
@@ -67,7 +77,7 @@ export const CSS = `
 .nt-topbar {
   display: flex; flex-direction: column; gap: 12px;
   /* top-pinned bar: pad past the notch/status bar on notched phones */
-  padding: max(14px, env(safe-area-inset-top)) 18px 12px;
+  padding: max(14px, var(--nt-safe-top)) max(18px, var(--nt-safe-right)) 12px max(18px, var(--nt-safe-left));
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   position: sticky; top: 0;
   background: color-mix(in srgb, var(--bg) 86%, transparent); z-index: 5;
@@ -118,12 +128,12 @@ export const CSS = `
   border-color: var(--accent);
   background: var(--surface);
 }
-.nt-search::placeholder { color: var(--muted); }
+.nt-search::placeholder { color: color-mix(in srgb, var(--text) 14%, var(--muted)); }
 /* FAB — floating action button, bottom-right, above gesture bar */
 .nt-fab {
   position: fixed;
-  right: max(20px, env(safe-area-inset-right, 0px));
-  bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  right: max(20px, var(--nt-safe-right));
+  bottom: max(24px, var(--nt-safe-bottom));
   z-index: 20;
   width: 54px; height: 54px;
   border-radius: 18px;
@@ -138,6 +148,7 @@ export const CSS = `
   touch-action: manipulation; user-select: none;
   transition: filter 0.14s ease, transform 0.12s ease, box-shadow 0.14s ease;
 }
+.nt-fab[hidden] { display: none; }
 @media (hover: hover) { .nt-fab:hover { filter: brightness(0.94); transform: scale(1.04); } }
 .nt-fab:active { transform: scale(0.93); }
 /* /mobius-ui:Header */
@@ -151,7 +162,7 @@ export const CSS = `
 }
 @keyframes nt-spin { to { transform: rotate(360deg); } }
 .nt-loading-grid {
-  padding: 18px 18px max(126px, calc(102px + env(safe-area-inset-bottom)));
+  padding: 18px max(18px, var(--nt-safe-right)) max(126px, calc(102px + var(--nt-safe-bottom))) max(18px, var(--nt-safe-left));
   max-width: 1040px; margin: 0 auto;
 }
 .nt-loading-label {
@@ -169,7 +180,7 @@ export const CSS = `
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 5%, transparent),
-              0 8px 22px color-mix(in srgb, var(--text) 6%, transparent);
+              0 4px 8px color-mix(in srgb, var(--text) 6%, transparent);
   padding: 16px;
 }
 .nt-skeleton-line {
@@ -207,7 +218,7 @@ export const CSS = `
 /* ── Grid ───────────────────────────────────────────────────────────────── */
 .nt-grid-wrap {
   /* bottom pad clears the gesture bar and FAB on Android/notched iPhones */
-  padding: 18px 18px max(126px, calc(102px + env(safe-area-inset-bottom)));
+  padding: 18px max(18px, var(--nt-safe-right)) max(126px, calc(102px + var(--nt-safe-bottom))) max(18px, var(--nt-safe-left));
   max-width: 1040px; margin: 0 auto;
 }
 .nt-section { margin-bottom: 26px; }
@@ -241,17 +252,17 @@ export const CSS = `
   background: var(--surface); border: 1px solid var(--border);
   min-height: 118px;
   box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 5%, transparent),
-              0 8px 22px color-mix(in srgb, var(--text) 6%, transparent);
+              0 4px 8px color-mix(in srgb, var(--text) 6%, transparent);
   transition: box-shadow 0.16s ease, transform 0.16s ease, border-color 0.16s ease;
 }
 .nt-card.is-locked {
   box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 4%, transparent),
-              0 8px 22px color-mix(in srgb, var(--text) 5%, transparent);
+              0 4px 8px color-mix(in srgb, var(--text) 5%, transparent);
 }
 @media (hover: hover) {
   .nt-card:hover {
-    box-shadow: 0 2px 6px color-mix(in srgb, var(--text) 7%, transparent),
-                0 16px 40px color-mix(in srgb, var(--text) 10%, transparent);
+    box-shadow: 0 2px 4px color-mix(in srgb, var(--text) 7%, transparent),
+                0 6px 8px color-mix(in srgb, var(--text) 10%, transparent);
     transform: translateY(-2px);
   }
 }
@@ -385,8 +396,8 @@ export const CSS = `
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
   transition: background 0.12s ease, transform 0.1s ease;
 }
-.nt-icon-btn.is-active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); opacity: 1; }
-.nt-icon-btn.is-danger { color: var(--danger); }
+.nt-icon-btn.is-active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--nt-accent-ink); opacity: 1; }
+.nt-icon-btn.is-danger { color: var(--nt-danger-ink); }
 .nt-icon-btn:disabled,
 .nt-icon-btn:disabled:hover {
   background: transparent;
@@ -407,7 +418,7 @@ export const CSS = `
 
 /* ── ColorPicker ────────────────────────────────────────────────────────── */
 .nt-color-picker {
-  position: fixed; z-index: 1000;
+  position: fixed; z-index: 60;
   display: grid; grid-template-columns: repeat(4, 44px); gap: 8px;
   max-width: calc(100vw - 24px); padding: 8px;
   background: var(--surface2, var(--surface));
@@ -465,14 +476,17 @@ export const CSS = `
   /* --accent-fg is the legal foreground on the platform's filled action tokens
      (no hex fallback — a custom light theme may set it dark). */
 }
-.nt-modal-confirm.is-danger { background: var(--danger); }
+.nt-modal-confirm.is-danger {
+  background: color-mix(in srgb, var(--danger) 78%, var(--text));
+  color: var(--bg);
+}
 /* /mobius-ui:Sheet */
 
 /* ── EditorPanel ────────────────────────────────────────────────────────── */
 .nt-editor-root {
   position: absolute; inset: 0; z-index: 20;
   display: flex; align-items: center; justify-content: center;
-  padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+  padding: max(14px, var(--nt-safe-top)) max(14px, var(--nt-safe-right)) max(14px, var(--nt-safe-bottom)) max(14px, var(--nt-safe-left));
   background: color-mix(in srgb, var(--bg) 54%, transparent);
   backdrop-filter: blur(5px);
   -webkit-backdrop-filter: blur(5px);
@@ -492,7 +506,7 @@ export const CSS = `
 @media (max-width: 640px) {
   .nt-editor-root {
     align-items: flex-end;
-    padding: max(10px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom));
+    padding: max(10px, var(--nt-safe-top)) max(8px, var(--nt-safe-right)) max(8px, var(--nt-safe-bottom)) max(8px, var(--nt-safe-left));
   }
   .nt-editor-sheet {
     width: 100%;
@@ -521,8 +535,18 @@ export const CSS = `
   overflow-x: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
+  scroll-padding-inline: 4px 20px;
 }
 .nt-editor-actions::-webkit-scrollbar { display: none; }
+@media (max-width: 480px) {
+  .nt-editor-toolbar { gap: 2px; }
+  .nt-editor-actions {
+    gap: 2px;
+    padding-inline-end: 18px;
+    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
+    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
+  }
+}
 /* /mobius-ui:Header */
 /* mobius-ui:Button v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-hdr-btn {
@@ -535,7 +559,7 @@ export const CSS = `
   transition: background 0.12s ease, transform 0.1s ease;
 }
 .nt-hdr-btn.is-active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-.nt-hdr-btn.is-danger { color: var(--danger); }
+.nt-hdr-btn.is-danger { color: var(--nt-danger-ink); }
 .nt-hdr-btn:disabled {
   cursor: default;
   color: color-mix(in srgb, var(--text) 40%, var(--muted));
@@ -602,7 +626,7 @@ export const CSS = `
   font-variant-numeric: tabular-nums;
 }
 /* Online+idle: nothing shown (standard). Resolving uses accent; others muted. */
-.nt-status.is-resolving { color: var(--accent); }
+.nt-status.is-resolving { color: var(--nt-accent-ink); }
 .nt-status.is-default { color: var(--muted); }
 /* /mobius-ui:SyncPill */
 .nt-hdr-spacer { flex: 1; min-width: 4px; }
@@ -616,7 +640,7 @@ export const CSS = `
 .nt-conflict-btn {
   min-height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--accent); background: transparent; color: var(--accent);
+  border: 1px solid var(--nt-accent-ink); background: transparent; color: var(--nt-accent-ink);
   border-radius: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer;
   flex-shrink: 0; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
@@ -624,7 +648,7 @@ export const CSS = `
 .nt-attach-err {
   padding: 8px 16px;
   background: color-mix(in srgb, var(--danger) 14%, transparent);
-  color: var(--danger); font-size: 13px; flex: 0 0 auto;
+  color: var(--nt-danger-ink); font-size: 13px; flex: 0 0 auto;
 }
 /* Grid-level save-failure banner — surfaces a refused (dead-lettered) write that
    happened with no editor open (a closed-note pin/color, or a back-out after a
@@ -633,13 +657,13 @@ export const CSS = `
   display: flex; align-items: center; gap: 10px;
   padding: 9px 16px;
   background: color-mix(in srgb, var(--danger) 14%, transparent);
-  color: var(--danger); font-size: 13px; flex: 0 0 auto;
+  color: var(--nt-danger-ink); font-size: 13px; flex: 0 0 auto;
 }
 .nt-save-err-msg { flex: 1; }
 .nt-save-err-btn {
   min-height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--danger); background: transparent; color: var(--danger);
+  border: 1px solid var(--nt-danger-ink); background: transparent; color: var(--nt-danger-ink);
   border-radius: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer;
   flex-shrink: 0; font-family: var(--font);
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
@@ -650,7 +674,7 @@ export const CSS = `
   flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
   gap: 8px 14px;
-  padding: 10px clamp(18px, 6vw, 40px) max(14px, env(safe-area-inset-bottom));
+  padding: 10px clamp(18px, 6vw, 40px) max(14px, var(--nt-safe-bottom));
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   color: color-mix(in srgb, var(--text) 54%, var(--muted));
   font: 500 12px/1.2 var(--mono);
@@ -662,7 +686,7 @@ export const CSS = `
    with the bottom-right FAB. Absolute to .nt-root (which is position:relative),
    never fixed — a fixed overlay could paint over the shell chrome. */
 .nt-sync-pill {
-  position: absolute; left: 50%; bottom: max(22px, env(safe-area-inset-bottom));
+  position: absolute; left: 50%; bottom: max(22px, var(--nt-safe-bottom));
   transform: translateX(-50%);
   z-index: 15;
   display: inline-flex; align-items: center; padding: 9px 14px; border-radius: 999px;
@@ -678,7 +702,7 @@ export const CSS = `
    while still showing on the card — stranded data. */
 .nt-attach-strip {
   display: flex; gap: 8px; align-items: flex-start;
-  padding: 8px 16px max(10px, env(safe-area-inset-bottom));
+  padding: 8px max(16px, var(--nt-safe-right)) max(10px, var(--nt-safe-bottom)) max(16px, var(--nt-safe-left));
   border-top: 1px solid var(--border);
   background: var(--surface2, var(--surface));
   overflow-x: auto; flex: 0 0 auto;

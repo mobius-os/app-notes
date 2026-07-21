@@ -19,7 +19,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { CSS } from './ui/css.js'
-import { newNote, contentHash, isBlankNote } from './lib/note.js'
+import { newNote, bumpRev, contentHash, isBlankNote } from './lib/note.js'
 import { notesFromIndex } from './lib/index-cache.js'
 import { visibleNotes } from './lib/visible.js'
 import * as store from './lib/store.js'
@@ -37,6 +37,7 @@ import { Icon } from './ui/icons.jsx'
 // is absent. Keeps a stable shape so callers can read .value/.status/.lastError
 // unconditionally.
 const NO_DOC = { value: null, status: 'idle', lastError: null, update: async () => {}, set: async () => {}, refresh: async () => {} }
+const NOTE_DOC_IDENTITY = (doc) => (doc && doc.meta ? doc.meta.id : undefined)
 
 // Bind the platform document hook ONCE at module top with the app's own React,
 // as the runtime requires (window.mobius.useDocument is intentionally NOT
@@ -181,7 +182,12 @@ export default function App({ appId }) {
   // to re-issue the write regardless of buffer equality, until it lands.
   const [failedSaveIds, setFailedSaveIds] = useState(() => new Set())
   const gcTimer = useRef(null)
+  const indexTimer = useRef(null)
   const editorNavOwned = useRef(false)
+  // EditorPanel installs its durability-aware close function here. Shell Back
+  // must use the same flush-before-leave path as the visible Back button; calling
+  // App.back() directly would unmount the editor and cancel its 600ms autosave.
+  const editorCloseRef = useRef(null)
   // Mirrors of the open-note id and the notes array for the DEBOUNCED gc callback,
   // which fires ~1.5s later and must read the CURRENT values, not the ones closed
   // over when scheduleGc was last created (a stale closure would pin the wrong
@@ -292,14 +298,19 @@ export default function App({ appId }) {
   useEffect(() => { draftRef.current = draft }, [draft])
   useEffect(() => { failedSaveIdsRef.current = failedSaveIds }, [failedSaveIds])
   const mergeNote = useMemo(() => makeMergeNote(onConflict), [onConflict])
-  // Always called (stable hook position); inert when no note is open (the
-  // sentinel path is never written) or under the test harness (returns NO_DOC).
-  const liveDoc = useDocument(openPath, {
+  // The deployed runtime keys its refresh/subscription effects on these option
+  // references. Keeping both the callback and options object stable prevents an
+  // unrelated render from tearing down the subscription and re-reading the same
+  // document in a tight loop.
+  const openDocOptions = useMemo(() => ({
     initial: null,
-    identity: (d) => (d && d.meta ? d.meta.id : undefined),
+    identity: NOTE_DOC_IDENTITY,
     merge: mergeNote,
     mode: 'lww',
-  })
+  }), [mergeNote])
+  // Always called (stable hook position); inert when no note is open (the
+  // sentinel path is never written) or under the test harness (returns NO_DOC).
+  const liveDoc = useDocument(openPath, openDocOptions)
   // useDocument returns a FRESH handle object every render, so depending on the whole
   // `liveDoc` in writeNote would rebuild writeNote → persist → the editor's flushSave
   // → its autosave effect on every unrelated parent re-render, churning the debounce
@@ -481,12 +492,21 @@ export default function App({ appId }) {
   // we don't rewrite the index from a transient empty state.
   useEffect(() => {
     if (loading) return
-    store.writeIndex(notes).catch(() => {})
+    if (indexTimer.current) clearTimeout(indexTimer.current)
+    indexTimer.current = setTimeout(() => {
+      indexTimer.current = null
+      store.writeIndex(notesRef.current).catch(() => {})
+    }, 250)
+    return () => {
+      if (indexTimer.current) clearTimeout(indexTimer.current)
+      indexTimer.current = null
+    }
   }, [notes, loading])
 
   // Clear pending debounce timers on unmount.
   useEffect(() => () => {
     if (gcTimer.current) clearTimeout(gcTimer.current)
+    if (indexTimer.current) clearTimeout(indexTimer.current)
   }, [])
 
   const pushEditorNav = useCallback(() => {
@@ -579,10 +599,10 @@ export default function App({ appId }) {
   // DurableWriteError on a server refusal. We optimistically upsert the in-memory
   // note, then on a rejection keep the edit and surface an error so it is never
   // lost AND never falsely reported saved.
-  const writeNote = useCallback(async (meta, body, { isDraftCommit = false } = {}) => {
+  const writeNote = useCallback(async (meta, body, { isDraftCommit = false, precomputedHash = null } = {}) => {
     const id = meta.id
     const m = { ...meta, updated: meta.updated || new Date().toISOString() }
-    m.content_hash = await contentHash(m, body)
+    m.content_hash = precomputedHash || await contentHash(m, body)
     // Mark this body as MINE so the open-note subscribe treats the resulting
     // notify (and any echo of it) as a local save, not an external resolution.
     lastWrittenBodyRef.current.set(id, body ?? '')
@@ -636,18 +656,28 @@ export default function App({ appId }) {
       const next = { meta: { ...currentDraft.meta, ...meta }, body }
       setDraftNow(next)
       if (isBlankNote(next.meta, next.body)) return
-      await writeNote(next.meta, next.body, { isDraftCommit: true })
+      const nextHash = await contentHash(next.meta, next.body)
+      await writeNote(next.meta, next.body, { isDraftCommit: true, precomputedHash: nextHash })
       return
     }
     const prev = notesRef.current.find((n) => n.meta.id === meta.id)
     if (prev && prev.placeholder) return // display-only; never persist a snippet
-    const nextHash = await contentHash(meta, body)
-    const prevHash = prev ? await contentHash(prev.meta, prev.body) : null
+    const [nextHash, prevHash] = await Promise.all([
+      contentHash(meta, body),
+      prev ? contentHash(prev.meta, prev.body) : Promise.resolve(null),
+    ])
+    const retryingFailedWrite = failedSaveIdsRef.current.has(meta.id) && prevHash === nextHash
     // Skip a no-op write — UNLESS this id's last write FAILED. The optimistic
     // upsert makes `prev` equal the buffer, so the hash matches even though the
     // edit never reached the server; force the retry instead of silently dropping.
     if (!failedSaveIdsRef.current.has(meta.id) && prevHash != null && nextHash === prevHash) return
-    await writeNote({ ...meta, updated: new Date().toISOString() }, body)
+    // A genuinely new semantic edit advances the canonical revision. A retry of
+    // the exact optimistic value keeps the already-bumped revision instead of
+    // inventing a revision that was never accepted by storage.
+    const stamped = retryingFailedWrite
+      ? { ...meta, updated: new Date().toISOString() }
+      : bumpRev(meta)
+    await writeNote(stamped, body, { precomputedHash: nextHash })
   }, [writeNote, setDraftNow])
 
   const togglePin = useCallback(async (id) => {
@@ -752,14 +782,20 @@ export default function App({ appId }) {
     setView({ mode: 'grid' })
   }, [leaveEditor, view.id, queueDelete, setDraftNow, setNotesNow])
 
+  const shellBackRef = useRef(null)
+  shellBackRef.current = () => {
+    const closeEditor = editorCloseRef.current
+    if (typeof closeEditor === 'function') closeEditor(true)
+    else back(true)
+  }
   useEffect(() => {
     const onMessage = (event) => {
       if (event.origin !== window.location.origin) return
-      if (event.data?.type === 'moebius:nav-back') back(true)
+      if (event.data?.type === 'moebius:nav-back') shellBackRef.current?.()
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [back])
+  }, [])
 
   const visible = useMemo(() => visibleNotes(notes, query), [notes, query])
 
@@ -792,6 +828,11 @@ export default function App({ appId }) {
     <div className="nt-root">
       <style>{CSS}</style>
       <ErrorBoundary>
+      <div
+        className="nt-home"
+        aria-hidden={editing ? 'true' : undefined}
+        inert={editing ? true : undefined}
+      >
       <TopBar appId={appId} query={query} onQuery={setQuery} />
       {/* Closed-note save failure (a grid pin/color, or a back-out after a refused
           save) has no editor to show a status banner — surface it here so a
@@ -826,16 +867,17 @@ export default function App({ appId }) {
               />}
       </main>
 
-      {/* FAB — the single way to create a note; hidden while the editor is open */}
-      {view.mode !== 'editor' && (
-        <button
-          type="button"
-          className="nt-fab"
-          onClick={createNote}
-          aria-label="New note"
-          title="New note"
-        ><Icon name="plus" size={24} /></button>
-      )}
+      {/* Keep the FAB node mounted while hidden so modal focus can return to the
+          same opener after a new-note editor closes. */}
+      <button
+        type="button"
+        className="nt-fab"
+        onClick={createNote}
+        aria-label="New note"
+        title="New note"
+        hidden={view.mode === 'editor'}
+      ><Icon name="plus" size={24} /></button>
+      </div>
 
       {editing && (
         <EditorPanel
@@ -852,6 +894,8 @@ export default function App({ appId }) {
           conflict={conflicts.has(editing.meta.id)}
           status={status}
           forceSave={failedSaveIds.has(editing.meta.id)}
+          closeRequestRef={editorCloseRef}
+          inactive={!!confirmId}
         />
       )}
 

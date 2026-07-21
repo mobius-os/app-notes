@@ -58,14 +58,22 @@ function taskSummary(body) {
   return `${tasks.length} task${tasks.length === 1 ? '' : 's'} · ${done} done`
 }
 
-export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, onExternalConflict, resolveAttachment, putAttachment, conflict, status, forceSave }) {
+export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, onExternalConflict, resolveAttachment, putAttachment, conflict, status, forceSave, closeRequestRef, inactive = false }) {
   const [title, setTitle] = useState(note.meta.title || '')
   const [body, setBody] = useState(note.body || '')
   const [showColors, setShowColors] = useState(false)
   const [attachErr, setAttachErr] = useState('')
   const [externalConflict, setExternalConflict] = useState(false)
+  const [closing, setClosing] = useState(false)
   const timer = useRef(null)
   const viewRef = useRef(null)
+  const sheetRef = useRef(null)
+  const backRef = useRef(null)
+  const titleRef = useRef(null)
+  const openerRef = useRef(null)
+  const focusTimer = useRef(null)
+  const closeInFlight = useRef(null)
+  const pendingSaves = useRef(new Set())
   const imageRef = useRef(null)
   const fileRef = useRef(null)
   const colorBtnRef = useRef(null)
@@ -102,7 +110,13 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
       return Promise.reject(new Error('Resolve the incoming edit before saving this note.'))
     }
     localSaveBodies.current.add(nextBody ?? '')
-    return Promise.resolve(onSave(meta, nextBody))
+    let request
+    try { request = Promise.resolve(onSave(meta, nextBody)) }
+    catch (err) { request = Promise.reject(err) }
+    pendingSaves.current.add(request)
+    const clear = () => pendingSaves.current.delete(request)
+    request.then(clear, clear)
+    return request
   }, [onSave])
 
   const liveBody = useCallback(() => (
@@ -152,7 +166,13 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     // this id's last write as failed) overrides the skip so the write is re-issued
     // until it actually lands.
     if (!forceSave && cur.title === (cur.note.meta.title || '') && currentBody === (cur.note.body || '')) {
-      return Promise.resolve()
+      // The prop can already equal the buffer because writeNote optimistically
+      // upserts before its durable write settles. That is not a true no-op on
+      // exit: wait for every save already in flight so a slow write cannot be
+      // mistaken for saved content and bypass the close gate.
+      return pendingSaves.current.size
+        ? Promise.all([...pendingSaves.current]).then(() => undefined)
+        : Promise.resolve()
     }
     if (timer.current) clearTimeout(timer.current)
     // Preserve attachments: persist's merge unions meta.attachments, but a flush
@@ -164,13 +184,112 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
       ...(cur.note.meta.attachments || []),
       ...bodyAttachmentRefs(currentBody),
     ]))
-    return saveCurrentNote({ ...cur.note.meta, title: cur.title, attachments }, currentBody)
+    const alreadyPending = [...pendingSaves.current]
+    const request = saveCurrentNote({ ...cur.note.meta, title: cur.title, attachments }, currentBody)
+    return Promise.all([...alreadyPending, request]).then(() => undefined)
   }, [saveCurrentNote, forceSave, liveBody])
 
-  const closeEditor = useCallback(async () => {
-    try { await flushSave() } catch { return }
-    onBack()
+  const closeEditor = useCallback((fromShell = false) => {
+    if (closeInFlight.current) return closeInFlight.current
+    setShowColors(false)
+    setClosing(true)
+    const run = (async () => {
+      try {
+        await flushSave()
+      } catch {
+        setClosing(false)
+        return false
+      }
+      setClosing(false)
+      await onBack(fromShell)
+      return true
+    })()
+    closeInFlight.current = run
+    const clear = () => { if (closeInFlight.current === run) closeInFlight.current = null }
+    run.then(clear, clear)
+    return run
   }, [flushSave, onBack])
+
+  // Give the owner shell the exact same close path as the visible Back button.
+  // This closes the debounce-loss bypass where shell Back unmounted the editor
+  // before its pending buffer had been flushed.
+  useEffect(() => {
+    if (!closeRequestRef) return undefined
+    closeRequestRef.current = closeEditor
+    return () => {
+      if (closeRequestRef.current === closeEditor) closeRequestRef.current = null
+    }
+  }, [closeEditor, closeRequestRef])
+
+  // Treat the editor as the modal its ARIA contract advertises: move focus into
+  // it on open and restore the card/FAB that launched it on close.
+  useEffect(() => {
+    const active = typeof document !== 'undefined' ? document.activeElement : null
+    openerRef.current = active && active !== document.body ? active : null
+    const focusEditor = () => {
+      focusTimer.current = null
+      if (locked) backRef.current?.focus?.()
+      else if (viewRef.current?.focus) viewRef.current.focus()
+      else titleRef.current?.focus?.()
+    }
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      focusTimer.current = window.requestAnimationFrame(focusEditor)
+    } else {
+      focusTimer.current = setTimeout(focusEditor, 0)
+    }
+    return () => {
+      if (focusTimer.current != null) {
+        if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(focusTimer.current)
+        else clearTimeout(focusTimer.current)
+      }
+      const opener = openerRef.current
+      const stillMounted = typeof document === 'undefined' || typeof document.contains !== 'function' || document.contains(opener)
+      if (opener && stillMounted && typeof opener.focus === 'function') opener.focus()
+      else {
+        const focusFallback = () => document.querySelector?.('.nt-fab:not([hidden])')?.focus?.()
+        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+          window.requestAnimationFrame(focusFallback)
+        } else {
+          setTimeout(focusFallback, 0)
+        }
+      }
+    }
+    // Focus is an open/close concern; a later lock toggle must not steal focus.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const onDialogKeyDown = useCallback((e) => {
+    if (inactive) return
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      if (showColors) setShowColors(false)
+      else closeEditor()
+      return
+    }
+    if (e.defaultPrevented) return
+    if (e.key !== 'Tab' || showColors) return
+    const candidates = sheetRef.current?.querySelectorAll(
+      'button:not([disabled]), [href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
+    )
+    const focusable = Array.from(candidates || []).filter((el) => (
+      typeof el.getClientRects !== 'function' || el.getClientRects().length > 0
+    ))
+    if (!focusable.length) {
+      e.preventDefault()
+      return
+    }
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    const active = document.activeElement
+    if (e.shiftKey && active === first) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }, [closeEditor, inactive, showColors])
 
   // Switching directly from one note to another in the editor: flush the
   // OUTGOING note's pending edits (held in `latest`, still pointing at the old
@@ -435,23 +554,33 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   const tasks = taskSummary(body)
 
   return (
-    <div className="nt-editor-root" onClick={(e) => { if (e.target === e.currentTarget) closeEditor() }}>
+    <div
+      className="nt-editor-root"
+      aria-hidden={inactive ? 'true' : undefined}
+      inert={inactive ? true : undefined}
+      onClick={(e) => { if (!inactive && e.target === e.currentTarget) closeEditor() }}
+    >
       <section
+        ref={sheetRef}
         className={`nt-editor-sheet${locked ? ' is-locked' : ''}`}
         role="dialog"
         aria-modal="true"
+        aria-busy={closing ? 'true' : undefined}
         aria-label={title || 'Untitled note'}
+        onKeyDown={onDialogKeyDown}
         onClick={(e) => e.stopPropagation()}
       >
       <header className="nt-editor-hdr">
         <div className="nt-editor-toolbar">
           <button
+            ref={backRef}
             type="button"
-            onClick={closeEditor}
+            onClick={() => closeEditor()}
             aria-label="Back"
+            disabled={closing}
             className="nt-hdr-btn"
           ><Icon name="back" size={18} /></button>
-          <div className="nt-editor-actions">
+          <div className="nt-editor-actions" role="toolbar" aria-label="Note actions">
             <button
               type="button"
               onClick={() => {
@@ -460,6 +589,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
               }}
               aria-label={note.meta.pinned ? 'Unpin' : 'Pin'}
               aria-pressed={note.meta.pinned}
+              disabled={closing}
               title={note.meta.pinned ? 'Unpin' : 'Pin'}
               className={`nt-hdr-btn${note.meta.pinned ? ' is-active' : ''}`}
             ><Icon name="pin" size={16} /></button>
@@ -469,6 +599,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
                 onClick={() => setShowColors((v) => !v)}
                 aria-label="Color"
                 title="Color"
+                disabled={closing}
                 className="nt-hdr-btn"
               ><Icon name="palette" size={17} /></button>
               {showColors && (
@@ -487,6 +618,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
               onClick={() => saveMetaPatch({ locked: !locked }).catch(() => {})}
               aria-label={locked ? 'Unlock note' : 'Lock note'}
               aria-pressed={locked}
+              disabled={closing}
               title={locked ? 'Unlock note' : 'Lock note'}
               className={`nt-hdr-btn${locked ? ' is-active' : ''}`}
             ><Icon name={locked ? 'lock' : 'unlock'} size={16} /></button>
@@ -495,7 +627,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
               onClick={toggleType}
               aria-label={isChecklist ? 'Switch to note' : 'Switch to checklist'}
               aria-pressed={isChecklist}
-              disabled={locked}
+              disabled={locked || closing}
               title={isChecklist ? 'Switch to note' : 'Switch to checklist'}
               className={`nt-hdr-btn${isChecklist ? ' is-active' : ''}`}
             ><Icon name={isChecklist ? 'checklist' : 'note'} size={16} /></button>
@@ -504,7 +636,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
               onClick={() => imageRef.current && imageRef.current.click()}
               aria-label="Insert image"
               title="Insert image"
-              disabled={locked}
+              disabled={locked || closing}
               className="nt-hdr-btn"
             ><Icon name="image" size={16} /></button>
             <button
@@ -512,20 +644,22 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
               onClick={() => fileRef.current && fileRef.current.click()}
               aria-label="Attach file"
               title="Attach file"
-              disabled={locked}
+              disabled={locked || closing}
               className="nt-hdr-btn"
             ><Icon name="file" size={16} /></button>
           </div>
           <div className="nt-hdr-spacer" />
-          {status && (
-            <span className={`nt-status ${statusClass(status)}`}>{status}</span>
+          {(closing || status) && (
+            <span className={`nt-status ${statusClass(closing ? null : status)}`} role="status" aria-live="polite">
+              {closing ? 'Saving…' : status}
+            </span>
           )}
           <button
             type="button"
             onClick={() => onDelete(note.meta.id)}
             aria-label="Delete"
             title={locked ? 'Unlock to delete' : 'Delete'}
-            disabled={locked}
+            disabled={locked || closing}
             className="nt-hdr-btn is-danger"
           ><Icon name="trash" size={16} /></button>
         </div>
@@ -534,23 +668,24 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
       </header>
 
       {(conflict || externalConflict) && (
-        <div className="nt-conflict-bar">
+        <div className="nt-conflict-bar" role="status">
           <span className="nt-conflict-msg">Edited in two places — merging…</span>
           {conflict && <button type="button" onClick={() => resolveNow(note, appId)} className="nt-conflict-btn">Resolve now</button>}
         </div>
       )}
 
       {attachErr && (
-        <div className="nt-attach-err">{attachErr}</div>
+        <div className="nt-attach-err" role="alert">{attachErr}</div>
       )}
 
       <div className="nt-editor-title-band">
         <input
+          ref={titleRef}
           name="note-title"
           autoComplete="off"
           value={title}
-          readOnly={locked}
-          onChange={(e) => { if (!locked) setTitle(e.target.value) }}
+          readOnly={locked || closing}
+          onChange={(e) => { if (!locked && !closing) setTitle(e.target.value) }}
           placeholder="Title"
           aria-label="Note title"
           className="nt-title-input"
@@ -558,7 +693,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
       </div>
 
       <div className="nt-editor-body">
-        <Editor value={body} onChange={locked ? () => {} : setBody} resolveAttachment={resolveAttachment} viewRef={viewRef} syncKey={note.meta.id} readOnly={locked} />
+        <Editor value={body} onChange={locked || closing ? () => {} : setBody} resolveAttachment={resolveAttachment} viewRef={viewRef} syncKey={note.meta.id} readOnly={locked || closing} />
       </div>
 
       <footer className="nt-editor-foot" aria-label="Note metadata">
@@ -566,7 +701,6 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
         <span>{count} word{count === 1 ? '' : 's'}</span>
         {tasks && <span>{tasks}</span>}
         {locked && <span>Locked</span>}
-        {status && <span>{status}</span>}
       </footer>
 
       {strandedUrls.length > 0 && (
