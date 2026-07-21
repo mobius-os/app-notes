@@ -6,7 +6,8 @@
   "description": "Markdown notes for Möbius — live-inline editor, offline, git-tracked.",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --import ./test/setup.mjs --test"
+    "test": "node --import ./test/setup.mjs --test",
+    "verify:mobius": "npm run build && git diff --exit-code -- index.jsx"
   },
   "devDependencies": {
     "@codemirror/commands": "6.10.3",
