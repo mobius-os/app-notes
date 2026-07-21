@@ -32,8 +32,8 @@ import EditorPanel from './ui/EditorPanel.jsx'
 import ConfirmModal from './ui/ConfirmModal.jsx'
 import { Icon } from './ui/icons.jsx'
 
-// A no-op document handle: the value the open-note hook returns when no note is
-// open (the sentinel path) or under the unit-test harness, where window.mobius
+// A no-op document handle: the value the open-note hook returns under the
+// unit-test harness, where window.mobius
 // is absent. Keeps a stable shape so callers can read .value/.status/.lastError
 // unconditionally.
 const NO_DOC = { value: null, status: 'idle', lastError: null, update: async () => {}, set: async () => {}, refresh: async () => {} }
@@ -291,25 +291,23 @@ export default function App({ appId }) {
   // mode 'lww' (per-note files avoid same-path clobber; backend CAS isn't live).
   const openId = view.mode === 'editor' ? view.id : null
   const openNote = openId ? notes.find((n) => n.meta.id === openId && !n.placeholder) : null
-  const openPath = openId ? (openNote?.storagePath || notePath(openId)) : '__notes_no_open__.json'
+  const openPath = openId ? (openNote?.storagePath || notePath(openId)) : null
   // Keep the debounced-gc mirrors current (read in scheduleGc's setTimeout body).
   useEffect(() => { openIdRef.current = openId }, [openId])
   useEffect(() => { notesRef.current = notes }, [notes])
   useEffect(() => { draftRef.current = draft }, [draft])
   useEffect(() => { failedSaveIdsRef.current = failedSaveIds }, [failedSaveIds])
   const mergeNote = useMemo(() => makeMergeNote(onConflict), [onConflict])
-  // The deployed runtime keys its refresh/subscription effects on these option
-  // references. Keeping both the callback and options object stable prevents an
-  // unrelated render from tearing down the subscription and re-reading the same
-  // document in a tight loop.
+  // A null path is the runtime's explicit idle document state: no read,
+  // subscription, or write. Keeping the live options stable also prevents an
+  // unrelated render from re-arming an open note's subscription.
   const openDocOptions = useMemo(() => ({
     initial: null,
     identity: NOTE_DOC_IDENTITY,
     merge: mergeNote,
     mode: 'lww',
   }), [mergeNote])
-  // Always called (stable hook position); inert when no note is open (the
-  // sentinel path is never written) or under the test harness (returns NO_DOC).
+  // Always called at a stable hook position; the test harness returns NO_DOC.
   const liveDoc = useDocument(openPath, openDocOptions)
   // useDocument returns a FRESH handle object every render, so depending on the whole
   // `liveDoc` in writeNote would rebuild writeNote → persist → the editor's flushSave

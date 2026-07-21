@@ -37,6 +37,7 @@ function installMobius() {
   const pathSubs = new Map()
   const docSubs = new Map()
   let docEffectRuns = 0
+  const documentPaths = []
   function notify(path) {
     const v = store.has(path) ? store.get(path) : null
     for (const cb of pathSubs.get(path) || []) { try { cb(v) } catch {} }
@@ -73,10 +74,11 @@ function installMobius() {
   }
   function createUseDocument(React) {
     return function useDocument(path, opts) {
+      documentPaths.push(path)
       const [value, setValue] = React.useState(opts?.initial ?? null)
       const baseRef = React.useRef(null)
       React.useEffect(() => {
-        if (!path || path.startsWith('__notes_no_open__')) return undefined
+        if (!path) return undefined
         docEffectRuns++
         let s = docSubs.get(path); if (!s) { s = new Set(); docSubs.set(path, s) }
         const cb = (v) => { baseRef.current = v; setValue(v) }
@@ -111,6 +113,7 @@ function installMobius() {
   }
   return {
     store,
+    documentPaths,
     seed(path, val) { store.set(path, val) },
     get docEffectRuns() { return docEffectRuns },
   }
@@ -167,6 +170,14 @@ const editorProps = () => { const n = safeFind((x) => x.props && Object.prototyp
 // TopBar is a real (unstubbed) function component the shim doesn't render, so reach
 // its onQuery prop on the element to drive a search-query state change.
 const topBar = () => safeFind((n) => n.props && typeof n.props.onQuery === 'function')
+
+test('grid mode uses the runtime idle-document contract instead of a sentinel file', async () => {
+  shim.mount(() => App({ appId: '1', token: 't' }))
+  await flush()
+  assert.equal(env.documentPaths.at(-1), null)
+  assert.equal(env.documentPaths.includes('__notes_no_open__.json'), false)
+  shim.unmount()
+})
 
 test('onSave (persist) keeps a stable identity across an unrelated re-render (autosave deps do not churn)', async () => {
   env.seed(notePath('n1'), { meta: { id: 'n1', title: 'T', type: 'note', color: null, pinned: false, attachments: [], updated: '2026-01-01T00:00:00.000Z' }, body: 'hello' })

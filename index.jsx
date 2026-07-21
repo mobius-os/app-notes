@@ -3742,7 +3742,7 @@ function App({ appId }) {
   const collection = useMemo3(() => makeNoteCollection({ onConflict }), [onConflict]);
   const openId = view.mode === "editor" ? view.id : null;
   const openNote = openId ? notes.find((n) => n.meta.id === openId && !n.placeholder) : null;
-  const openPath = openId ? openNote?.storagePath || notePath(openId) : "__notes_no_open__.json";
+  const openPath = openId ? openNote?.storagePath || notePath(openId) : null;
   useEffect6(() => {
     openIdRef.current = openId;
   }, [openId]);
