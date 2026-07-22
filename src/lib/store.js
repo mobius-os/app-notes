@@ -1,9 +1,9 @@
 // Storage IO for Notes — the glue that touches window.mobius.storage for the
-// non-note-document concerns: attachments (content-addressed blobs), the derived
-// index cache, and conflict descriptors. The per-note documents themselves now
+// non-note-document concerns: attachments (content-addressed blobs) and the
+// derived index cache. The per-note documents themselves
 // live behind collection.js (each note is a JSON document at notes/<id>.json,
 // written through the platform's useDocument-style serialized writer). Pure logic
-// (parse/serialize/hash/index/merge) lives in the other src/lib/* modules so it
+// (parse/serialize/hash/index) lives in the other src/lib/* modules so it
 // stays unit-testable; this glue is browser-only.
 //
 // Canonical notes live at notes/<id>.json ({ meta, body }); body is the markdown
@@ -17,8 +17,7 @@ import { notePath } from './note-doc.js'
 import { leaseAttachment, releaseAttachment, inflightAttachmentPaths } from './attachment-leases.js'
 
 // Re-export so callers that already reach for attachments through the store can
-// release a lease without a second import; the editor imports it directly from
-// attachment-leases.js to avoid pulling the merge stack into its bundle.
+// release a lease without a second import; the editor also imports it directly.
 export { releaseAttachment }
 
 const S = () => window.mobius.storage
@@ -71,20 +70,6 @@ export async function readIndex() {
   try { return await S().get('index.json') } catch { return null }
 }
 
-// Persist a conflict descriptor (a JSON object) at its
-// conflicts/<id>/<hashes>.json path so the in-app "Resolve now" agent can find
-// it. This descriptor is the SOLE surviving copy of
-// the losing side's body in a real two-device conflict (the note file keeps only
-// MINE's body), so its write must be durable-or-loud: durableWrite resolves
-// 'synced'|'queued' (queued offline is durable success, drains on reconnect) and
-// REJECTS DurableWriteError on a fatal dead-letter. The legacy set() would LIE —
-// report success while persisting nothing on a 4xx — silently destroying the
-// server side; the caller relies on this rejection to keep the note flagged and
-// surface a visible error instead.
-export async function writeConflict(path, descriptor) {
-  return S().durableWrite(path, descriptor, { kind: 'json' })
-}
-
 // Store a File/Blob as a content-addressed attachment; returns
 // {sha, ext, path, name}. Same bytes -> same sha -> same path (dedupe). The
 // 25 MiB cap is enforced by setBlob (throws); callers surface an in-app message.
@@ -126,9 +111,8 @@ export async function putAttachment(file) {
 // can fire (the 1.5s debounce) before a just-attached image's note write has
 // settled to the canonical file; listNotes() then misses that fresh ref and would
 // free the blob the editor is actively showing (a momentary stale revision could
-// also transiently drop a ref). Pinning the open body's refs closes that window —
-// belt-and-suspenders over the merge-based fix in the editor, so a transient stale
-// write can never orphan an in-use blob.
+// also transiently drop a ref). Pinning the open body's refs closes that window so
+// a transient stale write can never orphan an in-use blob.
 export async function gcAttachments(pin = []) {
   let entries
   try { entries = await S().list('attachments') } catch { return }

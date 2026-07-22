@@ -5,38 +5,12 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { strandedImageRefs, bodyAttachmentRefs } from '../lib/attachments.js'
 import { releaseAttachment } from '../lib/attachment-leases.js'
 import { toSdrImage } from '../lib/sdr-image.js'
-import { merge3 } from '../lib/merge.js'
 import ColorPicker from './ColorPicker.jsx'
 import Editor from '../editor/Editor.jsx'
 import { Icon } from './icons.jsx'
 
 const AUTOSAVE_MS = 600
 const EDITOR_DATE_FORMATTER = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
-
-// Ask the owner shell to spawn an agent chat to resolve a note's merge conflict.
-// The on-disk data dir is keyed by the app's NUMERIC storage id, not the slug:
-// the frame hands the app as `appId`. Building the draft's paths from `appId`
-// keeps the on-demand chat pointed at the dir that actually exists; a hard-coded slug
-// path (`/data/apps/notes/`) does not exist, so the agent's reads always fail.
-// Notes are JSON documents ({ meta, body }) at notes/<id>.json now (post the
-// useDocument migration); the body field holds the markdown.
-function resolveNow(note, appId) {
-  try {
-    const data = `/data/apps/${appId}`
-    window.parent.postMessage({
-      type: 'moebius:new-chat',
-      draft: `Resolve the Notes merge conflict for note ${note.meta.id}: read the descriptor under ${data}/conflicts/${note.meta.id}/, 3-way-merge mine + server against base (preserve attachment refs), write the result to ${data}/notes/${note.meta.id}.json as a JSON object {"meta":{...},"body":"<merged markdown>"}, then mark the descriptor resolved.`,
-    }, window.location.origin)
-  } catch (e) {}
-}
-
-// Map status string to modifier class for the status indicator. Using modifier
-// classes instead of a per-render cssVar snapshot avoids stale values on live
-// theme switches. 'Synced' is not shown (standard: nothing when online+idle).
-function statusClass(status) {
-  if (status === 'Resolving…') return 'is-resolving'
-  return 'is-default'
-}
 
 function editorDate(meta) {
   const raw = meta.updated || meta.created
@@ -58,12 +32,11 @@ function taskSummary(body) {
   return `${tasks.length} task${tasks.length === 1 ? '' : 's'} · ${done} done`
 }
 
-export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, onExternalConflict, resolveAttachment, putAttachment, conflict, status, forceSave, closeRequestRef, inactive = false }) {
+export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment, status, forceSave, closeRequestRef, inactive = false }) {
   const [title, setTitle] = useState(note.meta.title || '')
   const [body, setBody] = useState(note.body || '')
   const [showColors, setShowColors] = useState(false)
   const [attachErr, setAttachErr] = useState('')
-  const [externalConflict, setExternalConflict] = useState(false)
   const [closing, setClosing] = useState(false)
   const timer = useRef(null)
   const viewRef = useRef(null)
@@ -81,17 +54,13 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   // flushed (see the id-change effect), so a debounced flush never writes the
   // outgoing buffer under the incoming note's meta.
   const latest = useRef({ note, title: note.meta.title || '', body: note.body || '' })
-  // The `note.body` prop value the editor buffer was last reconciled against — the
-  // 3-way merge BASE for an EXTERNAL rewrite of the SAME note (agent conflict
-  // resolve or another device). When `note.body` changes while the
-  // id is unchanged, the reconcile effect merges the live buffer (mine) with the
-  // incoming body (theirs) against this base and repoints it. Seeded to the first
-  // note body; reset on every note-swap and every reconcile.
-  const reconciledBody = useRef(note.body || '')
+  // Last body received through the note prop. A same-note change is the platform's
+  // current last-write-wins value and must repaint the editor. Submitted local
+  // bodies are tracked separately so an older optimistic echo cannot jump the
+  // user's cursor backward while they continue typing.
+  const incomingBodyRef = useRef(note.body || '')
   const reconciledTitle = useRef(note.meta.title || '')
-  const localSaveBodies = useRef(new Set())
-  const externalConflictRef = useRef(false)
-  const externalConflictKey = useRef('')
+  const localWriteBodies = useRef(new Set())
 
   const isChecklist = note.meta.type === 'checklist'
   const locked = !!note.meta.locked
@@ -105,10 +74,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
   }, [note, title, body])
 
   const saveCurrentNote = useCallback((meta, nextBody) => {
-    if (externalConflictRef.current) {
-      return Promise.reject(new Error('Resolve the incoming edit before saving this note.'))
-    }
-    localSaveBodies.current.add(nextBody ?? '')
+    localWriteBodies.current.add(nextBody ?? '')
     let request
     try { request = Promise.resolve(onSave(meta, nextBody)) }
     catch (err) { request = Promise.reject(err) }
@@ -174,11 +140,8 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
         : Promise.resolve()
     }
     if (timer.current) clearTimeout(timer.current)
-    // Preserve attachments: persist's merge unions meta.attachments, but a flush
-    // that wrote `{ ...meta, title }` with no attachments key still carried the
-    // note's existing attachments via the prop spread — keep that, and additionally
-    // union any attachment refs the live body embeds, so an autosave can never drop
-    // an image record that the body still references mid-attach.
+    // Preserve both existing attachment records and every attachment reference in
+    // the live body, so an autosave can never drop an image mid-attach.
     const attachments = Array.from(new Set([
       ...(cur.note.meta.attachments || []),
       ...bodyAttachmentRefs(currentBody),
@@ -299,12 +262,9 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     if (timer.current) clearTimeout(timer.current)
     flushSave().catch(() => {}) // a refused save surfaces via the saveError banner; don't throw on note-swap
     latest.current = { note, title: note.meta.title || '', body: note.body || '' }
-    reconciledBody.current = note.body || ''
+    incomingBodyRef.current = note.body || ''
     reconciledTitle.current = note.meta.title || ''
-    localSaveBodies.current.clear()
-    externalConflictRef.current = false
-    externalConflictKey.current = ''
-    setExternalConflict(false)
+    localWriteBodies.current.clear()
     setTitle(note.meta.title || '')
     setBody(note.body || '')
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -320,82 +280,36 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.meta.title, note.meta.id, title])
 
-  // Reconcile the live buffer with an EXTERNAL rewrite of the OPEN note. When the
-  // agent conflict-resolver or another device writes
-  // notes/<id>.json, the app mirrors the new value into the grid and re-passes it as
-  // `note` (same id, new `note.body`). Without this effect the buffer keeps the OLD
-  // body: the editor never repaints AND the ~600ms autosave then writes the stale
-  // buffer back over the external body (the data-loss bug). Here we 3-way merge the
-  // incoming body (theirs) with the live buffer (mine) against the last-reconciled
-  // body (base) and push the result into CodeMirror, so the editor repaints and the
-  // autosave no-op check sees buffer == note.body (no stale clobber). A same-id
-  // note.body change is the only trigger; the note-swap effect above owns id changes
-  // (it resets reconciledBody first, so a swap short-circuits on incoming === base).
+  // Repaint the editor when the platform publishes a new last-write-wins value for
+  // the open note. The only exception is a local write echo: it may describe an
+  // older autosave while the user has already typed further, so adopting it would
+  // cause cursor jumps and duplicated text. No three-way merge or conflict gate is
+  // needed here; the platform value wins for genuinely external changes.
   useEffect(() => {
     if (latest.current.note.meta.id !== note.meta.id) return // a swap; handled above
     const incoming = note.body || ''
-    const base = reconciledBody.current
-    if (incoming === base) return // no external change (our own save echo, or a no-op)
+    if (incoming === incomingBodyRef.current) return
+    incomingBodyRef.current = incoming
     const v = viewRef.current
-    const mineBuf = v ? v.state.doc.toString() : body
+    const current = v ? v.state.doc.toString() : body
     // A local save echo is not an external rewrite. It may be older than the live
-    // editor if the user kept typing after autosave started; pushing it back into
-    // CodeMirror is the random-letter/duplication bug. Advance the merge base so
-    // future real external edits merge against the acknowledged snapshot, but do
-    // not touch the live buffer.
-    if (localSaveBodies.current.has(incoming)) {
-      localSaveBodies.current.delete(incoming)
-      reconciledBody.current = incoming
+    // editor if the user kept typing after autosave started; never push it back.
+    if (localWriteBodies.current.has(incoming)) {
+      localWriteBodies.current.delete(incoming)
       return
     }
-    // No local unsaved edits → adopt theirs verbatim; otherwise 3-way merge so the
-    // user's in-flight edits are preserved alongside the external change.
-    const mergedResult = mineBuf === base ? { conflict: false, text: incoming } : merge3(base, mineBuf, incoming)
-    if (mergedResult.conflict) {
-      if (timer.current) clearTimeout(timer.current)
-      const key = `${note.meta.id}\u0000${base}\u0000${mineBuf}\u0000${incoming}`
-      externalConflictRef.current = true
-      setExternalConflict(true)
-      if (externalConflictKey.current !== key) {
-        externalConflictKey.current = key
-        const cur = latest.current
-        const attachments = Array.from(new Set([
-          ...(cur.note.meta.attachments || []),
-          ...bodyAttachmentRefs(mineBuf),
-        ]))
-        const baseMeta = { ...cur.note.meta, title: reconciledTitle.current }
-        const mineMeta = { ...cur.note.meta, title: cur.title, attachments }
-        Promise.resolve(onExternalConflict?.({
-          base: { meta: baseMeta, body: base },
-          mine: { meta: mineMeta, body: mineBuf },
-          theirs: { meta: note.meta, body: incoming },
-        })).catch(() => {})
-      }
+    if (current === incoming) {
+      setBody(incoming)
       return
     }
-    const merged = mergedResult.text
-    reconciledBody.current = incoming
-    externalConflictRef.current = false
-    externalConflictKey.current = ''
-    setExternalConflict(false)
     if (v) {
-      const cur = v.state.doc.toString()
-      if (cur !== merged) {
-        // Preserve the caret as best we can across a full-doc replace (clamped to
-        // the new length). The updateListener turns this dispatch into onChange →
-        // setBody, keeping React state in sync; guard so this isn't retreated as a
-        // fresh local edit (merged === note.body when there were no local edits → the
-        // autosave effect sees a no-op; otherwise autosave persists the merged buffer).
-        const head = v.state.selection.main.head
-        v.dispatch({
-          changes: { from: 0, to: cur.length, insert: merged },
-          selection: { anchor: Math.min(head, merged.length) },
-        })
-      } else {
-        setBody(merged)
-      }
+      const head = v.state.selection.main.head
+      v.dispatch({
+        changes: { from: 0, to: current.length, insert: incoming },
+        selection: { anchor: Math.min(head, incoming.length) },
+      })
     } else {
-      setBody(merged)
+      setBody(incoming)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note.body])
@@ -641,7 +555,7 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
           </div>
           <div className="nt-hdr-spacer" />
           {(closing || status) && (
-            <span className={`nt-status ${statusClass(closing ? null : status)}`} role="status" aria-live="polite">
+            <span className="nt-status is-default" role="status" aria-live="polite">
               {closing ? 'Saving…' : status}
             </span>
           )}
@@ -656,13 +570,6 @@ export default function EditorPanel({ appId, note, onSave, onBack, onPin, onColo
         </div>
         <input ref={attachmentRef} type="file" name="note-attachment" onChange={handleFile} disabled={locked} className="nt-file-input" />
       </header>
-
-      {(conflict || externalConflict) && (
-        <div className="nt-conflict-bar" role="status">
-          <span className="nt-conflict-msg">Edited in two places — merging…</span>
-          {conflict && <button type="button" onClick={() => resolveNow(note, appId)} className="nt-conflict-btn">Resolve now</button>}
-        </div>
-      )}
 
       {attachErr && (
         <div className="nt-attach-err" role="alert">{attachErr}</div>

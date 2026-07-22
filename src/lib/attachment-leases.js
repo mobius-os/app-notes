@@ -2,9 +2,8 @@
 // store (which acquires a lease before a blob hits disk and treats every leased
 // path as GC-referenced) and the editor (which releases a lease once a note
 // durably references the path). It lives in its OWN module — not store.js — so
-// the editor can release a lease without importing the note-document merge stack
-// (note-doc → merge → node-diff3), which would otherwise bloat the editor's
-// dependency graph and break the isolated EditorPanel test bundle.
+// the editor can release a lease without importing the rest of the storage layer,
+// keeping the dependency graph small and the editor independently testable.
 //
 // WHY this exists: putAttachment writes the blob, but the NOTE that references it
 // is written by a SEPARATE, later await (the editor's onSave → writeNote upsert).

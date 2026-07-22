@@ -9,18 +9,16 @@ import {sha256Hex} from './hash.js'
 // The fields that define a note's *content identity*. Everything else in
 // frontmatter is volatile bookkeeping (updated, content_hash, mobius_rev,
 // parent_rev, created, id) and must NOT feed the hash — otherwise two devices
-// that made the same semantic edit would compute different hashes and a clean
-// fast-forward would look like a conflict. Stable identity is exactly what the
-// reconcile/merge layer compares (DESIGN §6).
+// that made the same semantic edit would compute different hashes and content
+// equality would become unstable. The app uses this hash to suppress no-op writes.
 //
 // We normalize to a canonical shape with a fixed key order and defaulted values
 // so the hash is invariant under meta key reordering and missing-vs-default
 // fields. `JSON.stringify` of this fixed-shape object is the digest input.
 //
 // `tags` and `archived` belong to REMOVED features (v1.2) but stay in the hash
-// input with their defaults: stored base hashes were computed over them, and
-// dropping them from the digest would make every legacy note look remotely
-// edited (a phantom conflict) on the first reconcile after the update. New
+// input with their defaults: stored hashes were computed over them, and dropping
+// them would make every legacy note look edited on its first comparison. New
 // notes never set them, so normalize()'s defaults keep their hashes identical
 // to an explicit `tags: [], archived: false`.
 //

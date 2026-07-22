@@ -45,9 +45,6 @@ before(async () => {
       b.onResolve({ filter: /(Editor|ColorPicker)\.jsx$/ }, () => ({ path: 'stub', namespace: 'stub' }))
       b.onResolve({ filter: /.*/ }, (a) => {
         if (a.kind === 'entry-point') return null
-        // node-diff3 backs merge3 (EditorPanel's external-rewrite reconcile) — let it
-        // resolve for real; only the render-heavy libs are stubbed.
-        if (a.path === 'node-diff3') return null
         if (!a.path.startsWith('.') && !a.path.startsWith('/')) return { path: 'noop', namespace: 'stub' }
         return null
       })
@@ -77,13 +74,12 @@ after(() => { try { rmSync(BUNDLE) } catch {} })
 // note identity must not change across re-renders).
 function props({ onSave, putAttachment }) {
   return {
-    appId: '1',
     note: { meta: { id: 'n1', title: 'T', type: 'note', color: null, pinned: false, attachments: [] }, body: 'orig body' },
     onSave,
     onBack() {}, onPin() {}, onColor() {}, onDelete() {},
     resolveAttachment: async () => null,
     putAttachment,
-    conflict: null, status: '', forceSave: false,
+    status: '', forceSave: false,
   }
 }
 

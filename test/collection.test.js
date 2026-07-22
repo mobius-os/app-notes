@@ -7,9 +7,8 @@ import { makeNoteCollection } from '../src/lib/collection.js'
 import { notePath } from '../src/lib/note-doc.js'
 
 // The collection is the storage glue that replaced the shadow outbox + seq-CAS
-// promote + reconcile driver. It gives each note the useDocument 'lww'
-// read-merge-write over the real runtime contract (modeled by the mock). These
-// tests pin the migration's required guarantees (a–e).
+// promote + reconcile driver. It gives closed notes a serialized last-write-wins
+// path over the real runtime contract (modeled by the mock).
 
 function withWindow(harness, fn) {
   const prev = globalThis.window
@@ -70,7 +69,7 @@ test('(b2) a closed-note save dead-letter rejects AND does not lose the existing
     const c = makeNoteCollection({})
     // An existing, server-confirmed note.
     h.seed(notePath('c1'), note('c1', 'original', { title: 'Keep me' }))
-    await c.load('c1') // seeds the merge ancestor (base)
+    await c.load('c1') // remembers the last readable value
     // A closed-note edit (e.g. a grid pin/color, or an autosave flush) is refused.
     h.forceDeadLetter(notePath('c1'), 413)
     await assert.rejects(
@@ -81,8 +80,7 @@ test('(b2) a closed-note save dead-letter rejects AND does not lose the existing
     // clobbered nothing), so the user's data survives and a retry is possible.
     assert.equal(h.server.get(notePath('c1')).value.body, 'original')
     assert.equal(h.server.get(notePath('c1')).value.meta.title, 'Keep me')
-    // A subsequent retry (server now accepts) lands the edit and merges cleanly
-    // against the UNCHANGED ancestor — no lost edit, no false-saved state stuck.
+    // A subsequent retry (server now accepts) lands the edit.
     const { result, value } = await c.update('c1', (prev) => ({ ...prev, body: 'edited' }))
     assert.equal(result.durability, 'synced')
     assert.equal(value.body, 'edited')
@@ -94,8 +92,7 @@ test('(b3) a retry of the SAME content after a dead-letter still reaches the ser
   // Guards the optimistic-baseline regression: after a refused save the app keeps
   // the optimistic note (so buffer == note), and a naive 'nothing changed' skip
   // would suppress the retry forever. The collection layer must (and does) re-issue
-  // the identical write — base never advanced on the refused write, so the retry
-  // merges against the last-confirmed ancestor and lands. (The app's `forceSave`
+  // the identical write. (The app's `forceSave`
   // gate is what makes flushSave/persist actually CALL this retry; this test pins
   // that the underlying write is not idempotently swallowed server-side.)
   const h = makeMockStorage()
@@ -130,46 +127,34 @@ test('(c) an OFFLINE write is durable success (queued), not a failure', async ()
   })
 })
 
-test('(d) concurrent same-note edits 3-way-merge via merge3 (no lost edit)', async () => {
+test('(d) an updater sees the latest readable value and its result wins', async () => {
   const h = makeMockStorage()
   await withWindow(h, async () => {
-    let conflicts = 0
-    const c = makeNoteCollection({ onConflict: () => { conflicts++ } })
-    // Seed a base and load it so the collection tracks the ancestor.
+    const c = makeNoteCollection()
     h.seed(notePath('n4'), note('n4', 'one\ntwo\nthree'))
     await c.load('n4')
 
-    // Simulate the server having a DIFFERENT concurrent edit on line 3 already
-    // landed when our edit (line 1) reaches the writer.
+    // Another writer lands first. The collection reads that current value before
+    // applying this local updater, then writes the updater's result verbatim.
     h.seed(notePath('n4'), note('n4', 'one\ntwo\nTHREE'))
     const { value } = await c.update('n4', (prev) => ({ ...prev, body: 'ONE\ntwo\nthree' }))
 
-    // Both edits survive (disjoint lines) — neither is lost.
-    assert.equal(value.body, 'ONE\ntwo\nTHREE')
-    assert.equal(conflicts, 0)
-    assert.equal(h.raw.get(notePath('n4')).value.body, 'ONE\ntwo\nTHREE')
+    assert.equal(value.body, 'ONE\ntwo\nthree')
+    assert.equal(h.raw.get(notePath('n4')).value.body, 'ONE\ntwo\nthree')
   })
 })
 
-test('(d2) overlapping same-line concurrent edits keep MINE and flag a conflict', async () => {
+test('(d2) overlapping writes are plain LWW with no descriptor side path', async () => {
   const h = makeMockStorage()
   await withWindow(h, async () => {
-    const sides = []
-    const c = makeNoteCollection({ onConflict: (s) => sides.push(s) })
+    const c = makeNoteCollection()
     h.seed(notePath('n5'), note('n5', 'a\nb\nc'))
     await c.load('n5')
     h.seed(notePath('n5'), note('n5', 'a\nY\nc')) // server edited line 2
     const { value } = await c.update('n5', (prev) => ({ ...prev, body: 'a\nX\nc' })) // we edited line 2
-    // LWW: our edit lands canonically, never silently dropped.
     assert.equal(value.body, 'a\nX\nc')
-    // The conflict is surfaced inside update() (awaited) with the UNIFIED contract:
-    // raw { base, mine, theirs } sides — the SAME shape makeMergeNote passes — so a
-    // single handler owns building + durably persisting the descriptor. The server
-    // (theirs) side carries its conflicting body, which the descriptor must keep.
-    assert.equal(sides.length, 1)
-    assert.equal(sides[0].mine.meta.id, 'n5')
-    assert.equal(sides[0].mine.body, 'a\nX\nc')   // our edit (lands in the note)
-    assert.equal(sides[0].theirs.body, 'a\nY\nc') // the server side (lost from the note; kept in the descriptor)
+    assert.equal(h.raw.get(notePath('n5')).value.body, 'a\nX\nc')
+    assert.equal([...h.raw.keys()].some((path) => path.startsWith('conflicts/')), false)
   })
 })
 

@@ -5,7 +5,8 @@ import { resolve } from 'node:path'
 
 const manifest = JSON.parse(readFileSync(resolve(process.cwd(), 'mobius.json'), 'utf8'))
 
-test('manifest ships the resolver job without a recurring Notes cron', () => {
+test('manifest schedules the deterministic snapshot job every ten minutes', () => {
   assert.equal(manifest.schedule?.job, 'job.sh')
-  assert.equal(Object.hasOwn(manifest.schedule || {}, 'default'), false)
+  assert.equal(manifest.schedule?.default, '*/10 * * * *')
+  assert.equal(manifest.schedule?.user_configurable, false)
 })

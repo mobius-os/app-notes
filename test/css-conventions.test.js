@@ -35,7 +35,6 @@ test('accent/danger fills use var(--accent-fg) with no hardcoded white', () => {
 test('small icon/alert/modal buttons meet the 44px touch floor', () => {
   assert.match(CSS, new RegExp(inBlock('.nt-icon-btn').source + 'width:\\s*44px'), '.nt-icon-btn is a 44px hit target')
   assert.match(CSS, new RegExp(inBlock('.nt-modal-btn').source + 'min-height:\\s*44px'), '.nt-modal-btn is >= 44px')
-  assert.match(CSS, new RegExp(inBlock('.nt-conflict-btn').source + 'min-height:\\s*44px'), '.nt-conflict-btn is >= 44px')
   assert.match(CSS, new RegExp(inBlock('.nt-save-err-btn').source + 'min-height:\\s*44px'), '.nt-save-err-btn is >= 44px')
   assert.match(CSS, new RegExp(inBlock('.nt-new-note-btn').source + 'height:\\s*44px'), '.nt-new-note-btn is 44px')
   assert.match(CSS, new RegExp(inBlock('.nt-empty-action').source + 'min-height:\\s*44px'), '.nt-empty-action is >= 44px')

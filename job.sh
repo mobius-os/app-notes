@@ -1,141 +1,49 @@
 #!/bin/bash
-# Notes resolver job. $1 is the numeric app id, i.e. the storage dir
-# /data/apps/<id>. It does two things when run manually:
-#   1. git-snapshot the canonical notes for history/audit + dreaming time-travel
-#   2. resolve any merge-conflict descriptors via an agent — leased so this job
-#      and the in-app "Resolve now" can't double-resolve, and verify-before-write
-#      so a newer edit that landed since the conflict is never clobbered.
-# Cheap no-op when nothing is dirty / no conflicts are open.
+# Snapshot canonical Notes documents into the app data directory's local git
+# history. The job is intentionally deterministic and agent-free: it commits
+# only when note content changed, and it never reads or rewrites a note itself.
 set -uo pipefail
 
 ID="${1:?usage: job.sh <app-id>}"
 DATA="/data/apps/$ID"
-LOG=/data/cron-logs/notes.log
+LOG="/data/cron-logs/notes.log"
 mkdir -p "$(dirname "$LOG")"
-[ -d "$DATA" ] || { echo "$(date -u +%FT%TZ) tick: no data dir $DATA" >> "$LOG"; exit 0; }
 
-# Emit ONE resolver_summary signal per run to the app's signals.jsonl through the raw
-# storage API, so Reflection can see the resolver ran (and whether it failed). The
-# line schema mirrors the runtime makeSignal(): {ts, name, ...flat payload}. Strictly
-# best-effort — a signal write must NEVER fail or block the job. (Only verifiable
-# against a live container: it needs the service token + a running API.)
-API_BASE_URL="${API_BASE_URL:-http://localhost:8000}"
-SERVICE_TOKEN_FILE="${SERVICE_TOKEN_FILE:-/data/service-token.txt}"
-emit_resolver_summary() { # $1 status  $2 conflicts_open  $3 conflicts_resolved  $4 message
-  [ -r "$SERVICE_TOKEN_FILE" ] || return 0
-  local tok ts line url cur
-  tok=$(cat "$SERVICE_TOKEN_FILE" 2>/dev/null) || return 0
-  [ -n "$tok" ] || return 0
-  ts=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
-  line=$(printf '{"ts":"%s","name":"resolver_summary","status":"%s","conflicts_open":%s,"conflicts_resolved":%s,"message":"%s"}' \
-    "$ts" "$1" "$2" "$3" "$4")
-  url="$API_BASE_URL/api/storage/apps/$ID/signals.jsonl"
-  # Command substitution strips the file's trailing newline, so re-add one
-  # between the existing content and our line or the two JSON objects would
-  # concatenate into one unparseable row. The tail-cap bounds growth between
-  # app opens (the runtime re-seeds tail-400 and overwrites on its next open).
-  cur=$(curl -fsS -H "Authorization: Bearer $tok" "$url" 2>/dev/null || true)
-  { [ -n "$cur" ] && printf '%s\n' "$cur"; printf '%s\n' "$line"; } | tail -n 500 | curl -fsS -X PUT \
-    -H "Authorization: Bearer $tok" -H "Content-Type: text/plain" \
-    --data-binary @- "$url" >/dev/null 2>&1 || true
-}
+if [ ! -d "$DATA" ]; then
+  echo "$(date -u +%FT%TZ) snapshot skipped: no data dir $DATA" >> "$LOG"
+  exit 0
+fi
 
-# ---- 1. git snapshot (canonical notes only) ----
 cd "$DATA" || exit 0
 if [ ! -d .git ]; then
   git init -q
-  git config user.email "notes@mobius"
-  git config user.name "Notes"
 fi
-# Never snapshot transitional state: drafts, open conflicts, leases, the derived
-# index, or half-written *.tmp files (canonical writes rename .tmp -> final).
-# Ignore transient sync state, the derived index, half-written tmp files, and
-# the (content-addressed, immutable) attachment blobs — git tracks note CONTENT.
-printf 'drafts/\nconflicts/\nleases/\nattachments/\nindex.json\n*.tmp\n' > .gitignore
-git add -A 2>/dev/null || true
-if ! git diff --cached --quiet 2>/dev/null; then
-  git commit -q -m "snapshot $(date -u +%FT%TZ)" 2>>"$LOG" || true
+git config user.email "notes@mobius"
+git config user.name "Notes"
+
+# History contains canonical note text and lightweight metadata only. Derived,
+# transient, and content-addressed files stay out; old conflict/lease directories
+# remain ignored for compatibility with installations that once created them.
+printf 'drafts/\nconflicts/\nleases/\nattachments/\nindex.json\nsignals.jsonl\n*.tmp\n' > .gitignore
+# Older releases briefly tracked derived/runtime files. Remove those paths from
+# the current snapshot index without touching their working-tree copies.
+git rm -r -q --cached --ignore-unmatch -- \
+  drafts conflicts leases attachments index.json signals.jsonl '*.tmp' 2>>"$LOG" || true
+stage_paths=(.gitignore)
+[ -e notes ] && stage_paths+=(notes)
+[ -e notes-meta.json ] && stage_paths+=(notes-meta.json)
+git add -A -- "${stage_paths[@]}" 2>>"$LOG" || {
+  echo "$(date -u +%FT%TZ) snapshot failed: could not stage note data" >> "$LOG"
+  exit 1
+}
+
+if git diff --cached --quiet --exit-code; then
+  exit 0
 fi
 
-# ---- 2. resolve conflict descriptors via agent (leased + verify) ----
-CONF="$DATA/conflicts"
-LEASES="$DATA/leases"
-[ -d "$CONF" ] || { emit_resolver_summary ok 0 0 "snapshot ok; no conflicts"; exit 0; }
-mkdir -p "$LEASES"
-now=$(date +%s)
-RID="job-$$-$now"
-TTL=900
-resolver_err=0
-
-read -r -d '' RESOLVE_PROMPT <<'PROMPT' || true
-You resolve a single merge conflict in the Möbius "Notes" app.
-
-You are given a CONFLICT DESCRIPTOR file path. It is JSON with:
-  { noteId, baseHash, base:{meta,body}, mineHash, mine:{meta,body},
-    serverHash, server:{meta,body}, attachmentsMine, attachmentsServer, status }
-
-Notes are stored as JSON documents at <DATA>/notes/<noteId>.json — each file is
-{ "meta": {...frontmatter fields...}, "body": "<markdown string>" }. The note's
-text content is the `body` string (markdown). (Older installs may still hold a
-legacy <noteId>.md frontmatter-markdown file; if only the .md exists, treat its
-parsed { meta, body } as the canonical note and write the resolved result as the
-.json document, then delete the .md.)
-
-Procedure (follow exactly):
-1. Read the descriptor JSON.
-2. Re-read the CURRENT canonical note at <DATA>/notes/<noteId>.json and take its
-   `body`. When the app raises a body conflict it PERSISTS `mine.body` to the note
-   file (the descriptor is the only surviving copy of `server.body`), so the current
-   canonical body should equal the descriptor's `mine.body`. If it NO LONGER matches
-   `mine.body` (a newer edit landed since the conflict was raised), ABANDON — do NOT
-   write the note, leave the descriptor as-is, and stop. A later run retries against
-   the new state. (Do NOT compare against `server.body`: by construction the note
-   file already holds `mine.body`, not `server.body`, so a `server.body` check would
-   wrongly abandon every real conflict.)
-3. Otherwise do a careful THREE-WAY merge of base/mine/server BODIES: keep both
-   sides' intent, reason about meaning (not just lines), and PRESERVE every
-   attachment reference exactly — ![alt](attachments/<sha>.<ext>) and
-   [name](attachments/<sha>.<ext>). Merge frontmatter: union `attachments`; keep
-   `id` and `created`; set `parent_revs` to [mine.mobius_rev, server.mobius_rev];
-   bump `mobius_rev`; refresh `updated`; recompute `content_hash`.
-4. Write the merged note to <DATA>/notes/<noteId>.json as a JSON object
-   { "meta": {...}, "body": "<merged markdown>" } by writing a sibling
-   <noteId>.json.tmp first and then renaming it over the final path (atomic).
-5. Only if the written file matches what you intended, set the descriptor's
-   "status" field to "resolved".
-Keep the markdown body clean. Never invent content. Touch only this note +
-descriptor.
-PROMPT
-
-shopt -s nullglob
-for desc in "$CONF"/*/*.json; do
-  [ -f "$desc" ] || continue
-  note=$(basename "$(dirname "$desc")")
-  status=$(grep -oE '"status"[: ]*"[a-z]+"' "$desc" | grep -oE '[a-z]+"$' | tr -d '"' || echo open)
-  [ "$status" = "resolved" ] && continue
-  lease="$LEASES/$note.json"
-  if [ -f "$lease" ]; then
-    until=$(grep -oE '"leaseUntil"[: ]*[0-9]+' "$lease" | grep -oE '[0-9]+' | tail -1 || echo 0)
-    [ "${until:-0}" -gt "$now" ] && continue   # a live lease — someone else is on it
-  fi
-  printf '{"resolverId":"%s","leaseUntil":%s,"descriptor":"%s"}\n' "$RID" "$((now + TTL))" "$desc" > "$lease"
-  echo "$(date -u +%FT%TZ) resolving $desc" >> "$LOG"
-  claude -p "Resolve the Notes merge conflict in descriptor: $desc . The app data dir <DATA> is $DATA (notes live in $DATA/notes/)." \
-    --append-system-prompt "${RESOLVE_PROMPT//<DATA>/$DATA}" \
-    --allowedTools "Read,Write,Edit,Bash" \
-    --dangerously-skip-permissions >> "$LOG" 2>&1 \
-    || { echo "$(date -u +%FT%TZ) resolver error: $note" >> "$LOG"; resolver_err=1; }
-  rm -f "$lease"
-done
-
-# Recount descriptors after the run so the summary reflects the resolver's outcome.
-resolved_count=0
-open_count=0
-for desc in "$CONF"/*/*.json; do
-  [ -f "$desc" ] || continue
-  st=$(grep -oE '"status"[: ]*"[a-z]+"' "$desc" | grep -oE '[a-z]+"$' | tr -d '"' || echo open)
-  if [ "$st" = "resolved" ]; then resolved_count=$((resolved_count + 1)); else open_count=$((open_count + 1)); fi
-done
-summary_status=ok
-[ "$resolver_err" -eq 1 ] && summary_status=error
-emit_resolver_summary "$summary_status" "$open_count" "$resolved_count" "resolved=$resolved_count open=$open_count"
+if git commit -q -m "snapshot $(date -u +%FT%TZ)" 2>>"$LOG"; then
+  echo "$(date -u +%FT%TZ) snapshot committed" >> "$LOG"
+else
+  echo "$(date -u +%FT%TZ) snapshot failed: git commit" >> "$LOG"
+  exit 1
+fi

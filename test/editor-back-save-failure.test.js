@@ -43,11 +43,9 @@ before(async () => {
       // heavy children stubbed to inert components (avoid bundling CodeMirror /
       // react-dom; the jsx shim never invokes them anyway — it only records type).
       b.onResolve({ filter: /(Editor|ColorPicker)\.jsx$/ }, () => ({ path: 'stub', namespace: 'stub' }))
-      // any other bare lib specifier -> noop module (but let node-diff3 resolve for
-      // real — it backs merge3, EditorPanel's external-rewrite reconcile).
+      // Any other bare library specifier is stubbed for this render-only test.
       b.onResolve({ filter: /.*/ }, (a) => {
         if (a.kind === 'entry-point') return null
-        if (a.path === 'node-diff3') return null
         if (!a.path.startsWith('.') && !a.path.startsWith('/')) return { path: 'noop', namespace: 'stub' }
         return null
       })
@@ -81,12 +79,11 @@ after(() => { try { rmSync(BUNDLE) } catch {} })
 // though the buffer equals the note prop after an optimistic update.
 function props(onSave, onBack) {
   return {
-    appId: '1',
     note: { meta: { id: 'n1', title: 'T', type: 'note', color: null, pinned: false }, body: 'hello' },
     onSave, onBack,
     onPin() {}, onColor() {}, onDelete() {},
     resolveAttachment: async () => null, putAttachment: null,
-    conflict: null, status: '', forceSave: true,
+    status: '', forceSave: true,
   }
 }
 

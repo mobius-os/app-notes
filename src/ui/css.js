@@ -660,26 +660,10 @@ export const CSS = `
   font-size: 12px; white-space: nowrap; margin-right: 2px; flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
-/* Online+idle: nothing shown (standard). Resolving uses accent; others muted. */
-.nt-status.is-resolving { color: var(--nt-accent-ink); }
+/* Online+idle: nothing shown (standard); exceptional states stay muted here. */
 .nt-status.is-default { color: var(--muted); }
 /* /mobius-ui:SyncPill */
 .nt-hdr-spacer { flex: 1; min-width: 4px; }
-.nt-conflict-bar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 16px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--text); font-size: 13px; flex: 0 0 auto;
-}
-.nt-conflict-msg { flex: 1; }
-.nt-conflict-btn {
-  min-height: 44px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--nt-accent-ink); background: transparent; color: var(--nt-accent-ink);
-  border-radius: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer;
-  flex-shrink: 0; font-family: var(--font);
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-}
 .nt-attach-err {
   padding: 8px 16px;
   background: color-mix(in srgb, var(--danger) 14%, transparent);

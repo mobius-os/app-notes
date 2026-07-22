@@ -1,5 +1,4 @@
-// P0-High regression: an EXTERNAL rewrite of the OPEN note (agent conflict
-// resolver or another device writing notes/<id>.json) must repaint
+// An EXTERNAL last-write-wins rewrite of the OPEN note must repaint
 // the editor buffer AND must never let the ~600ms autosave write the stale buffer
 // back over the external body. Before the fix, EditorPanel only reset its buffer on
 // a note-IDENTITY change, so a same-id `note.body` change never reached CodeMirror
@@ -7,7 +6,7 @@
 // silently clobbering the merge (data loss).
 //
 // This exercises the REAL EditorPanel (only the CodeMirror Editor + ColorPicker are
-// stubbed; node-diff3 / merge3 resolve for real), driven through a wrapper whose own
+// stubbed), driven through a wrapper whose own
 // useState feeds a CHANGING `note` prop while EditorPanel's hooks are preserved
 // across re-renders — the way the app re-passes the note after mirroring an external
 // write into the grid. With the Editor stubbed, viewRef.current stays null, so the
@@ -36,8 +35,6 @@ before(async () => {
       b.onResolve({ filter: /(Editor|ColorPicker)\.jsx$/ }, () => ({ path: 'stub', namespace: 'stub' }))
       b.onResolve({ filter: /.*/ }, (a) => {
         if (a.kind === 'entry-point') return null
-        // merge3's real 3-way merge is under test — let node-diff3 resolve.
-        if (a.path === 'node-diff3') return null
         if (!a.path.startsWith('.') && !a.path.startsWith('/')) return { path: 'noop', namespace: 'stub' }
         return null
       })
@@ -92,11 +89,10 @@ const colorPicker = () => findEl((n) => n.props && typeof n.props.onPick === 'fu
 let setNote
 function mountWithNote(note0, onSave, extra = {}) {
   const stable = {
-    appId: '1', onSave,
+    onSave,
     onBack() {}, onPin() {}, onColor() {}, onDelete() {},
-    onExternalConflict() {},
     resolveAttachment: async () => null, putAttachment: async () => ({}),
-    conflict: null, status: '', forceSave: false,
+    status: '', forceSave: false,
     ...extra,
   }
   shim.mount(() => {
@@ -125,7 +121,7 @@ test('external body rewrite of the open note repaints the buffer and fires no st
   shim.unmount()
 })
 
-test('external rewrite with local unsaved edits 3-way-merges; the merge (not the stale local body) is what saves', async () => {
+test('an external LWW rewrite replaces local unsaved text and is not overwritten by autosave', async () => {
   const saves = []
   const onSave = (meta, body) => { saves.push(body); return Promise.resolve() }
   const note0 = { meta: { id: 'n2', title: 'T', type: 'note', color: null, pinned: false, attachments: [] }, body: 'a\nb\nc' }
@@ -136,19 +132,13 @@ test('external rewrite with local unsaved edits 3-way-merges; the merge (not the
   await tick()
   assert.equal(editorEl().props.value, 'a\nB local\nc', 'sanity: local edit is in the buffer')
 
-  // External writer edits line 3 (disjoint from the local line-2 edit) → clean merge.
+  // The platform publishes a newer external value. LWW means that value wins;
+  // there is no app-side merge or save gate.
   setNote({ ...note0, body: 'a\nb\nC external' })
   await tick()
-  assert.equal(editorEl().props.value, 'a\nB local\nC external', 'the buffer is the 3-way merge of local + external')
-
-  // Flush via Back: the merged buffer persists — never the stale local-only body
-  // (which would clobber the external edit) nor the external-only body (which would
-  // drop the local edit).
-  await backBtn().props.onClick()
-  await tick()
-  assert.ok(saves.length >= 1, 'the merged buffer was persisted on flush')
-  assert.equal(saves[saves.length - 1], 'a\nB local\nC external', 'the persisted body is the merge, preserving both edits')
-  assert.ok(!saves.includes('a\nB local\nc'), 'the stale local-only body never clobbered the external edit')
+  assert.equal(editorEl().props.value, 'a\nb\nC external', 'the editor adopts the platform value verbatim')
+  await wait(700)
+  assert.deepEqual(saves, [], 'the replaced local buffer is never autosaved back over the external value')
   shim.unmount()
 })
 
@@ -173,25 +163,23 @@ test('open-editor color changes persist the live CodeMirror body', async () => {
   shim.unmount()
 })
 
-test('overlapping external edits do not inject raw conflict markers into the editor', async () => {
+test('an older local save echo never clobbers typing that continued afterward', async () => {
   const saves = []
-  const conflicts = []
   const onSave = (meta, body) => { saves.push(body); return Promise.resolve() }
-  const onExternalConflict = (sides) => { conflicts.push(sides); return Promise.resolve() }
   const note0 = { meta: { id: 'n4', title: 'T', type: 'note', color: null, pinned: false, attachments: [] }, body: 'a\nb\nc' }
-  mountWithNote(note0, onSave, { onExternalConflict })
+  mountWithNote(note0, onSave)
 
-  editorEl().props.onChange('a\nlocal edit\nc')
+  editorEl().props.onChange('first local snapshot')
   await tick()
-  setNote({ ...note0, body: 'a\nexternal edit\nc' })
+  await backBtn().props.onClick()
+  await tick()
+  assert.equal(saves.at(-1), 'first local snapshot', 'sanity: the local snapshot was submitted')
+
+  editorEl().props.onChange('first local snapshot plus more typing')
+  await tick()
+  setNote({ ...note0, body: 'first local snapshot' })
   await tick()
 
-  assert.equal(editorEl().props.value, 'a\nlocal edit\nc', 'the local typing surface stays readable')
-  assert.doesNotMatch(editorEl().props.value, /<<<<<<<|=======|>>>>>>>/, 'raw conflict markers are not shown while typing')
-  assert.equal(conflicts.length, 1, 'the overlapping external edit is recorded for resolver recovery')
-  assert.equal(conflicts[0].mine.body, 'a\nlocal edit\nc')
-  assert.equal(conflicts[0].theirs.body, 'a\nexternal edit\nc')
-  await wait(700)
-  assert.deepEqual(saves, [], 'the pending autosave is blocked while the external conflict is unresolved')
+  assert.equal(editorEl().props.value, 'first local snapshot plus more typing', 'the stale echo does not jump the buffer backward')
   shim.unmount()
 })

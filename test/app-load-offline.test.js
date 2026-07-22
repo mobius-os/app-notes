@@ -1,5 +1,5 @@
 // P0 + low-bug regressions on the app-load path, exercised through the WHOLE App
-// (heavy children stubbed; node-diff3 + src/lib resolve for real):
+// (heavy children stubbed; src/lib resolves for real):
 //
 //   H2 offline cold load — storage.list() has no offline mirror, so it returns null
 //      when enumeration is unavailable. The grid must keep the index.json cache's
