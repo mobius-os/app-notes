@@ -1,7 +1,7 @@
 {
   "id": "notes",
   "name": "Notes",
-  "version": "1.2.32",
+  "version": "1.2.33",
   "description": "Markdown notes that render as you type, with checklists, pins, colors, search, and images.",
   "author": "mobius-os",
   "license": "MIT",
@@ -9,9 +9,25 @@
   "entry": "index.jsx",
   "icon": "icon.png",
   "offline_capable": true,
-  "permissions": { "cross_app_access": "none", "share_with_apps": "none" },
+  "permissions": {
+    "cross_app_access": "none",
+    "share_with_apps": "none"
+  },
   "runtime": {
-    "imports": ["react", "react-dom", "codemirror", "@codemirror/state", "@codemirror/view", "@codemirror/commands", "@codemirror/lang-markdown", "@codemirror/language", "@lezer/highlight", "katex", "marked", "dompurify"],
+    "imports": [
+      "react",
+      "react-dom",
+      "codemirror",
+      "@codemirror/state",
+      "@codemirror/view",
+      "@codemirror/commands",
+      "@codemirror/lang-markdown",
+      "@codemirror/language",
+      "@lezer/highlight",
+      "katex",
+      "marked",
+      "dompurify"
+    ],
     "esm_deps": []
   },
   "storage_seeds": {
@@ -30,5 +46,9 @@
     "writes": "queued",
     "execution": "full"
   },
-  "schedule": { "job": "job.sh" }
+  "schedule": {
+    "default": "*/10 * * * *",
+    "user_configurable": false,
+    "job": "job.sh"
+  }
 }

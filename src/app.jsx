@@ -3,7 +3,7 @@
 // Source entry. esbuild bundles this + src/{lib,ui,editor}/* into the single
 // index.jsx the platform installs (npm run build). The platform compiler then
 // embeds React, CodeMirror, KaTeX, Marked, DOMPurify, and their dependency
-// graphs into the installed module. Pure logic (frontmatter, hashing, merge)
+// graphs into the installed module. Pure logic (frontmatter, hashing, indexing)
 // lives in src/lib/* and is unit-tested with `node --test`.
 //
 // PERSISTENCE (migrated to the platform useDocument primitive): each note is a
@@ -12,10 +12,9 @@
 // + offline outbox replace the app's old shadow-IndexedDB outbox, seq-CAS
 // promote, and reconcile driver (all deleted). A note write is durable on a
 // 'synced' or 'queued' result; a server refusal rejects DurableWriteError, which
-// surfaces as an error (never a false "saved"). Concurrent same-note edits
-// 3-way-merge via merge3 (note-doc.js → merge.js, conflict semantics preserved
-// exactly); a real conflict still emits the immutable conflicts/<id>/…json
-// descriptor the in-app agent resolver reads. See DESIGN.md for the model.
+// surfaces as an error (never a false "saved"). Concurrent same-note writes use
+// the platform's built-in last-write-wins behavior; Notes does not layer another
+// merge, conflict state machine, or resolver on top. See DESIGN.md for the model.
 
 import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react'
 import { CSS } from './ui/css.js'
@@ -25,7 +24,7 @@ import { visibleNotes } from './lib/visible.js'
 import * as store from './lib/store.js'
 import { bodyAttachmentRefs } from './lib/attachments.js'
 import { makeNoteCollection } from './lib/collection.js'
-import { notePath, makeMergeNote, conflictDescriptorFor } from './lib/note-doc.js'
+import { notePath } from './lib/note-doc.js'
 import { migrateLegacyNotes } from './lib/migrate.js'
 import Grid from './ui/Grid.jsx'
 import EditorPanel from './ui/EditorPanel.jsx'
@@ -191,7 +190,6 @@ export default function App({ appId }) {
   const [view, setView] = useState({ mode: 'grid', id: null })
   const [draft, setDraft] = useState(null)
   const [confirmId, setConfirmId] = useState(null)
-  const [conflicts, setConflicts] = useState(() => new Set())
   const [saveError, setSaveError] = useState(null)
   // Ids whose LAST durable write was REFUSED (dead-lettered). The optimistic
   // upsert leaves such a note's in-memory value equal to its editor buffer, which
@@ -214,34 +212,11 @@ export default function App({ appId }) {
   const notesRef = useRef([])
   const draftRef = useRef(null)
   const failedSaveIdsRef = useRef(new Set())
-  // The BODY of the last document THIS client wrote, keyed by note id. The
-  // open-note subscribe below uses it to tell an EXTERNAL resolution (the agent /
-  // another device rewriting the body) apart from MINE's own save AND from a
-  // self-raised conflict — and to clear the "Resolving…" indicator ONLY for the
-  // external case.
-  //
-  // It is the BODY ALONE, not a content hash over body+display-meta. A self-raised
-  // body conflict lands {body: mine.body, meta: mergeMeta(...)} (see
-  // mergeNoteDocs): the body stays MINE, but mergeMeta takes title/color/pinned/
-  // type/archived/tags from the LATER side, so if THEIRS is the later write and
-  // changed a display field, a content hash would differ from mine and the
-  // indicator would clear early even though MINE's body is still the conflict's
-  // unresolved content. Gating on the body alone keeps the indicator up until an
-  // external writer actually rewrites the body off mine — the true signal that the
-  // conflict was resolved. A Map, not a single value, so switching between
-  // conflicted notes keeps each note's marker.
-  const lastWrittenBodyRef = useRef(new Map())
   // Connectivity as REACTIVE state (not a render-time store.isOnline() read, which
   // never updated until an unrelated re-render). Driven by the window online/offline
   // events; going online also re-lists the canonical notes (see the effect below),
   // because list() has no offline mirror so a cold offline load can't enumerate.
   const [online, setOnline] = useState(() => store.isOnline())
-  // A ref mirror of the conflicts set, so the open-note subscribe (which is keyed on
-  // openId only) can tell whether the note it just saw resolved was actually flagged
-  // — gating the conflict_resolved signal to real resolutions, not routine edits.
-  const conflictsRef = useRef(conflicts)
-  useEffect(() => { conflictsRef.current = conflicts }, [conflicts])
-
   const setDraftNow = useCallback((next) => {
     draftRef.current = typeof next === 'function' ? next(draftRef.current) : next
     setDraft(draftRef.current)
@@ -254,59 +229,16 @@ export default function App({ appId }) {
     return next
   }, [])
 
-  // The conflict callback for any merge that detects a genuine overlapping-body
-  // conflict. BOTH writers (the open-editor liveDoc via makeMergeNote, and the
-  // collection's update for closed notes) call this with the SAME { base, mine,
-  // theirs } sides — one shape, one builder here. The descriptor is the ONLY
-  // surviving copy of THEIRS's body (the note file keeps just MINE's), and it is
-  // the sole input to the "Resolve now" resolver, so its write must be
-  // durable-or-loud: store.writeConflict now uses durableWrite, which resolves on
-  // 'synced'/'queued' (queued offline drains on reconnect) and REJECTS on a fatal
-  // dead-letter. On rejection we KEEP the note flagged conflicted and surface a
-  // visible error rather than swallowing it — otherwise the server side would be
-  // silently and permanently lost. Returns a promise so the collection path can
-  // await deterministic persistence. Async hashing runs here, off the sync merge.
-  const onConflict = useCallback(async (sides) => {
-    const id = sides?.mine?.meta?.id ?? sides?.theirs?.meta?.id ?? sides?.base?.meta?.id
-    if (id != null) {
-      setConflicts((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
-    }
-    try {
-      const d = await conflictDescriptorFor(sides.base, sides.mine, sides.theirs, contentHash)
-      if (d) {
-        await store.writeConflict(d.path, d)
-        // The descriptor is durably persisted — a real conflict is now on record.
-        window.mobius?.signal?.('conflict_raised', { note_count: 1 })
-      }
-    } catch (err) {
-      // The descriptor write fatally dead-lettered (or the descriptor could not be
-      // built). The losing side's body lives ONLY in this descriptor, so a swallowed
-      // failure is silent data loss. Keep the note flagged conflicted and raise a
-      // visible, actionable error so the user/agent can re-capture it on reconnect.
-      window.mobius?.signal?.('error', { message: err?.message ?? 'conflict save failed', source: 'onConflict' })
-      if (id != null) {
-        setConflicts((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
-        setSaveError({
-          id,
-          message: 'Merge conflict could not be saved for recovery — your local copy is kept. Reconnect and reopen the note to retry.',
-        })
-      }
-      throw err
-    }
-  }, [])
-
-  // The per-note document collection (the sole note-document writer). Built once;
-  // its update()/remove() run the same lww read-merge-write the platform
-  // useDocument hook uses, so a dynamic, unbounded note set works without
+  // The per-note document collection for notes not currently open. Built once so
+  // a dynamic, unbounded note set works without
   // breaking React's rules of hooks. The open editor note ALSO gets a real
   // useDocument hook below — its writes and the collection's never target the
   // same path (grid actions act on closed notes; editor actions on the open one).
-  const collection = useMemo(() => makeNoteCollection({ onConflict }), [onConflict])
+  const collection = useMemo(() => makeNoteCollection(), [])
 
   // The live document hook for the currently-open note (literal per-note
   // useDocument). It provides the open note's optimistic value, save status, and
-  // lastError. Its merge is mergeNote (merge3 + mergeMeta), identity the note id,
-  // mode 'lww' (per-note files avoid same-path clobber; backend CAS isn't live).
+  // lastError. The platform owns last-write-wins reconciliation for this document.
   const openId = view.mode === 'editor' ? view.id : null
   const openNote = openId ? notes.find((n) => n.meta.id === openId && !n.placeholder) : null
   const openPath = openId
@@ -317,7 +249,6 @@ export default function App({ appId }) {
   useEffect(() => { notesRef.current = notes }, [notes])
   useEffect(() => { draftRef.current = draft }, [draft])
   useEffect(() => { failedSaveIdsRef.current = failedSaveIds }, [failedSaveIds])
-  const mergeNote = useMemo(() => makeMergeNote(onConflict), [onConflict])
   // A null path is the current runtime's explicit idle document state: no read,
   // subscription, or write. Older embedded runtimes keep the prior sentinel
   // fallback until the app is recompiled, avoiding a bogus "null" document.
@@ -326,9 +257,8 @@ export default function App({ appId }) {
   const openDocOptions = useMemo(() => ({
     initial: null,
     identity: NOTE_DOC_IDENTITY,
-    merge: mergeNote,
     mode: 'lww',
-  }), [mergeNote])
+  }), [])
   // Always called at a stable hook position; the test harness returns NO_DOC.
   const liveDoc = useDocument(openPath, openDocOptions)
   // useDocument returns a FRESH handle object every render, so depending on the whole
@@ -350,12 +280,8 @@ export default function App({ appId }) {
     }
   }, [openId, liveDoc.lastError])
 
-  // Mirror the open note's live document value back into the grid's `notes`
-  // array (replaces the old reconciler's onApplied callback): when a concurrent
-  // server edit 3-way-merges into the open note, the merged value lands in
-  // liveDoc.value; reflect it so the grid card and a later re-open show the
-  // merged content, not the stale optimistic copy. The editor buffer reconciles
-  // via its own note-prop effect.
+  // Mirror the platform's last-write-wins value back into the grid's `notes`
+  // array. The editor buffer reconciles via its own note-prop effect.
   useEffect(() => {
     const v = liveDoc.value
     if (!openId || !v || !v.meta || v.meta.id !== openId) return
@@ -365,58 +291,6 @@ export default function App({ appId }) {
       return prev.map((n) => (n.meta.id === openId ? { ...n, meta: v.meta, body: v.body } : n))
     })
   }, [openId, liveDoc.value, setNotesNow])
-
-  // Clear the "Resolving…/merging…" indicator when an EXTERNAL writer (the agent
-  // resolver, or another device) rewrites the OPEN note's BODY off mine — an
-  // agent-resolved merge should repaint the editor and drop the conflict flag.
-  // We subscribe to notes/<id>.json directly. The liveDoc/useDocument hook already
-  // repaints the editor + grid via liveDoc.value, so we do NOT mirror into setNotes
-  // here — that manual mirror was redundant and part of the original bug. The only
-  // thing this subscribe owns is the conflict flag.
-  //
-  // We gate the clear on the BODY changing off MINE's last-written body, NOT on a
-  // content hash over body+display-meta. The three cases:
-  //   - body === mine.body → MINE's own save echo, the subscribe replay of the
-  //              on-disk doc, OR a SELF-RAISED conflict. mergeNoteDocs lands
-  //              {body: mine.body, meta: mergeMeta(...)} on a body conflict, so
-  //              even when THEIRS is the later write and changed the title/color
-  //              (mergeMeta picks display fields from the later side) the body is
-  //              still mine → do NOTHING. The indicator MINE just raised stays up.
-  //              (A content hash would differ here and clear early — the exact bug
-  //              Codex caught.)
-  //   - body !== mine.body → an external writer rewrote the body → the conflict is
-  //              resolved → adopt the new body as baseline (so its own echo doesn't
-  //              re-fire) and clear the flag; liveDoc repaints.
-  //   - no baseline yet (a conflict raised by onConflict before any local
-  //              writeNote, or the subscribe's immediate replay) → adopt this body
-  //              and do NOT clear — the on-disk body is still MINE.
-  // A stale-closure-safe callback: openId is captured per-effect (re-bound when the
-  // open note changes), and we re-read the body map by ref at fire time.
-  useEffect(() => {
-    if (!openId) return
-    const id = openId
-    const path = notePath(id)
-    const unsub = window.mobius?.storage?.subscribe?.(path, (doc) => {
-      if (!doc || !doc.meta || doc.meta.id !== id) return
-      const body = doc.body ?? ''
-      const known = lastWrittenBodyRef.current.get(id)
-      // No recorded baseline yet: adopt this body and do NOT clear.
-      if (known === undefined) { lastWrittenBodyRef.current.set(id, body); return }
-      // Body still equals MINE's last write (local save echo, replay, or a
-      // self-raised conflict whose body stayed mine): leave the indicator alone.
-      if (known === body) return
-      // External resolution rewrote the body off mine: adopt it as the new
-      // baseline and clear the conflict flag.
-      lastWrittenBodyRef.current.set(id, body)
-      // Only a note that WAS flagged conflicted counts as a resolution — a normal
-      // cross-device edit of a non-conflicted note must not emit this signal.
-      if (conflictsRef.current.has(id)) {
-        window.mobius?.signal?.('conflict_resolved', { resolved_by: 'external' })
-      }
-      setConflicts((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n })
-    })
-    return () => { if (typeof unsub === 'function') unsub() }
-  }, [openId])
 
   // Pure state updater — no IO. The derived index.json cache is (re)written by the
   // committed-notes effect below, NOT inside this updater: a side effect inside a
@@ -615,11 +489,11 @@ export default function App({ appId }) {
   // given note path: the OPEN editor note writes through its live useDocument
   // hook (liveDoc.update — the literal per-note document); every other note (grid
   // pin/color/delete on a closed note, a draft's first save) writes through the
-  // collection's update, which runs the IDENTICAL lww read-merge-write. The
+  // collection's serialized last-write-wins update. The
   // routing is exclusive — the editor overlay owns the open note, so the grid
   // never acts on that same note — and the two writers can never target the same path
-  // concurrently. Both serialize the read-merge-write per path, merge concurrent
-  // edits via merge3, and resolve DURABLE (synced/queued) or REJECT
+  // concurrently. Both serialize writes per path and resolve DURABLE
+  // (synced/queued) or REJECT
   // DurableWriteError on a server refusal. We optimistically upsert the in-memory
   // note, then on a rejection keep the edit and surface an error so it is never
   // lost AND never falsely reported saved.
@@ -627,9 +501,6 @@ export default function App({ appId }) {
     const id = meta.id
     const m = { ...meta, updated: meta.updated || new Date().toISOString() }
     m.content_hash = precomputedHash || await contentHash(m, body)
-    // Mark this body as MINE so the open-note subscribe treats the resulting
-    // notify (and any echo of it) as a local save, not an external resolution.
-    lastWrittenBodyRef.current.set(id, body ?? '')
     upsert(m, body)
     const writeThroughHook = HAS_RUNTIME_DOC && openId === id
     try {
@@ -730,11 +601,10 @@ export default function App({ appId }) {
   }, [draft, ensureAuthoritative, persist, setDraftNow])
 
   // Delete a note: remove its canonical document via the collection (the runtime
-  // queues the delete offline and drains it on reconnect). Clear any conflict
-  // flag and sweep orphaned attachments after.
+  // queues the delete offline and drains it on reconnect), then sweep orphaned
+  // attachments after.
   const queueDelete = useCallback(async (id) => {
     const result = await collection.remove(id)
-    setConflicts((prev) => { if (!prev.has(id)) return prev; const n = new Set(prev); n.delete(id); return n })
     if (canGcAfterDurableResult(result)) scheduleGc()
   }, [collection, scheduleGc, canGcAfterDurableResult])
 
@@ -844,12 +714,11 @@ export default function App({ appId }) {
   const editing = view.mode === 'editor'
     ? (notes.find((n) => n.meta.id === view.id && !n.placeholder) || (draft && draft.meta.id === view.id ? draft : null))
     : null
-  // Standard: silent when healthy. Saving/pending is plumbing — only Offline, an
-  // actionable conflict state, and a hard save error ever surface.
+  // Standard: silent when healthy. Saving/pending is plumbing — only Offline and
+  // hard save/delete errors surface.
   const status = saveError && editing && saveError.id === editing.meta.id
     ? (saveError.kind === 'delete' ? 'Delete failed' : 'Save failed')
     : !online ? 'Offline'
-    : (editing && conflicts.has(editing.meta.id)) ? 'Resolving…'
     : null
 
   return (
@@ -899,17 +768,14 @@ export default function App({ appId }) {
 
       {editing && (
         <EditorPanel
-          appId={appId}
           note={editing}
           onSave={persist}
           onBack={back}
           onPin={togglePin}
           onColor={setColor}
           onDelete={setConfirmId}
-          onExternalConflict={onConflict}
           resolveAttachment={store.attachmentURL}
           putAttachment={store.putAttachment}
-          conflict={conflicts.has(editing.meta.id)}
           status={status}
           forceSave={failedSaveIds.has(editing.meta.id)}
           closeRequestRef={editorCloseRef}

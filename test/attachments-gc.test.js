@@ -2,7 +2,6 @@ import { test } from 'node:test'
 import assert from 'node:assert'
 import { webcrypto } from 'node:crypto'
 import { noteAttachmentRefs, referencedAttachments, strandedImageRefs, bodyAttachmentRefs } from '../src/lib/attachments.js'
-import { mergeNoteDocs } from '../src/lib/note-doc.js'
 import { installMobius } from './mobius-storage-mock.mjs'
 if (!globalThis.crypto) globalThis.crypto = webcrypto
 
@@ -40,10 +39,10 @@ test('bodyAttachmentRefs returns ONLY the body-embedded refs (no meta) for the e
 // BUG #1 regression: multiple images each get a stable, non-clobbering ref. The
 // editor's attach path now bases each write on the LIVE body (which already holds
 // every prior ref) and UNIONS meta.attachments from the existing record + every
-// body-embedded ref. So even if an autosave flush interleaves between two attaches
-// and the writes merge, BOTH image refs survive in the body AND in
+// body-embedded ref. So even if an autosave flush interleaves between two attaches,
+// BOTH image refs survive in the body AND in
 // meta.attachments — neither is clobbered, so neither blob is GC-eligible.
-test('two interleaved image attaches: both refs survive in body AND meta.attachments through a merge', () => {
+test('two interleaved image attaches: the later LWW document retains both refs', () => {
   const IMG1 = 'attachments/img1.png'
   const IMG2 = 'attachments/img2.png'
   const ID = 'multi'
@@ -74,11 +73,9 @@ test('two interleaved image attaches: both refs survive in body AND meta.attachm
     body: body2,
   }
 
-  // Merge attach2 (mine) against attach1 (theirs, the server's current value),
-  // base = attach1 (last-confirmed). This is a fast-forward (server == base in
-  // content) → lands mine verbatim, so both refs are present.
-  const { value, conflict } = mergeNoteDocs(attach1, attach2, attach1)
-  assert.equal(conflict, false)
+  // The later last-write-wins document is built from the live body, so it already
+  // contains both refs and can be written verbatim.
+  const value = attach2
 
   // Both image refs survive in the BODY.
   assert.ok(value.body.includes(IMG1), 'first image ref survives in the merged body')
@@ -95,7 +92,7 @@ test('two interleaved image attaches: both refs survive in body AND meta.attachm
 // Pre-fix, that pre-insert snapshot (carrying only img1, or even no images) would
 // overwrite via the fast-forward and orphan img2. With the editor sourcing the
 // LIVE body + unioning body refs into every write, even a "late" flush carries the
-// full current body, so the merge never drops a ref.
+// full current body, so the later write never drops a ref.
 test('a late autosave flush carries the live body (both refs), never clobbering an image', () => {
   const IMG1 = 'attachments/img1.png'
   const IMG2 = 'attachments/img2.png'
@@ -117,51 +114,34 @@ test('a late autosave flush carries the live body (both refs), never clobbering 
     },
     body: liveBody,
   }
-  const { value, conflict } = mergeNoteDocs(server, flush, server)
-  assert.equal(conflict, false)
+  const value = flush
   assert.ok(value.body.includes(IMG1) && value.body.includes(IMG2), 'both refs survive the late flush')
   assert.ok(value.meta.attachments.includes(IMG1) && value.meta.attachments.includes(IMG2),
     'meta.attachments keeps both refs after the late flush')
 })
 
-// Integration: a note holding a STRANDED image (in meta.attachments, no body
-// embed) survives a clean 3-way merge and the subsequent GC sweep. This is the
-// high-severity data-loss path: a merge that dropped meta.attachments → the
-// merged canonical note no longer references the blob → the next gc sweep frees
-// it permanently. mergeNoteDocs (→ mergeMeta) set-UNIONS attachments across both
-// sides, so the blob stays in the referenced set and gcAttachments leaves it
-// alone. (Post-migration: the note documents merge through mergeNoteDocs, the
-// same merge3/mergeMeta the retired reconciler used.)
-test('a stranded-image note survives a clean merge + GC sweep (blob stays referenced)', () => {
+// A note holding a STRANDED image (in meta.attachments, no body embed) must carry
+// that metadata through an ordinary edit so the next GC sweep keeps the blob.
+test('a stranded-image note survives an ordinary LWW rewrite (blob stays referenced)', () => {
   const STRANDED = 'attachments/stranded.png'
   const NOTE_ID = 'note-strand'
   const doc = (meta, body) => ({ meta, body })
 
-  // Both devices edited the body (disjoint lines → clean merge); the image lives
-  // only in meta.attachments (stranded — surfaced by the editor strip, not embedded).
-  const base = doc(
-    { id: NOTE_ID, created: 'C', mobius_rev: 4, attachments: [STRANDED] },
-    'a\nb\nc',
-  )
+  // The image lives only in meta.attachments (stranded — surfaced by the editor
+  // strip, not embedded). An edit spreads the existing metadata before writing.
   const mine = doc(
     { id: NOTE_ID, created: 'C', mobius_rev: 5, updated: '2026-06-03T10:00:00Z', attachments: [STRANDED] },
     'a\nB\nc',
   )
-  const server = doc(
-    { id: NOTE_ID, created: 'C', mobius_rev: 6, updated: '2026-06-03T09:00:00Z', attachments: [STRANDED] },
-    'a\nb\nC',
-  )
-
-  const { value: mergedNote, conflict } = mergeNoteDocs(base, mine, server)
-  assert.equal(conflict, false)
+  const writtenNote = mine
 
   // The merged note is what the runtime writes canonical. gcAttachments builds
   // the referenced set from this canonical note alone — so its meta.attachments
   // must still carry the blob.
-  assert.deepEqual(strandedImageRefs(mergedNote.meta, mergedNote.body), [STRANDED],
-    'the image is still stranded (in meta, not body) after the merge')
+  assert.deepEqual(strandedImageRefs(writtenNote.meta, writtenNote.body), [STRANDED],
+    'the image is still stranded (in meta, not body) after the rewrite')
 
-  const referenced = referencedAttachments([mergedNote])
+  const referenced = referencedAttachments([writtenNote])
   assert.ok(referenced.has(STRANDED),
     'GC must see the stranded image as referenced by the merged canonical note')
 })

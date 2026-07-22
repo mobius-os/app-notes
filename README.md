@@ -1,103 +1,96 @@
 # Notes
 
-A clean, boxy notes app for [Möbius](https://github.com/mobius-os). Markdown that
-renders **live as you type** (CodeMirror 6, Obsidian-style), with inline images
-and file attachments, LaTeX math (KaTeX), pinning, per-note color, and instant
-search. Notes work offline, are git-tracked, and merge-conflicts that can't
-auto-merge are handed to an agent. Notes live on disk as plain markdown so the
-Möbius dreaming agent can read them.
+A clean notes app for [Möbius](https://github.com/mobius-os). Markdown renders
+live as you type, with checklists, images and file attachments, LaTeX math,
+pinning, per-note color, locking, and instant search. Notes work offline and
+receive automatic local git snapshots.
 
-## How it's built
+## Development
 
-Möbius mini-apps are a single JSX file, but this app keeps a maintainable,
-unit-tested multi-file source under `src/` and **builds** it into the deployable
-`index.jsx`:
+Möbius installs a single JSX entry, while the maintainable source lives under
+`src/` and builds into `index.jsx`:
 
-```
-npm install      # esbuild + node-diff3 (dev only)
-npm run build    # bundle src/app.jsx -> index.jsx (single file, react/codemirror/
-                 # katex/marked kept as bare imports for the platform compiler)
-npm test         # node --test over the pure logic in src/lib/*
+```sh
+npm install
+npm run build        # bundle src/app.jsx -> index.jsx
+npm test             # unit and render-harness regressions
+npm run verify:mobius
 ```
 
-`index.jsx` is a generated build artifact — edit `src/app.jsx` and the
-`src/{lib,ui,editor}` modules, then `npm run build`.
+`index.jsx` is generated. Edit `src/app.jsx` or `src/{lib,ui,editor}/*`, then
+rebuild it.
 
 ### Source map
-- `src/lib/` — pure, unit-tested logic + the storage glue:
-  `frontmatter` (YAML subset), `hash`, `note` (model + content hash),
-  `note-doc` (the per-note JSON document model + `merge3`/`mergeMeta`-based 3-way
-  merge and the conflict descriptor), `merge` (the pure 3-way body/frontmatter
-  merge over node-diff3), `collection` (the per-note `window.mobius.storage`
-  document store — the sole note-document writer, offline-null-aware `list()`),
-  `store` (the non-document storage glue: attachments, the derived index cache,
-  conflict descriptors), `attachments` + `attachment-leases` (content-addressing,
-  in-flight GC pins), `sdr-image` (Ultra-HDR → SDR flatten), `index-cache`
-  (derived grid index + cold-load placeholders), `migrate` (one-time legacy
-  `notes/<id>.md` → JSON migration), `math-scan`, `visible` (search + sort),
-  `preview` (card markdown via marked + DOMPurify).
-  (The old `sync`/`idb`/`local`/`reconciler` modules are GONE — durability moved
-  to the platform runtime's serialized per-path writer + offline outbox.)
-- `src/ui/` — `Grid`, `Card`, `EditorPanel`, `ColorPicker`, `ConfirmModal`,
-  `icons`, `colors`, and `css` (the one module-level stylesheet).
-- `src/editor/` — the CodeMirror live-preview editor: `extensions` (markdown +
-  highlight + shortcuts), `livePreview` (decorations: hide markers off the cursor
-  line, checkboxes, images, files, math), `widgets`, `Editor` (the React wrapper).
 
-## Data layout (`/data/apps/<id>/`)
+- `src/lib/` — note model and hashing, storage paths, the serialized collection
+  for closed notes, content-addressed attachments and GC leases, derived index
+  cache, legacy Markdown migration, preview sanitizing, search, and math parsing.
+- `src/ui/` — grid, cards, editor panel, colors, confirmation modal, icons, and
+  the app's single stylesheet.
+- `src/editor/` — CodeMirror extensions, live-preview decorations, widgets, and
+  the React wrapper.
 
-```
-notes/<noteId>.json          canonical note: { meta, body } — body is markdown
-attachments/<sha256>.<ext>   content-addressed image/file blobs (dedup'd)
-conflicts/, leases/          conflict descriptors + resolver leases (git-ignored)
-index.json                   derived grid cache (rebuildable; never authoritative)
-notes-meta.json              self-describing contract for the dreaming agent
-signals.jsonl                app analytics for Reflection (see "Signals" below)
-.git/                        local history for note snapshots
+## Data layout
+
+Runtime data lives under `/data/apps/<numeric-app-id>/`:
+
+```text
+notes/<noteId>.json          canonical { meta, body } document
+attachments/<sha256>.<ext>   content-addressed image/file blobs
+index.json                   derived grid cache; never authoritative
+notes-meta.json              self-describing data contract
+signals.jsonl                text-free app activity signals
+.git/                        local note snapshot history
 ```
 
-Each note is a JSON document whose `body` field is plain markdown — still grep-,
-git-, and dreaming-friendly. (As of v1.2.9 the persistence layer rides the
-platform `useDocument` primitive, which is JSON-only; a one-time startup pass
-migrates pre-existing `notes/<id>.md` files. The runtime owns durability now —
-the old shadow outbox + reconcile driver were removed.)
+The `body` field is plain Markdown. A startup migration safely converts legacy
+`notes/<id>.md` files and removes each legacy file only after its JSON replacement
+is server-confirmed.
 
-## Offline + conflicts
+## Persistence and offline behavior
 
-Durability rides the platform runtime: a note write goes through
-`storage.durableWrite`, which resolves `synced` (on the server) or `queued`
-(durably outboxed offline, drains on reconnect) or REJECTS on a fatal refusal —
-so a failed save is a visible error, never a false "saved". Concurrent same-note
-edits 3-way-merge via `merge3`; a genuine overlapping-body conflict lands MINE's
-body on the note file and emits an immutable descriptor under `conflicts/`, the
-only surviving copy of the losing side's body. The in-app "Resolve now" button
-asks an agent to resolve it with a lease + verify-before-write against
-`mine.body`, the body the app persisted. When an external writer (the resolver or
-another device) rewrites an OPEN note, the editor 3-way-merges the incoming body
-into the live buffer and repaints, so a resolution is never clobbered by a stale
-autosave.
+The open note uses the platform's `useDocument(..., { mode: 'lww' })` primitive.
+Closed-note updates use a small serialized last-write-wins collection over the
+same storage contract. Notes deliberately adds no second merge engine, conflict
+descriptor state machine, or agent resolver.
 
-Reads stay offline-first: `storage.get()` overlays queued writes (read-your-
-writes), and a cold offline load paints the `index.json` cache. `storage.list()`
-has NO offline mirror, so the grid keeps its cached placeholders when enumeration
-is unavailable (rather than wiping to empty) and re-lists on reconnect.
+A write resolves only when it is either server-synced or durably queued in the
+platform's offline outbox. Fatal refusals remain visible as **Save failed**, keep
+the editor open, and are retried rather than reported as saved. Queued writes
+are available immediately through the runtime's read-your-writes overlay and
+drain after reconnection.
+
+Concurrent writes to the same note are last-write-wins. When the platform
+publishes a newer value, the open editor adopts it verbatim. A small local-echo
+guard prevents an older optimistic save response from moving the cursor backward
+when typing has already continued; it is not a merge or conflict subsystem.
+
+A cold offline load paints `index.json` placeholders. Because enumeration may be
+unavailable offline, the app keeps those placeholders until reconnection instead
+of replacing them with a misleading empty state.
+
+## Attachments
+
+Attachments are immutable and content-addressed. Every save carries both the
+existing attachment records and references found in the live editor body.
+In-flight leases and the open-body pin prevent garbage collection from deleting
+a blob before its note write becomes visible. GC skips entirely if authoritative
+note enumeration is unavailable.
+
+## History snapshots
+
+`job.sh` runs every ten minutes. It is deterministic and agent-free: when note
+content changed, it commits canonical notes and lightweight metadata to the data
+directory's local git history. Derived files, activity signals, attachments,
+temporary files, and legacy conflict/lease directories are ignored.
 
 ## Signals
 
-The app emits `window.mobius.signal(name, payload)` analytics for Reflection's
-nightly digest (buffered, flushed to `signals.jsonl`; flat-primitive payloads,
-no note text or filenames): `app_ready {item_count, offline}`,
-`item_created`/`item_updated`/`item_opened`/`item_deleted {type}`,
-`attachment_added {kind, bytes, flattened}`, `search_no_results {query_len}`,
-`conflict_raised`/`conflict_resolved`, and `error {message, source}`.
+Notes emits text-free activity signals for Reflection: `app_ready`, item
+created/updated/opened/deleted, `attachment_added`, `search_no_results`, and
+`error`. Note text, search terms, and attachment filenames are never included.
 
-## Maintenance
-
-Notes does not install a recurring cron job. Conflict resolution is on-demand via
-the in-app "Resolve now" action.
-
-See `DESIGN.md` for the full design and `docs/superpowers/plans/` for the build
-plan.
+See `DESIGN.md` for the current architecture and invariants.
 
 ## License
 

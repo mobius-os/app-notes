@@ -1,12 +1,8 @@
 // Per-note document collection over window.mobius.storage — the storage glue
 // that replaces the old shadow-outbox + seq-CAS promote (local.js) and the
 // reconcile driver (reconciler.js + sync.js). Each note is a JSON document at
-// notes/<id>.json; this module gives every note the EXACT `useDocument.update()`
-// last-write-wins algorithm (read-merge-write, serialized per path), driven
-// imperatively so an unbounded, dynamic note set works without breaking React's
-// rules of hooks. The merge is `mergeNote` (note-doc.js → merge3 + mergeMeta),
-// so concurrent same-note edits 3-way-merge and a real conflict still emits the
-// descriptor — identical conflict semantics to the retired reconciler.
+// notes/<id>.json; this module serializes last-write-wins updates per path for
+// the unbounded, dynamic set of notes that cannot each own a React hook.
 //
 // Durability comes from the runtime now: storage.durableWrite resolves with
 // durability 'synced' | 'queued' (queued = durably enqueued in the offline
@@ -15,11 +11,10 @@
 // pass — the runtime's per-path serialized writer is the single canonical-write
 // path, and a queued offline write drains itself on reconnect.
 //
-// `base` tracking: update() merges base (our last-confirmed value) with mine
-// (the new edit) and theirs (whatever the server holds now), mirroring the
-// hook's baseRef. We seed base from the value loaded at first sight of a note.
+// `bases` retains the last value seen for each note as an offline/error fallback
+// for updater callbacks. It is bookkeeping only; it is not a merge ancestor.
 
-import { notePath, legacyPath, docId, mergeNoteDocs } from './note-doc.js'
+import { notePath, legacyPath } from './note-doc.js'
 
 const S = () => window.mobius.storage
 const READ_BATCH_SIZE = 8
@@ -43,7 +38,7 @@ async function readJsonDocuments(entries) {
 
 // Serialize all writes to one path behind a per-path promise chain — the same
 // chainRef serialization useDocument.update() uses, so two overlapping saves of
-// the same note never interleave their read-merge-write and lose an edit. The
+// the same note never interleave their writes and lose an edit. The
 // chain link is stored already-settled so one failed write can't reject the
 // next; the map entry is dropped once its tail drains so it can't grow
 // unbounded.
@@ -72,20 +67,12 @@ async function writeJson(path, value) {
   }
 }
 
-// makeNoteCollection({ onConflict }) → the imperative note-document store.
-// `onConflict({ base, mine, theirs })` is invoked when a merge produces a genuine
-// overlapping-body conflict — the SAME sides shape makeMergeNote (the open-editor
-// liveDoc path) passes, so both writers drive one handler. The handler (app.jsx)
-// owns building + DURABLY persisting the descriptor and flagging the editor;
-// keeping the build there (not here) means there is exactly one descriptor
-// builder and one shape, so the handler never receives an already-built
-// descriptor it would mis-handle. All methods are async and never throw on a
-// durable result; an update() that the server REFUSES rejects with the runtime's
-// DurableWriteError so the UI can surface doc.lastError (no silent loss, no false
-// save).
-export function makeNoteCollection({ onConflict } = {}) {
+// The imperative note-document store. All methods are async; an update that the
+// server refuses rejects with the runtime's DurableWriteError so the UI never
+// reports a false save.
+export function makeNoteCollection() {
   const withChain = makeChains()
-  // base[id] = our last-confirmed document for that note (the 3-way ancestor).
+  // bases[id] = the last document loaded or durably written in this session.
   const bases = new Map()
   // paths[id] = every JSON document path that has presented this meta.id. This
   // deliberately tolerates historical corruption where notes/<file-id>.json and
@@ -163,47 +150,28 @@ export function makeNoteCollection({ onConflict } = {}) {
     return { meta: doc.meta, body: doc.body ?? '', storagePath: path }
   }
 
-  // Seed the merge ancestor on first sight of a note loaded from canonical, when
-  // this session has no base yet. An existing base always wins (it is the
-  // last-confirmed value the next merge must reconcile against).
-  function ensureBase(id, doc) {
-    if (!bases.has(id)) bases.set(id, doc)
-  }
-
-  // The read-merge-write, per note, serialized by path. `fn(prev)` produces the
-  // new document from the current value (read-your-writes via the runtime). We
-  // pass base = our last-confirmed doc, mine = fn(prev), theirs = the server's
-  // current value, into mergeNote, then durableWrite the result. On success base
-  // advances to the written value. Returns the durableWrite result
+  // A last-write-wins update serialized per note. `fn(prev)` receives the newest
+  // readable value (including the runtime's queued-write overlay), falling back
+  // to the last value this session saw when a read is temporarily unavailable.
+  // The produced document is written verbatim; no second merge layer or conflict
+  // state machine sits on top of the platform. Returns the durableWrite result
   // ({ durability: 'synced'|'queued', ... }); rejects DurableWriteError when the
   // server dead-letters the write (the UI surfaces it; the edit is NOT marked
   // saved).
   function update(id, fn) {
     const path = primaryPath(id)
     return withChain(path, async () => {
-      const base = bases.get(id) ?? null
-      const mine = fn(base ? { meta: base.meta, body: base.body } : null)
-      let theirs = base
-      try { theirs = (await S().get(path)) ?? base } catch (e) {}
-      const { value: merged, conflict } = mergeNoteDocs(base, mine, theirs)
+      const remembered = bases.get(id) ?? null
+      let current = remembered
+      try { current = (await S().get(path)) ?? remembered } catch {}
+      const mine = fn(current ? { meta: current.meta, body: current.body } : null)
       // durableWrite resolves DURABLE (synced/queued) or REJECTS DurableWriteError
       // on a dead-letter; we let the rejection propagate so the caller surfaces it
-      // (no false "saved"). `base` only advances on a durable write — so a refused
-      // write leaves the ancestor intact for the next attempt.
-      const result = await writeJson(path, merged)
-      bases.set(id, merged)
+      // (no false "saved"). The remembered value advances only after durability.
+      const result = await writeJson(path, mine)
+      bases.set(id, mine)
       rememberPath(id, path)
-      // Surface a genuine conflict AFTER the durable note write landed, so the
-      // editor's "merging…" bar reflects a real on-disk divergence. We forward the
-      // raw sides ({ base, mine, theirs }) — the SAME shape makeMergeNote passes —
-      // so the handler is the single place that builds + durably persists the
-      // descriptor (the descriptor is the sole surviving copy of THEIRS's body, so
-      // its write must be durable-or-loud, which the handler owns). Awaiting the
-      // handler keeps the descriptor's persistence deterministic for this path.
-      if (conflict && typeof onConflict === 'function') {
-        await onConflict({ base, mine, theirs })
-      }
-      return { result, value: merged }
+      return { result, value: mine }
     })
   }
 
@@ -242,5 +210,5 @@ export function makeNoteCollection({ onConflict } = {}) {
     })
   }
 
-  return { list, load, update, remove, ensureBase, notePath, docId }
+  return { list, load, update, remove, notePath }
 }

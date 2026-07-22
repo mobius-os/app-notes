@@ -1,7 +1,7 @@
 // Integration test against the REAL platform runtime (mobius-runtime.js):
-// drives window.mobius.createUseDocument(React)'s actual useDocument hook with
-// THIS app's mergeNote (merge3 + mergeMeta), proving the migration target works
-// end-to-end — not just against the in-repo storage mock. The runtime source is
+// drives window.mobius.createUseDocument(React)'s actual last-write-wins hook,
+// proving the app's persistence target works end-to-end — not just against the
+// in-repo storage mock. The runtime source is
 // NOT in this repo; set `MOBIUS_FRONTEND` to a current Möbius `frontend/` checkout
 // to run these tests. With it unset (a fresh clone / the app's own CI) the suite
 // SKIPS rather than fails, so `npm test` stays green.
@@ -16,7 +16,7 @@ import { webcrypto } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
-import { makeMergeNote, notePath } from '../src/lib/note-doc.js'
+import { notePath } from '../src/lib/note-doc.js'
 
 if (!globalThis.crypto || !globalThis.crypto.subtle) globalThis.crypto = webcrypto
 
@@ -120,27 +120,20 @@ test('runtime useDocument: a null path is idle and performs no storage work', { 
   doc.cleanup()
 })
 
-test('runtime useDocument + app mergeNote: an edit on an existing note lands durably (loads base, writes through the real writer)', { skip: !HAVE_RUNTIME ? 'platform runtime not present' : false }, async () => {
+test('runtime useDocument LWW: an edit on an existing note lands durably', { skip: !HAVE_RUNTIME ? 'platform runtime not present' : false }, async () => {
   const { freshEnv, waitFor } = await import(HARNESS)
   const { server } = freshEnv()
   const { makeStorage } = await import(RUNTIME)
   const storage = makeStorage({ appId: '1', getToken: async () => appToken() })
 
-  // Seed the server canonical note, then open the doc — refresh() loads it as the
-  // merge base. (NB: the runtime's get() is stale-while-revalidate, so a
-  // post-mount direct server.seed is intentionally NOT observed until a
-  // revalidate; the deep concurrent-merge semantics of mergeNote are pinned
-  // against a FRESH `theirs` in collection.test.js. Here we prove the real
-  // useDocument hook + this app's mergeNote write through the real durable
-  // writer without losing the edit.)
+  // Seed the server canonical note, then open the doc and write through the real
+  // durable writer without any app-supplied merge callback.
   const path = notePath('n1')
   server.seed(path, { meta: { id: 'n1', title: '', created: 'c', mobius_rev: 1 }, body: 'one\ntwo\nthree' })
 
-  const mergeNote = makeMergeNote(() => {})
   const doc = await renderDoc(storage, path, {
     initial: null,
     identity: (d) => (d && d.meta ? d.meta.id : undefined),
-    merge: mergeNote,
     mode: 'lww',
   })
   await waitFor(() => doc.get().status === 'ready' && doc.get().value?.body === 'one\ntwo\nthree')
@@ -163,7 +156,7 @@ test('runtime useDocument: a queued offline write is durable success, not an err
   const path = notePath('n2')
 
   const doc = await renderDoc(storage, path, {
-    initial: null, identity: (d) => d?.meta?.id, merge: makeMergeNote(() => {}), mode: 'lww',
+    initial: null, identity: (d) => d?.meta?.id, mode: 'lww',
   })
   await waitFor(() => doc.get().status === 'ready')
 
@@ -184,7 +177,7 @@ test('runtime useDocument: a dead-lettered write surfaces lastError (no false sa
   const path = notePath('n3')
 
   const doc = await renderDoc(storage, path, {
-    initial: null, identity: (d) => d?.meta?.id, merge: makeMergeNote(() => {}), mode: 'lww',
+    initial: null, identity: (d) => d?.meta?.id, mode: 'lww',
   })
   await waitFor(() => doc.get().status === 'ready')
 

@@ -675,26 +675,10 @@ var CSS = `
   font-size: 12px; white-space: nowrap; margin-right: 2px; flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
-/* Online+idle: nothing shown (standard). Resolving uses accent; others muted. */
-.nt-status.is-resolving { color: var(--nt-accent-ink); }
+/* Online+idle: nothing shown (standard); exceptional states stay muted here. */
 .nt-status.is-default { color: var(--muted); }
 /* /mobius-ui:SyncPill */
 .nt-hdr-spacer { flex: 1; min-width: 4px; }
-.nt-conflict-bar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 16px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--text); font-size: 13px; flex: 0 0 auto;
-}
-.nt-conflict-msg { flex: 1; }
-.nt-conflict-btn {
-  min-height: 44px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--nt-accent-ink); background: transparent; color: var(--nt-accent-ink);
-  border-radius: 8px; padding: 4px 12px; font-size: 12px; cursor: pointer;
-  flex-shrink: 0; font-family: var(--font);
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-}
 .nt-attach-err {
   padding: 8px 16px;
   background: color-mix(in srgb, var(--danger) 14%, transparent);
@@ -973,460 +957,9 @@ function referencedAttachments(notes = []) {
   return refs;
 }
 
-// node_modules/node-diff3/dist/diff3.mjs
-function LCS(buffer1, buffer2) {
-  let equivalenceClasses = {};
-  for (let j = 0; j < buffer2.length; j++) {
-    const item = buffer2[j];
-    if (equivalenceClasses[item]) {
-      equivalenceClasses[item].push(j);
-    } else {
-      equivalenceClasses[item] = [j];
-    }
-  }
-  const NULLRESULT = { buffer1index: -1, buffer2index: -1, chain: null };
-  let candidates = [NULLRESULT];
-  for (let i = 0; i < buffer1.length; i++) {
-    const item = buffer1[i];
-    const buffer2indices = equivalenceClasses[item] || [];
-    let r = 0;
-    let c = candidates[0];
-    for (let jx = 0; jx < buffer2indices.length; jx++) {
-      const j = buffer2indices[jx];
-      let s;
-      for (s = r; s < candidates.length; s++) {
-        if (candidates[s].buffer2index < j && (s === candidates.length - 1 || candidates[s + 1].buffer2index > j)) {
-          break;
-        }
-      }
-      if (s < candidates.length) {
-        const newCandidate = { buffer1index: i, buffer2index: j, chain: candidates[s] };
-        if (r === candidates.length) {
-          candidates.push(c);
-        } else {
-          candidates[r] = c;
-        }
-        r = s + 1;
-        c = newCandidate;
-        if (r === candidates.length) {
-          break;
-        }
-      }
-    }
-    candidates[r] = c;
-  }
-  return candidates[candidates.length - 1];
-}
-function diffComm(buffer1, buffer2) {
-  const lcs = LCS(buffer1, buffer2);
-  let result = [];
-  let tail1 = buffer1.length;
-  let tail2 = buffer2.length;
-  let common = { common: [] };
-  function processCommon() {
-    if (common.common.length) {
-      common.common.reverse();
-      result.push(common);
-      common = { common: [] };
-    }
-  }
-  for (let candidate = lcs; candidate !== null; candidate = candidate.chain) {
-    let different = { buffer1: [], buffer2: [] };
-    while (--tail1 > candidate.buffer1index) {
-      different.buffer1.push(buffer1[tail1]);
-    }
-    while (--tail2 > candidate.buffer2index) {
-      different.buffer2.push(buffer2[tail2]);
-    }
-    if (different.buffer1.length || different.buffer2.length) {
-      processCommon();
-      different.buffer1.reverse();
-      different.buffer2.reverse();
-      result.push(different);
-    }
-    if (tail1 >= 0) {
-      common.common.push(buffer1[tail1]);
-    }
-  }
-  processCommon();
-  result.reverse();
-  return result;
-}
-function diffIndices(buffer1, buffer2) {
-  const lcs = LCS(buffer1, buffer2);
-  let result = [];
-  let tail1 = buffer1.length;
-  let tail2 = buffer2.length;
-  for (let candidate = lcs; candidate !== null; candidate = candidate.chain) {
-    const mismatchLength1 = tail1 - candidate.buffer1index - 1;
-    const mismatchLength2 = tail2 - candidate.buffer2index - 1;
-    tail1 = candidate.buffer1index;
-    tail2 = candidate.buffer2index;
-    if (mismatchLength1 || mismatchLength2) {
-      result.push({
-        buffer1: [tail1 + 1, mismatchLength1],
-        buffer1Content: buffer1.slice(tail1 + 1, tail1 + 1 + mismatchLength1),
-        buffer2: [tail2 + 1, mismatchLength2],
-        buffer2Content: buffer2.slice(tail2 + 1, tail2 + 1 + mismatchLength2)
-      });
-    }
-  }
-  result.reverse();
-  return result;
-}
-function diff3MergeRegions(a, o, b) {
-  let hunks = [];
-  function addHunk(h, ab) {
-    hunks.push({
-      ab,
-      oStart: h.buffer1[0],
-      oLength: h.buffer1[1],
-      abStart: h.buffer2[0],
-      abLength: h.buffer2[1]
-    });
-  }
-  diffIndices(o, a).forEach((item) => addHunk(item, "a"));
-  diffIndices(o, b).forEach((item) => addHunk(item, "b"));
-  hunks.sort((x, y) => x.oStart - y.oStart);
-  let results = [];
-  let currOffset = 0;
-  function advanceTo(endOffset) {
-    if (endOffset > currOffset) {
-      results.push({
-        stable: true,
-        buffer: "o",
-        bufferStart: currOffset,
-        bufferLength: endOffset - currOffset,
-        bufferContent: o.slice(currOffset, endOffset)
-      });
-      currOffset = endOffset;
-    }
-  }
-  while (hunks.length) {
-    let hunk = hunks.shift();
-    let regionStart = hunk.oStart;
-    let regionEnd = hunk.oStart + hunk.oLength;
-    let regionHunks = [hunk];
-    advanceTo(regionStart);
-    while (hunks.length) {
-      const nextHunk = hunks[0];
-      const nextHunkStart = nextHunk.oStart;
-      if (nextHunkStart > regionEnd)
-        break;
-      regionEnd = Math.max(regionEnd, nextHunkStart + nextHunk.oLength);
-      regionHunks.push(hunks.shift());
-    }
-    if (regionHunks.length === 1) {
-      if (hunk.abLength > 0) {
-        const buffer = hunk.ab === "a" ? a : b;
-        results.push({
-          stable: true,
-          buffer: hunk.ab,
-          bufferStart: hunk.abStart,
-          bufferLength: hunk.abLength,
-          bufferContent: buffer.slice(hunk.abStart, hunk.abStart + hunk.abLength)
-        });
-      }
-    } else {
-      let bounds = {
-        a: [a.length, -1, o.length, -1],
-        b: [b.length, -1, o.length, -1]
-      };
-      while (regionHunks.length) {
-        hunk = regionHunks.shift();
-        const oStart = hunk.oStart;
-        const oEnd = oStart + hunk.oLength;
-        const abStart = hunk.abStart;
-        const abEnd = abStart + hunk.abLength;
-        let b2 = bounds[hunk.ab];
-        b2[0] = Math.min(abStart, b2[0]);
-        b2[1] = Math.max(abEnd, b2[1]);
-        b2[2] = Math.min(oStart, b2[2]);
-        b2[3] = Math.max(oEnd, b2[3]);
-      }
-      const aStart = bounds.a[0] + (regionStart - bounds.a[2]);
-      const aEnd = bounds.a[1] + (regionEnd - bounds.a[3]);
-      const bStart = bounds.b[0] + (regionStart - bounds.b[2]);
-      const bEnd = bounds.b[1] + (regionEnd - bounds.b[3]);
-      let result = {
-        stable: false,
-        aStart,
-        aLength: aEnd - aStart,
-        aContent: a.slice(aStart, aEnd),
-        oStart: regionStart,
-        oLength: regionEnd - regionStart,
-        oContent: o.slice(regionStart, regionEnd),
-        bStart,
-        bLength: bEnd - bStart,
-        bContent: b.slice(bStart, bEnd)
-      };
-      results.push(result);
-    }
-    currOffset = regionEnd;
-  }
-  advanceTo(o.length);
-  return results;
-}
-function diff3Merge(a, o, b, options) {
-  let defaults = {
-    excludeFalseConflicts: true,
-    stringSeparator: /\s+/
-  };
-  options = Object.assign(defaults, options);
-  if (typeof a === "string")
-    a = a.split(options.stringSeparator);
-  if (typeof o === "string")
-    o = o.split(options.stringSeparator);
-  if (typeof b === "string")
-    b = b.split(options.stringSeparator);
-  let results = [];
-  const regions = diff3MergeRegions(a, o, b);
-  let okBuffer = [];
-  function flushOk() {
-    if (okBuffer.length) {
-      results.push({ ok: okBuffer });
-    }
-    okBuffer = [];
-  }
-  function isFalseConflict(a2, b2) {
-    if (a2.length !== b2.length)
-      return false;
-    for (let i = 0; i < a2.length; i++) {
-      if (a2[i] !== b2[i])
-        return false;
-    }
-    return true;
-  }
-  regions.forEach((region) => {
-    if (region.stable) {
-      okBuffer.push(...region.bufferContent);
-    } else {
-      if (options.excludeFalseConflicts && isFalseConflict(region.aContent, region.bContent)) {
-        okBuffer.push(...region.aContent);
-      } else {
-        flushOk();
-        results.push({
-          conflict: {
-            a: region.aContent,
-            aIndex: region.aStart,
-            o: region.oContent,
-            oIndex: region.oStart,
-            b: region.bContent,
-            bIndex: region.bStart
-          }
-        });
-      }
-    }
-  });
-  flushOk();
-  return results;
-}
-function mergeDigIn(a, o, b, options) {
-  const defaults = {
-    excludeFalseConflicts: true,
-    stringSeparator: /\s+/,
-    label: {}
-  };
-  options = Object.assign(defaults, options);
-  const aSection = "<<<<<<<" + (options.label.a ? ` ${options.label.a}` : "");
-  const xSection = "=======";
-  const bSection = ">>>>>>>" + (options.label.b ? ` ${options.label.b}` : "");
-  const regions = diff3Merge(a, o, b, options);
-  let conflict = false;
-  let result = [];
-  regions.forEach((region) => {
-    if (region.ok) {
-      result = result.concat(region.ok);
-    } else {
-      const c = diffComm(region.conflict.a, region.conflict.b);
-      for (let j = 0; j < c.length; j++) {
-        let inner = c[j];
-        if (inner.common) {
-          result = result.concat(inner.common);
-        } else {
-          conflict = true;
-          result = result.concat([aSection], inner.buffer1, [xSection], inner.buffer2, [bSection]);
-        }
-      }
-    }
-  });
-  return {
-    conflict,
-    result
-  };
-}
-
-// src/lib/merge.js
-function toLines(text) {
-  return text.split("\n");
-}
-function changedRanges(baseLines, sideLines) {
-  return diffIndices(baseLines, sideLines).map((d) => ({
-    start: d.buffer1[0],
-    len: d.buffer1[1],
-    repl: d.buffer2Content
-  }));
-}
-function rangesOverlap(a, b) {
-  if (a.len === 0 && b.len === 0) return a.start === b.start;
-  const aEnd = a.start + Math.max(a.len, 0);
-  const bEnd = b.start + Math.max(b.len, 0);
-  return a.start < bEnd && b.start < aEnd;
-}
-function resolveDisjoint(baseLines, mineLines, theirsLines) {
-  const mineRanges = changedRanges(baseLines, mineLines);
-  const theirsRanges = changedRanges(baseLines, theirsLines);
-  for (const a of mineRanges) {
-    for (const b of theirsRanges) {
-      if (rangesOverlap(a, b)) return null;
-    }
-  }
-  const edits = [...mineRanges, ...theirsRanges].sort((p, q) => q.start - p.start);
-  const out = baseLines.slice();
-  for (const e of edits) out.splice(e.start, e.len, ...e.repl);
-  return out;
-}
-function conflictHunks(baseLines, mineLines, theirsLines) {
-  const mineRanges = changedRanges(baseLines, mineLines);
-  const theirsRanges = changedRanges(baseLines, theirsLines);
-  const hunks = [];
-  for (const a of mineRanges) {
-    for (const b of theirsRanges) {
-      if (!rangesOverlap(a, b)) continue;
-      const start = Math.min(a.start, b.start);
-      const end = Math.max(a.start + Math.max(a.len, 0), b.start + Math.max(b.len, 0));
-      hunks.push({
-        conflict: true,
-        base: baseLines.slice(start, end),
-        mine: a.repl,
-        theirs: b.repl
-      });
-    }
-  }
-  return hunks;
-}
-function merge3(base, mine, theirs) {
-  const baseLines = toLines(base);
-  const mineLines = toLines(mine);
-  const theirsLines = toLines(theirs);
-  const dig = mergeDigIn(mineLines, baseLines, theirsLines);
-  if (!dig.conflict) {
-    return { clean: true, conflict: false, text: dig.result.join("\n") };
-  }
-  const merged = resolveDisjoint(baseLines, mineLines, theirsLines);
-  if (merged) {
-    return { clean: true, conflict: false, text: merged.join("\n") };
-  }
-  return {
-    clean: false,
-    conflict: true,
-    text: dig.result.join("\n"),
-    hunks: conflictHunks(baseLines, mineLines, theirsLines)
-  };
-}
-function laterSide(mine, theirs) {
-  const m = mine?.updated ?? "";
-  const t = theirs?.updated ?? "";
-  return t > m ? theirs : mine;
-}
-function mergeMeta(base, mine, theirs) {
-  const winner = laterSide(mine, theirs);
-  const tags2 = [.../* @__PURE__ */ new Set([...mine?.tags ?? [], ...theirs?.tags ?? []])];
-  const attachments = [.../* @__PURE__ */ new Set([...mine?.attachments ?? [], ...theirs?.attachments ?? []])];
-  const mineRev = mine?.mobius_rev ?? 0;
-  const theirsRev = theirs?.mobius_rev ?? 0;
-  return {
-    id: base?.id,
-    created: base?.created,
-    title: winner?.title,
-    color: winner?.color ?? null,
-    pinned: winner?.pinned ?? false,
-    locked: winner?.locked ?? false,
-    tags: tags2,
-    attachments,
-    type: winner?.type ?? "note",
-    archived: winner?.archived ?? false,
-    updated: winner?.updated,
-    mobius_rev: Math.max(mineRev, theirsRev) + 1,
-    parent_revs: [mineRev, theirsRev]
-  };
-}
-
 // src/lib/note-doc.js
 var notePath = (id) => `notes/${id}.json`;
 var legacyPath = (id) => `notes/${id}.md`;
-function sameContent(a, b) {
-  if (a == null || b == null) return a == null && b == null;
-  const am = a.meta ?? {};
-  const bm = b.meta ?? {};
-  const eqArr = (x, y) => {
-    const xs = Array.isArray(x) ? x : [];
-    const ys = Array.isArray(y) ? y : [];
-    return xs.length === ys.length && xs.every((v, i) => v === ys[i]);
-  };
-  return (am.title ?? "") === (bm.title ?? "") && String(a.body ?? "") === String(b.body ?? "") && (am.pinned ?? false) === (bm.pinned ?? false) && (am.color ?? null) === (bm.color ?? null) && (am.type ?? "note") === (bm.type ?? "note") && (am.archived ?? false) === (bm.archived ?? false) && eqArr(am.tags, bm.tags) && eqArr(am.attachments, bm.attachments);
-}
-var docId = (doc) => doc && doc.meta ? doc.meta.id : void 0;
-function buildConflictDescriptor({ noteId, base, mine, server, hashes }) {
-  const { baseHash, mineHash, serverHash } = hashes;
-  return {
-    noteId,
-    baseHash,
-    mineHash,
-    serverHash,
-    base,
-    mine,
-    server,
-    attachmentsMine: mine?.meta?.attachments ?? [],
-    attachmentsServer: server?.meta?.attachments ?? [],
-    status: "open",
-    path: `conflicts/${noteId}/${baseHash}.${mineHash}.${serverHash}.json`
-  };
-}
-function mergeNoteDocs(base, mine, theirs) {
-  if (mine == null) return { value: theirs ?? base ?? null, conflict: false };
-  if (theirs == null) return { value: mine, conflict: false };
-  if (base != null && sameContent(theirs, base)) {
-    return { value: mine, conflict: false };
-  }
-  const baseBody = base?.body ?? "";
-  const bodyMerge = merge3(baseBody, mine.body ?? "", theirs.body ?? "");
-  const meta = mergeMeta(base?.meta ?? {}, mine.meta ?? {}, theirs.meta ?? {});
-  if (bodyMerge.clean) {
-    return { value: { meta, body: bodyMerge.text }, conflict: false };
-  }
-  return { value: { meta, body: mine.body }, conflict: true };
-}
-function makeMergeNote(onConflict) {
-  return function mergeNote(base, mine, theirs) {
-    const { value, conflict } = mergeNoteDocs(base, mine, theirs);
-    if (conflict && typeof onConflict === "function") {
-      try {
-        const result = onConflict({ base, mine, theirs });
-        if (result && typeof result.catch === "function") result.catch(() => {
-        });
-      } catch (e) {
-      }
-    }
-    return value;
-  };
-}
-async function conflictDescriptorFor(base, mine, theirs, hashOf) {
-  const noteId = docId(mine) ?? docId(theirs) ?? docId(base);
-  if (noteId == null) return null;
-  const [baseHash, mineHash, serverHash] = await Promise.all([
-    base ? hashOf(base.meta, base.body) : Promise.resolve(null),
-    hashOf(mine.meta, mine.body),
-    hashOf(theirs.meta, theirs.body)
-  ]);
-  return buildConflictDescriptor({
-    noteId,
-    base,
-    mine,
-    server: theirs,
-    hashes: { baseHash, mineHash, serverHash }
-  });
-}
 
 // src/lib/attachment-leases.js
 var inflight = /* @__PURE__ */ new Map();
@@ -1483,9 +1016,6 @@ async function readIndex() {
   } catch {
     return null;
   }
-}
-async function writeConflict(path, descriptor) {
-  return S().durableWrite(path, descriptor, { kind: "json" });
 }
 async function putAttachment(file) {
   const buf = await file.arrayBuffer();
@@ -1580,7 +1110,7 @@ async function writeJson(path, value) {
     legacy: true
   };
 }
-function makeNoteCollection({ onConflict } = {}) {
+function makeNoteCollection() {
   const withChain = makeChains();
   const bases = /* @__PURE__ */ new Map();
   const paths = /* @__PURE__ */ new Map();
@@ -1659,27 +1189,20 @@ function makeNoteCollection({ onConflict } = {}) {
     rememberPath(id, path);
     return { meta: doc.meta, body: doc.body ?? "", storagePath: path };
   }
-  function ensureBase(id, doc) {
-    if (!bases.has(id)) bases.set(id, doc);
-  }
   function update(id, fn) {
     const path = primaryPath(id);
     return withChain(path, async () => {
-      const base = bases.get(id) ?? null;
-      const mine = fn(base ? { meta: base.meta, body: base.body } : null);
-      let theirs = base;
+      const remembered = bases.get(id) ?? null;
+      let current = remembered;
       try {
-        theirs = await S2().get(path) ?? base;
-      } catch (e) {
+        current = await S2().get(path) ?? remembered;
+      } catch {
       }
-      const { value: merged, conflict } = mergeNoteDocs(base, mine, theirs);
-      const result = await writeJson(path, merged);
-      bases.set(id, merged);
+      const mine = fn(current ? { meta: current.meta, body: current.body } : null);
+      const result = await writeJson(path, mine);
+      bases.set(id, mine);
       rememberPath(id, path);
-      if (conflict && typeof onConflict === "function") {
-        await onConflict({ base, mine, theirs });
-      }
-      return { result, value: merged };
+      return { result, value: mine };
     });
   }
   function remove(id) {
@@ -1717,7 +1240,7 @@ function makeNoteCollection({ onConflict } = {}) {
       return res;
     });
   }
-  return { list, load, update, remove, ensureBase, notePath, docId };
+  return { list, load, update, remove, notePath };
 }
 
 // src/lib/frontmatter.js
@@ -2995,20 +2518,6 @@ function Editor({ value, onChange, resolveAttachment, viewRef, syncKey, readOnly
 import { jsx as jsx6, jsxs as jsxs4 } from "react/jsx-runtime";
 var AUTOSAVE_MS = 600;
 var EDITOR_DATE_FORMATTER = new Intl.DateTimeFormat(void 0, { month: "short", day: "numeric" });
-function resolveNow(note, appId) {
-  try {
-    const data = `/data/apps/${appId}`;
-    window.parent.postMessage({
-      type: "moebius:new-chat",
-      draft: `Resolve the Notes merge conflict for note ${note.meta.id}: read the descriptor under ${data}/conflicts/${note.meta.id}/, 3-way-merge mine + server against base (preserve attachment refs), write the result to ${data}/notes/${note.meta.id}.json as a JSON object {"meta":{...},"body":"<merged markdown>"}, then mark the descriptor resolved.`
-    }, window.location.origin);
-  } catch (e) {
-  }
-}
-function statusClass(status) {
-  if (status === "Resolving\u2026") return "is-resolving";
-  return "is-default";
-}
 function editorDate(meta) {
   const raw = meta.updated || meta.created;
   if (!raw) return "Draft";
@@ -3026,12 +2535,11 @@ function taskSummary(body) {
   const done = tasks.filter((task) => /\[[xX]\]/.test(task)).length;
   return `${tasks.length} task${tasks.length === 1 ? "" : "s"} \xB7 ${done} done`;
 }
-function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, onExternalConflict, resolveAttachment, putAttachment: putAttachment2, conflict, status, forceSave, closeRequestRef, inactive = false }) {
+function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment: putAttachment2, status, forceSave, closeRequestRef, inactive = false }) {
   const [title, setTitle] = useState3(note.meta.title || "");
   const [body, setBody] = useState3(note.body || "");
   const [showColors, setShowColors] = useState3(false);
   const [attachErr, setAttachErr] = useState3("");
-  const [externalConflict, setExternalConflict] = useState3(false);
   const [closing, setClosing] = useState3(false);
   const timer = useRef4(null);
   const viewRef = useRef4(null);
@@ -3045,11 +2553,9 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
   const attachmentRef = useRef4(null);
   const colorBtnRef = useRef4(null);
   const latest = useRef4({ note, title: note.meta.title || "", body: note.body || "" });
-  const reconciledBody = useRef4(note.body || "");
+  const incomingBodyRef = useRef4(note.body || "");
   const reconciledTitle = useRef4(note.meta.title || "");
-  const localSaveBodies = useRef4(/* @__PURE__ */ new Set());
-  const externalConflictRef = useRef4(false);
-  const externalConflictKey = useRef4("");
+  const localWriteBodies = useRef4(/* @__PURE__ */ new Set());
   const isChecklist = note.meta.type === "checklist";
   const locked = !!note.meta.locked;
   useEffect4(() => {
@@ -3058,10 +2564,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
     }
   }, [note, title, body]);
   const saveCurrentNote = useCallback2((meta, nextBody) => {
-    if (externalConflictRef.current) {
-      return Promise.reject(new Error("Resolve the incoming edit before saving this note."));
-    }
-    localSaveBodies.current.add(nextBody ?? "");
+    localWriteBodies.current.add(nextBody ?? "");
     let request;
     try {
       request = Promise.resolve(onSave(meta, nextBody));
@@ -3211,12 +2714,9 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
     flushSave().catch(() => {
     });
     latest.current = { note, title: note.meta.title || "", body: note.body || "" };
-    reconciledBody.current = note.body || "";
+    incomingBodyRef.current = note.body || "";
     reconciledTitle.current = note.meta.title || "";
-    localSaveBodies.current.clear();
-    externalConflictRef.current = false;
-    externalConflictKey.current = "";
-    setExternalConflict(false);
+    localWriteBodies.current.clear();
     setTitle(note.meta.title || "");
     setBody(note.body || "");
   }, [note.meta.id]);
@@ -3231,57 +2731,26 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
   useEffect4(() => {
     if (latest.current.note.meta.id !== note.meta.id) return;
     const incoming = note.body || "";
-    const base = reconciledBody.current;
-    if (incoming === base) return;
+    if (incoming === incomingBodyRef.current) return;
+    incomingBodyRef.current = incoming;
     const v = viewRef.current;
-    const mineBuf = v ? v.state.doc.toString() : body;
-    if (localSaveBodies.current.has(incoming)) {
-      localSaveBodies.current.delete(incoming);
-      reconciledBody.current = incoming;
+    const current = v ? v.state.doc.toString() : body;
+    if (localWriteBodies.current.has(incoming)) {
+      localWriteBodies.current.delete(incoming);
       return;
     }
-    const mergedResult = mineBuf === base ? { conflict: false, text: incoming } : merge3(base, mineBuf, incoming);
-    if (mergedResult.conflict) {
-      if (timer.current) clearTimeout(timer.current);
-      const key = `${note.meta.id}\0${base}\0${mineBuf}\0${incoming}`;
-      externalConflictRef.current = true;
-      setExternalConflict(true);
-      if (externalConflictKey.current !== key) {
-        externalConflictKey.current = key;
-        const cur = latest.current;
-        const attachments = Array.from(/* @__PURE__ */ new Set([
-          ...cur.note.meta.attachments || [],
-          ...bodyAttachmentRefs(mineBuf)
-        ]));
-        const baseMeta = { ...cur.note.meta, title: reconciledTitle.current };
-        const mineMeta = { ...cur.note.meta, title: cur.title, attachments };
-        Promise.resolve(onExternalConflict?.({
-          base: { meta: baseMeta, body: base },
-          mine: { meta: mineMeta, body: mineBuf },
-          theirs: { meta: note.meta, body: incoming }
-        })).catch(() => {
-        });
-      }
+    if (current === incoming) {
+      setBody(incoming);
       return;
     }
-    const merged = mergedResult.text;
-    reconciledBody.current = incoming;
-    externalConflictRef.current = false;
-    externalConflictKey.current = "";
-    setExternalConflict(false);
     if (v) {
-      const cur = v.state.doc.toString();
-      if (cur !== merged) {
-        const head = v.state.selection.main.head;
-        v.dispatch({
-          changes: { from: 0, to: cur.length, insert: merged },
-          selection: { anchor: Math.min(head, merged.length) }
-        });
-      } else {
-        setBody(merged);
-      }
+      const head = v.state.selection.main.head;
+      v.dispatch({
+        changes: { from: 0, to: current.length, insert: incoming },
+        selection: { anchor: Math.min(head, incoming.length) }
+      });
     } else {
-      setBody(merged);
+      setBody(incoming);
     }
   }, [note.body]);
   useEffect4(() => {
@@ -3526,7 +2995,7 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
                   )
                 ] }),
                 /* @__PURE__ */ jsx6("div", { className: "nt-hdr-spacer" }),
-                (closing || status) && /* @__PURE__ */ jsx6("span", { className: `nt-status ${statusClass(closing ? null : status)}`, role: "status", "aria-live": "polite", children: closing ? "Saving\u2026" : status }),
+                (closing || status) && /* @__PURE__ */ jsx6("span", { className: "nt-status is-default", role: "status", "aria-live": "polite", children: closing ? "Saving\u2026" : status }),
                 /* @__PURE__ */ jsx6(
                   "button",
                   {
@@ -3541,10 +3010,6 @@ function EditorPanel({ appId, note, onSave, onBack, onPin, onColor, onDelete, on
                 )
               ] }),
               /* @__PURE__ */ jsx6("input", { ref: attachmentRef, type: "file", name: "note-attachment", onChange: handleFile, disabled: locked, className: "nt-file-input" })
-            ] }),
-            (conflict || externalConflict) && /* @__PURE__ */ jsxs4("div", { className: "nt-conflict-bar", role: "status", children: [
-              /* @__PURE__ */ jsx6("span", { className: "nt-conflict-msg", children: "Edited in two places \u2014 merging\u2026" }),
-              conflict && /* @__PURE__ */ jsx6("button", { type: "button", onClick: () => resolveNow(note, appId), className: "nt-conflict-btn", children: "Resolve now" })
             ] }),
             attachErr && /* @__PURE__ */ jsx6("div", { className: "nt-attach-err", role: "alert", children: attachErr }),
             /* @__PURE__ */ jsx6("div", { className: "nt-editor-title-band", children: /* @__PURE__ */ jsx6(
@@ -3788,7 +3253,6 @@ function App({ appId }) {
   const [view, setView] = useState4({ mode: "grid", id: null });
   const [draft, setDraft] = useState4(null);
   const [confirmId, setConfirmId] = useState4(null);
-  const [conflicts, setConflicts] = useState4(() => /* @__PURE__ */ new Set());
   const [saveError, setSaveError] = useState4(null);
   const [failedSaveIds, setFailedSaveIds] = useState4(() => /* @__PURE__ */ new Set());
   const gcTimer = useRef6(null);
@@ -3799,12 +3263,7 @@ function App({ appId }) {
   const notesRef = useRef6([]);
   const draftRef = useRef6(null);
   const failedSaveIdsRef = useRef6(/* @__PURE__ */ new Set());
-  const lastWrittenBodyRef = useRef6(/* @__PURE__ */ new Map());
   const [online, setOnline] = useState4(() => isOnline());
-  const conflictsRef = useRef6(conflicts);
-  useEffect6(() => {
-    conflictsRef.current = conflicts;
-  }, [conflicts]);
   const setDraftNow = useCallback4((next) => {
     draftRef.current = typeof next === "function" ? next(draftRef.current) : next;
     setDraft(draftRef.current);
@@ -3815,30 +3274,7 @@ function App({ appId }) {
     setNotes(next);
     return next;
   }, []);
-  const onConflict = useCallback4(async (sides) => {
-    const id = sides?.mine?.meta?.id ?? sides?.theirs?.meta?.id ?? sides?.base?.meta?.id;
-    if (id != null) {
-      setConflicts((prev) => prev.has(id) ? prev : new Set(prev).add(id));
-    }
-    try {
-      const d = await conflictDescriptorFor(sides.base, sides.mine, sides.theirs, contentHash);
-      if (d) {
-        await writeConflict(d.path, d);
-        window.mobius?.signal?.("conflict_raised", { note_count: 1 });
-      }
-    } catch (err) {
-      window.mobius?.signal?.("error", { message: err?.message ?? "conflict save failed", source: "onConflict" });
-      if (id != null) {
-        setConflicts((prev) => prev.has(id) ? prev : new Set(prev).add(id));
-        setSaveError({
-          id,
-          message: "Merge conflict could not be saved for recovery \u2014 your local copy is kept. Reconnect and reopen the note to retry."
-        });
-      }
-      throw err;
-    }
-  }, []);
-  const collection = useMemo3(() => makeNoteCollection({ onConflict }), [onConflict]);
+  const collection = useMemo3(() => makeNoteCollection(), []);
   const openId = view.mode === "editor" ? view.id : null;
   const openNote = openId ? notes.find((n) => n.meta.id === openId && !n.placeholder) : null;
   const openPath = openId ? openNote?.storagePath || notePath(openId) : IDLE_DOCUMENT_PATH;
@@ -3854,13 +3290,11 @@ function App({ appId }) {
   useEffect6(() => {
     failedSaveIdsRef.current = failedSaveIds;
   }, [failedSaveIds]);
-  const mergeNote = useMemo3(() => makeMergeNote(onConflict), [onConflict]);
   const openDocOptions = useMemo3(() => ({
     initial: null,
     identity: NOTE_DOC_IDENTITY,
-    merge: mergeNote,
     mode: "lww"
-  }), [mergeNote]);
+  }), []);
   const liveDoc = useDocument(openPath, openDocOptions);
   const liveDocRef = useRef6(liveDoc);
   liveDocRef.current = liveDoc;
@@ -3879,34 +3313,6 @@ function App({ appId }) {
       return prev.map((n) => n.meta.id === openId ? { ...n, meta: v.meta, body: v.body } : n);
     });
   }, [openId, liveDoc.value, setNotesNow]);
-  useEffect6(() => {
-    if (!openId) return;
-    const id = openId;
-    const path = notePath(id);
-    const unsub = window.mobius?.storage?.subscribe?.(path, (doc) => {
-      if (!doc || !doc.meta || doc.meta.id !== id) return;
-      const body = doc.body ?? "";
-      const known = lastWrittenBodyRef.current.get(id);
-      if (known === void 0) {
-        lastWrittenBodyRef.current.set(id, body);
-        return;
-      }
-      if (known === body) return;
-      lastWrittenBodyRef.current.set(id, body);
-      if (conflictsRef.current.has(id)) {
-        window.mobius?.signal?.("conflict_resolved", { resolved_by: "external" });
-      }
-      setConflicts((prev) => {
-        if (!prev.has(id)) return prev;
-        const n = new Set(prev);
-        n.delete(id);
-        return n;
-      });
-    });
-    return () => {
-      if (typeof unsub === "function") unsub();
-    };
-  }, [openId]);
   const upsert = useCallback4((meta, body) => {
     setNotesNow((prev) => prev.some((n) => n.meta.id === meta.id) ? prev.map((n) => n.meta.id === meta.id ? { ...n, meta, body, storagePath: n.storagePath } : n) : [{ meta, body }, ...prev]);
   }, [setNotesNow]);
@@ -4055,7 +3461,6 @@ function App({ appId }) {
     const id = meta.id;
     const m = { ...meta, updated: meta.updated || (/* @__PURE__ */ new Date()).toISOString() };
     m.content_hash = precomputedHash || await contentHash(m, body);
-    lastWrittenBodyRef.current.set(id, body ?? "");
     upsert(m, body);
     const writeThroughHook = HAS_RUNTIME_DOC && openId === id;
     try {
@@ -4138,12 +3543,6 @@ function App({ appId }) {
   }, [draft, ensureAuthoritative, persist, setDraftNow]);
   const queueDelete = useCallback4(async (id) => {
     const result = await collection.remove(id);
-    setConflicts((prev) => {
-      if (!prev.has(id)) return prev;
-      const n = new Set(prev);
-      n.delete(id);
-      return n;
-    });
     if (canGcAfterDurableResult(result)) scheduleGc();
   }, [collection, scheduleGc, canGcAfterDurableResult]);
   const doDelete = useCallback4(async (id) => {
@@ -4232,7 +3631,7 @@ function App({ appId }) {
     return () => clearTimeout(h);
   }, [deferredQuery, visible.length, loading]);
   const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id && !n.placeholder) || (draft && draft.meta.id === view.id ? draft : null) : null;
-  const status = saveError && editing && saveError.id === editing.meta.id ? saveError.kind === "delete" ? "Delete failed" : "Save failed" : !online ? "Offline" : editing && conflicts.has(editing.meta.id) ? "Resolving\u2026" : null;
+  const status = saveError && editing && saveError.id === editing.meta.id ? saveError.kind === "delete" ? "Delete failed" : "Save failed" : !online ? "Offline" : null;
   return /* @__PURE__ */ jsxs6("div", { className: "nt-root", children: [
     /* @__PURE__ */ jsx8("style", { children: CSS }),
     /* @__PURE__ */ jsxs6(ErrorBoundary, { children: [
@@ -4275,17 +3674,14 @@ function App({ appId }) {
       editing && /* @__PURE__ */ jsx8(
         EditorPanel,
         {
-          appId,
           note: editing,
           onSave: persist,
           onBack: back,
           onPin: togglePin,
           onColor: setColor,
           onDelete: setConfirmId,
-          onExternalConflict: onConflict,
           resolveAttachment: attachmentURL,
           putAttachment,
-          conflict: conflicts.has(editing.meta.id),
           status,
           forceSave: failedSaveIds.has(editing.meta.id),
           closeRequestRef: editorCloseRef,

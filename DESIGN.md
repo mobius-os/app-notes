@@ -1,468 +1,179 @@
-# Notes for Möbius — design spec
-
-Status: draft for review · 2026-06-03 · target repo `mobius-os/app-notes`
+# Notes for Möbius — current design
 
 ## 1. Goal
 
-A boxy, card-based notes app for Möbius. Notes are **markdown that renders
-live as you type** (Obsidian "Live Preview" style), with **inline images and
-file attachments**, **LaTeX math**, **handy formatting shortcuts**,
-**pinning**, per-note color, and instant search. It is
-**beautiful, consistent with Möbius (charcoal + violet, Inter / JetBrains
-Mono), and follows good UI/UX practice.** It **works offline**, keeps a **git
-history**, and when offline edits collide on reconnect it **auto-merges**, or
-**invokes an agent** when auto-merge fails. Notes live on disk as plain
-markdown so the **dreaming agent** can read them cleanly.
+Notes is a fast, local-feeling writing surface for one Möbius owner. It supports
+live Markdown, checklists, math, attachments, pinning, color, locking, and search
+without inventing a persistence system beside the platform's own.
 
-Ships as an **app-store app** (`mobius-os/app-notes`): one `index.jsx`, one
-`mobius.json`, a generated `icon.png`, and no recurring cron jobs — **plus a small,
-well-precedented platform change** that vendors the editor foundation
-(CodeMirror 6 + KaTeX) under `/vendor`, exactly as three.js and React are
-vendored today (see §4, §13). Sizing justifies it: CM6 is smaller than the
-already-vendored three.js (§4). The only other optional platform touch is one
-line in the dreaming skill (see §9).
+The durable design is intentionally small:
 
-We do not reference or imitate the Google Keep brand. The name is **Notes**
-(slug `notes`); easy to rename before ship.
+1. one JSON document per note;
+2. platform last-write-wins synchronization;
+3. explicit, visible handling of rejected writes;
+4. derived caches that can always be rebuilt;
+5. automatic local git history for recovery.
 
-### Non-goals (YAGNI)
-- Real-time collaborative cursors / CRDT. Single-owner; per-note 3-way merge is
-  enough. (The runtime explicitly scopes CRDTs out.)
-- Multi-device *branch* sync. We do per-note reconcile, not per-device git
-  branches.
-- A server endpoint for atomic conditional writes. We work entirely within the
-  existing storage API + owner-agent primitives.
-- Sharing notes between apps or users.
+### Non-goals
 
-## 2. Platform facts this design is built on
+- collaborative cursors or multi-user editing;
+- a CRDT or application-level three-way merge engine;
+- conflict descriptors, leases, or an agent resolver;
+- a second offline queue;
+- arbitrary external network content in previews.
 
-(Confirmed by reading the codebase, not assumed.)
+## 2. Platform contract
 
-- A mini-app is **one JSX file** esbuild-compiles server-side. React 19.2 comes
-  from the importmap (`/vendor/react`). Apps may use esm.sh libs at runtime;
-  for **offline**, esm.sh modules are **runtime-cached** by the service worker
-  (`url.hostname === 'esm.sh'` → CacheFirst) — a *warm-cache* model: a dep
-  works offline only after one online load. `mobius.json`'s `esm_deps` is
-  metadata only (no backend wiring).
-- `window.mobius.storage` — `get/getText/getBlob`, `set/setText/setBlob`,
-  `remove`, `list`, `subscribe*`, `pendingCount`. Reads are **SWR**; writes go
-  through an IndexedDB **outbox that is last-write-wins per path**, coalesced,
-  drained under a cross-context Web Lock. **There is no conditional/atomic
-  write.** Blob cap 25 MiB. Per-path in-tab serialization; cross-runtime reads
-  can momentarily diverge and self-heal.
-- Sandbox: `allow-scripts allow-same-origin allow-forms allow-popups
-  allow-top-navigation-by-user-activation`. **No `allow-modals`** → no
-  `alert/confirm/prompt`; build in-app modals. Same-origin → `fetch('/api/…')`
-  works with the owner JWT. CSP `connect-src 'self' https://esm.sh`.
-- User-rendered HTML must pass **DOMPurify**.
-- Jobs: apps may ship `job.sh` / `fetch.sh`. A recurring cron is optional, but
-  Notes does not install one.
-- App→agent with tools: an **app token cannot** call `/api/ai` with tools.
-  Tool-capable agents come from the owner shell
-  via `window.parent.postMessage({type:'moebius:new-chat', draft})`.
-- The **dreaming** agent runs nightly with full Bash/Read over `/data`; it
-  discovers app data by inspecting `/data/apps/<id>/…` (no advertised contract
-  today). Writes the knowledge graph to `/data/shared/memory/`.
-- App data dir is keyed by the **numeric app id** at runtime
-  (`/data/apps/<numericId>/…`), addressed from the app as
-  `storage.<op>('<path>')` (the runtime prefixes the app root). On-disk source
-  is `/data/apps/<slug>/index.jsx`.
+The app runs in a sandboxed Möbius frame and persists only through
+`window.mobius.storage` and `window.mobius.createUseDocument(React)`.
 
-## 3. UX
+- The open note always owns one stable `useDocument` hook position.
+- Grid actions and draft creation use the imperative collection because the note
+  set is dynamic and unbounded.
+- Both paths use the platform's serialized writer and offline outbox.
+- A result with durability `synced` or `queued` is durable success.
+- A fatal write refusal rejects and must never be rendered as saved.
+- `storage.get()` provides the queued-write overlay. Enumeration may be
+  unavailable offline, so a failed list is distinct from a confirmed empty list.
 
-Möbius theme via CSS vars (never hardcode structural colors): `--bg`,
-`--surface`, `--surface2`, `--border`, `--text`, `--muted`, `--accent`,
-`--accent-fg`, `--green`, `--danger`, `--font`, `--mono`. The UI lives in a
-single module-level stylesheet (`src/ui/css.js`) rendered once as
-`<style>{CSS}</style>`, with `mobius-ui:*` fence comments around shared shapes.
-Inline `style={}` is reserved for genuinely measured runtime values, such as
-popover coordinates.
+## 3. Document model
 
-**Grid (home).** Responsive, content-height note **cards** in a CSS grid using
-`repeat(auto-fill, minmax(min(100%, 190px), 1fr))`, so phones, tablets, and wide
-web windows all settle into native-feeling track counts. A **Pinned** section
-sits above **Others**. Each card shows:
-title, a **read-only markdown preview** (truncated, with checkboxes + a first
-inline image thumbnail), color accent, and a bottom action strip. Tap a card →
-editor. A top bar holds **search** (instant,
-client-side over title+body) and a persistent **+** button creates a note —
-there is no inline capture row and no view toggle. Empty state is a friendly
-prompt with a direct New note action, not a blank screen.
-
-Large notebooks keep lightweight card shells in the grid but hydrate markdown,
-thumbnails, and action toolbars only near the viewport. One shared observer plus
-CSS `content-visibility` bounds CPU/DOM work without a virtualization dependency;
-parsed preview HTML stays cached while offscreen DOM and object URLs are released.
-
-**Card actions** (no native dialogs): pin/unpin, color picker (muted ink-tone
-palette: slate / moss / sand / clay / plum + default, mixed from theme
-tokens), lock/unlock, delete (in-app **ConfirmModal**). Locked notes are
-read-only in the editor and cannot be deleted until unlocked. There is no
-archive and there are no tags (legacy notes carrying either still open fine;
-the fields are ignored).
-
-**Editor (note open).** Over-grid note surface, Keep-style, with the
-**live-inline markdown** editor (§4). Header: back, pin, one image/file
-attachment action, color, lock, type, delete, and status when needed; the
-open note does not repeat the app title. Auto-saves (debounced) — no save
-button; opening (or a no-op flush) never bumps `updated`, only a real edit
-does, and the grid sorts by last edit. Back or outside-click returns to grid.
-
-**Status.** Silent when healthy: saving/pending is plumbing and never
-rendered. Only `Offline` and an actionable `Resolving…` conflict state
-surface. A conflicted note shows a small banner:
-"Edited in two places — merging…" and, when the agent finishes, updates live
-via `subscribe`.
-
-**Accessibility / polish.** Real buttons with `aria-label`; focus rings; 44px
-touch targets; reduced-motion respected; no layout shift on image load
-(reserve aspect ratio). Hidden scrollbars (frame already does this).
-
-## 4. Editor — live-inline markdown (CodeMirror 6)
-
-CM6 is the engine behind Obsidian Live Preview: markdown tokens hide + style in
-place on inactive lines, raw syntax shows only on the cursor's line, and
-image/checkbox/embed syntax is replaced by **widget decorations**. That is
-exactly "renders as markdown as you type."
-
-- **Delivery: vendor the editor foundation under `/vendor` as a general
-  platform dependency** (revised after sizing). Measured minimal CM6 set =
-  **556 KB raw / 188 KB gzip**; KaTeX JS = **259 KB / 74 KB gzip** — *smaller
-  than the already-vendored three.js (~1.2 MB / ~340 KB gzip) and ~React-sized.*
-  So CM6 + KaTeX are vendored exactly like three/React: an image-build
-  `npm install` + a small bundle script copies them to
-  `/app/static/vendor/codemirror@6/` and `/vendor/katex@…/` (KaTeX **CSS +
-  fonts** copied too, for offline math), and `app-frame.html`'s importmap gains
-  `codemirror` + `katex` specifiers.
-- **Pull only the pieces we use** (owner's steer): the vendored CM6 bundle
-  includes only `@codemirror/state`, `@codemirror/view`, `@codemirror/commands`,
-  `@codemirror/language`, `@codemirror/lang-markdown` (+ our extension) — **no**
-  `basicSetup`, autocomplete, lint, or search — so it stays ~React-sized.
-- **Build CM6 as ONE bundled module** exposed under importmap specifier
-  `codemirror`. A single bundle makes `@codemirror/state` a **guaranteed
-  singleton** (the instanceof gotcha disappears), is **precached → bulletproof
-  offline** (no esm.sh warm-cache fragility), and is **reusable by future apps**
-  (a code editor, the latex app, a wiki). `marked` + `DOMPurify` stay on esm.sh
-  (tiny, already proven offline in mind/news).
-- **Live-preview extension:** a small custom decoration set: heading sizing,
-  bold/italic/strike/code styling, hide markers off the active line, task-list
-  checkboxes as interactive widgets (toggle writes back to the doc), `![]()`
-  image syntax → `<img>` widget resolved from an attachment blob, and
-  `[[file]]`/attachment refs → a file chip widget.
-- **LaTeX math:** inline `$…$` and block `$$…$$` rendered live with **KaTeX**
-  (esm.sh; the shell already ships KaTeX) through the same widget-decoration
-  mechanism as images/checkboxes — math renders **in place**, and the raw `$…$`
-  source reappears on the cursor's line for editing. Card previews render math
-  read-only too.
-- **Shortcuts (the "edit directly, nicely" ask):** a small custom keymap —
-  Cmd/Ctrl-B / -I for bold/italic, heading cycle, link, inline code, toggle
-  checkbox — plus markdown **input rules** (Enter continues a list / quote /
-  task; `>`/`-`/`1.`/`- [ ]` auto-format) and an optional `/` **slash menu**
-  (h1, todo, image, table, math). All cheap via CM6's keymap/transaction API; no
-  heavy autocomplete extension needed.
-- **Inline images / files:** 📎 or paste/drop → read File → `setBlob` to
-  `attachments/<sha256>.<ext>` (content-addressed, dedup, immutable) → insert
-  `![alt](attachments/<sha>.<ext>)` (image) or an attachment chip token (file).
-  Widgets load blobs via `getBlob` → object URL (revoked on unmount). Enforce
-  the 25 MiB cap with an in-app message; large media → guidance to attach a
-  link instead.
-- **Read-only card preview** uses lightweight `marked` + **DOMPurify** (both
-  already proven offline in mind/news), not CM6 — cheap to render many cards.
-
-## 5. Data model & storage layout
-
-> **v1.2.9 migration — persistence moved onto the platform `useDocument`
-> primitive.** Each note is now a JSON document at `notes/<noteId>.json` holding
-> `{ "meta": {…frontmatter fields…}, "body": "<markdown string>" }` — the body is
-> still the note's markdown, so dreaming-agent readability is preserved; only the
-> on-disk envelope changed (markdown-frontmatter → JSON), because the runtime's
-> `window.mobius.createUseDocument` writer is JSON-only. The app's homemade
-> durability machinery — the shadow-IndexedDB outbox, the per-device base/working
-> copies with a monotonic seq + seq-CAS `promote`, the `drafts/` working copies,
-> and the reconcile driver — is **deleted**: the platform runtime's serialized
-> per-path writer + offline outbox now own durability, and `merge3`/`mergeMeta`
-> (unchanged) are the `useDocument` merge for concurrent same-note edits. A
-> one-time idempotent startup pass migrates any legacy `notes/<id>.md` →
-> `notes/<id>.json`. The `conflicts/` descriptor contract is unchanged; the
-> "Resolve now" resolver now reads/writes the `.json` document. The rest of this
-> section describes the original model; the per-note merge/conflict SEMANTICS it
-> documents still hold, only the file format and the durability mechanism moved.
-
-```
-notes/<noteId>.json                canonical note: { meta, body } (body = markdown)
-attachments/<sha256>.<ext>         content-addressed blobs (images + files)
-conflicts/<noteId>/<conflictId>.json   immutable, versioned conflict descriptors
-leases/<noteId>.json               resolver lease (resolverId, leaseUntil, descriptorHash)
-index.json                         DERIVED cache (rebuildable); never authoritative
-notes-meta.json                    self-describing data contract for dreaming
-.git/                              optional server-side history
-```
-(Pre-v1.2.9: `notes/<noteId>.md` frontmatter-markdown + a `drafts/` working-copy
-tree — both retired by the migration above.)
-
-**Note file** = YAML frontmatter + markdown body:
-
-```markdown
----
-id: 9f3c…                # stable uuid
-title: Weekend list
-pinned: true
-color: violet
-tags: [home, shopping]
-created: 2026-06-03T09:00:00Z
-updated: 2026-06-03T10:12:00Z
-mobius_rev: 7            # monotonically bumped on each canonical write
-parent_rev: 6           # rev this write was based on
-content_hash: sha256…   # hash of the body (+ normalized frontmatter)
-attachments: [sha256…, sha256…]
----
-# Weekend list
-- [x] bread
-- [ ] eggs
-![receipt](attachments/ab12….jpg)
-```
-
-- **`content_hash` + `mobius_rev`/`parent_rev` in frontmatter are the
-  authoritative base identity** (Codex's key correction — IndexedDB is a
-  per-device UX cache only, never the source of truth).
-- **`index.json` is strictly derived** (title/snippet/pinned/color/updated for
-  fast grid load). If stale or conflicting, discard and rebuild from
-  `notes/*.md`. Never merge it.
-- **Attachments are content-addressed and immutable** → no in-place mutation,
-  no attachment merge conflicts; a note edit just changes which `sha` it
-  references.
-
-## 6. Offline + sync + 3-way merge (the hardened protocol)
-
-The platform is last-write-wins with **no atomic write**, so we must not let the
-outbox replay a stale full-file write over a completed merge. Design rules:
-
-1. **Never write offline edits to the canonical path.** Offline (and, simplest,
-   *all* in-progress) edits write to **per-device draft paths**
-   `drafts/<deviceId>/<noteId>/<opId>.md`. These are unique per device+op, so
-   the outbox LWW can never clobber another device's work. `deviceId` is a
-   stable uuid in app-local IndexedDB; `opId` per save.
-2. **Reconcile on reconnect** (and on app open when online). For each note with
-   a pending draft, fetch canonical `notes/<id>.md`:
-   - canonical `content_hash == draft.baseHash` → **fast-forward**: write
-     `mine` to canonical with `parent_rev = baseRev`, `mobius_rev = baseRev+1`;
-     clear the draft.
-   - else **diff3(base, mine, server)**:
-     - **clean** → write merged to canonical (new rev, `parent_revs:[mine,
-       server]`); clear the draft.
-     - **conflict** → write an **immutable** descriptor (below); leave canonical
-       untouched; surface "merging…"; the agent resolves (§8).
-3. **Re-check before every canonical write.** Immediately before writing a
-   merge/fast-forward result, re-read canonical and verify its `content_hash`
-   still equals what the merge was computed against. If it changed (another
-   device landed a write in the gap), abort and create/append a conflict
-   instead of writing. This is best-effort CAS on top of LWW — it closes most
-   of the race the platform can't close atomically; the residual window is
-   documented and caught by the next reconcile.
-4. **diff3 scope:** merge the **markdown body** line-wise (a small vendored
-   diff3, esm.sh, warm-cached). Frontmatter is **not** diff3'd — it's merged
-   field-wise (union tags, last-writer title/color/pin by `updated`, recompute
-   rev/hash). Body conflict markers, if any survive, are what the agent
-   resolves.
-
-**Conflict descriptor** (immutable; unique path keeps two distinct conflicts
-from overwriting each other):
-
-```
-conflicts/<noteId>/<baseHash>.<mineHash>.<serverHash>.json
-{ noteId, baseRev, baseHash, base, mineHash, mine, serverHash, server,
-  observedServerHash, attachmentsMine, attachmentsServer,
-  createdByDeviceId, opId, status: "open", createdAt }
-```
-
-## 7. Git history
-
-Notes no longer installs a recurring snapshot cron. If a manual maintenance job
-is run, it should operate over `notes/` only:
-
-- `.git` initialized on first run; `git add notes/ && git commit` when dirty.
-- **Ignores** `drafts/`, `conflicts/`, `leases/`, `index.json`, and any
-  temp/rename-in-progress files → never snapshots a transitional state.
-- Canonical writes use **atomic rename** (write `…/<id>.md.tmp`, fsync, rename)
-  so the snapshot never sees a half-written file.
-- Gives history/audit, time-travel, and dreaming a clean log. (App-source git —
-  feature 084 — is separate and untouched; this is *note-content* git.)
-
-## 8. Agent conflict resolver
-
-When a descriptor exists, a tool-capable agent resolves it on demand:
-
-- A **"Resolve now"** button posts
-  `moebius:new-chat` with a draft pointing the owner agent at the descriptor.
-
-**Safe resolution (lease + verify, idempotent):**
-1. **Lease**: atomically claim `leases/<noteId>.json`
-   (`{resolverId, leaseUntil, descriptorHash}`); if a live lease exists, skip
-   (prevents two resolver agents from double-resolving).
-2. **Re-verify**: read canonical; require `content_hash ==
-   descriptor.serverHash`. If it changed, **abandon** (write a superseding
-   conflict), don't clobber.
-3. **Merge**: 3-way merge `base/mine/server` (the agent reasons about semantics,
-   not just lines — its real advantage over diff3), preserving attachment refs.
-4. **Write** canonical with `parent_revs:[mineRev, serverRev]`, new rev/hash via
-   atomic rename.
-5. **Finalize**: only if the written note's hash matches what it wrote, set
-   descriptor `status:"resolved"`, release the lease. The app's `subscribe` on
-   `notes/<id>.md` updates the card live.
-
-This is the "code empowers the agent" path Möbius is built around: no
-server-side merge engine, a smart agent handles what a sanitizer can't.
-
-## 9. Dreaming integration
-
-- Notes are plain `notes/<id>.md` (frontmatter + markdown) → dreaming reads them
-  by globbing, no new API. `notes-meta.json` advertises the contract:
-  `{ "app":"notes", "data_type":"notes", "format":"markdown+frontmatter",
-     "dir":"notes/", "index":"index.json", "attachments":"attachments/" }`.
-- **Optional, additive (the only possible platform touch):** one line in
-  `backend/scripts/seed-skills/dreaming.md` telling the nightly agent: "if a
-  notes app is installed, read `notes-meta.json` → fold note titles/snippets
-  into the knowledge graph." Shipped as a separate tiny PR; the app is fully
-  functional without it.
-
-## 10. Logo (codex imagegen)
-
-Per the owner's steer: don't prescribe a metaphor. Write a one-paragraph app
-description, attach the existing app icons (gym/news/mind/atlas `icon.png`)
-as **style references**, and dispatch **codex with an explicit imagegen call**
-("use your image-generation tool to produce a 512×512 PNG at /tmp/…, in the
-style of these reference icons — glossy 3D, Möbius infinity-motif family,
-charcoal + violet, no dark/horror imagery"). Generate a few to distinct temp
-paths, pick the best, save as `icon.png`. (Asking Codex to "design an icon"
-yields SVG code; the imagegen tool must be named explicitly — documented
-gotcha.)
-
-## 11. Manifest (`mobius.json`)
-
-Mirrors gym/news conventions:
+Canonical notes live at `notes/<id>.json`:
 
 ```json
 {
-  "id": "notes",
-  "name": "Notes",
-  "version": "1.0.0",
-  "description": "Markdown notes that render as you type — pin, color, search, inline images & files. Works offline; git-tracked; conflicts auto-merge or get an agent.",
-  "author": "mobius-os",
-  "license": "MIT",
-  "homepage": "https://github.com/mobius-os/app-notes",
-  "entry": "index.jsx",
-  "icon": "icon.png",
-  "offline_capable": true,
-  "permissions": { "cross_app_access": "none", "share_with_apps": "none" },
-  "runtime": { "imports": ["react", "react-dom", "codemirror", "katex"], "esm_deps": ["marked", "dompurify"] },
-  "storage_seeds": { "notes-meta.json": { "app": "notes", "data_type": "notes", "format": "markdown+frontmatter", "dir": "notes/", "index": "index.json", "attachments": "attachments/" } }
+  "meta": {
+    "id": "uuid",
+    "title": "Weekend list",
+    "created": "ISO timestamp",
+    "updated": "ISO timestamp",
+    "pinned": false,
+    "locked": false,
+    "color": null,
+    "type": "note",
+    "attachments": [],
+    "mobius_rev": 1,
+    "parent_rev": 0,
+    "content_hash": "sha256"
+  },
+  "body": "# Markdown body"
 }
 ```
 
-Notes does not install a recurring cron job. Merge conflicts are resolved
-on-demand through the in-app "Resolve now" agent handoff.
+`content_hash` covers semantic content and suppresses no-op writes. Revision
+fields remain for format compatibility and ordinary local history; they do not
+encode merge ancestry.
 
-## 12. Security & sandbox compliance
+The JSON envelope is required by the document primitive. The body remains plain
+Markdown so it is readable by people, git, search, and authorized Möbius agents.
 
-- All rendered note HTML (card previews + any editor HTML widgets) → **DOMPurify**.
-- **No** `window.confirm/alert/prompt`; in-app `ConfirmModal`.
-- Respect the 25 MiB blob cap; reject oversize before write.
-- `connect-src 'self' https://esm.sh` — all deps from esm.sh or same-origin;
-  no other CDNs.
-- Same-origin `fetch('/api/storage/…')` uses the owner JWT (already wired by the
-  runtime via `window.mobius.storage`).
+## 4. Last-write-wins behavior
 
-## 13. Delivery
+The open note calls `useDocument(path, { initial, identity, mode: 'lww' })` with
+no app-supplied merge callback. The collection writes closed notes verbatim after
+serializing updates per path.
 
-- **Build all, ship once** (chosen): implement every layer before review/install.
-- **Platform change (small, separate mobius PR), done first:** vendor CM6 +
-  KaTeX under `/vendor` — Dockerfile `npm install` + a `build-codemirror-vendor.mjs`
-  (modeled on the existing `build-react-vendor.mjs`) that emits one CM6 bundle,
-  copy KaTeX CSS/fonts, add `codemirror` + `katex` importmap entries to
-  `app-frame.html`. Deploy the shell to `mobius-test`, verify the specifiers
-  resolve same-origin and work offline, *then* build the app against them.
-- New repo `mobius-os/app-notes` (local: `/home/hmzmrzx/projects/mobius-os/app-notes/`),
-  matching the other app-* repos: `index.jsx`, `mobius.json`, `icon.png`,
-  `README.md`, `LICENSE`.
-- **Verify in `mobius-test` (port 8001)** end-to-end (never prod): install,
-  drive with agent-browser, exercise offline + a forced conflict + the agent
-  resolver, screenshot.
-- **Register in the app store**, then **ship to prod on the owner's explicit
-  gate** (prod is the shared container; sibling sessions may be active).
-- Optional dreaming-skill line as a separate small PR.
+When two devices write the same note, the platform's later value wins. The app
+does not attempt to combine bodies or metadata. This tradeoff is explicit: a
+simple convergence rule avoids the former class of permanent save locks, while
+automatic git snapshots provide a recovery trail.
 
-## 14. Internal build order (not phased delivery — just sequence)
+The editor mirrors a newer platform value into CodeMirror immediately. Local
+optimistic writes are marked only long enough to recognize their echo. If the
+owner continues typing before an older echo arrives, that echo cannot rewind the
+buffer or cursor. Any genuinely external value is adopted verbatim and does not
+trigger a stale autosave back over itself.
 
-1. **Vendor the editor foundation** (mobius worktree): build the single CM6
-   bundle + KaTeX vendor step + `app-frame.html` importmap entries; deploy to
-   `mobius-test`; confirm `import {EditorView,…} from 'codemirror'` + `katex`
-   resolve same-origin and work offline.
-2. Repo scaffold + manifest + storage seeds; logo via codex imagegen.
-3. Storage layer module (note CRUD, frontmatter, content-hash, derived index,
-   content-addressed attachments) with unit tests.
-4. Grid + card + pin + color + search + ConfirmModal.
-5. Live-inline editor (CM6 + decorations + inline image/file widgets).
-6. Offline drafts + reconcile + diff3 + immutable conflict descriptors.
-7. Leased, verify-before-write "Resolve now" agent handoff.
-8. `notes-meta.json` + dreaming layout; optional dreaming-skill line.
-9. Test-container e2e (incl. forced-conflict + resolver); screenshots.
-10. App-store registration; gated prod ship.
+## 5. Save and close invariants
 
-## 15. Testing & verification
+- The CodeMirror document is the source of truth for the live body.
+- Autosave is debounced, but Back, shell Back, visibility changes, attachment
+  actions, and note switches flush through the same save path.
+- Closing waits for every in-flight save.
+- A rejected save keeps the editor open, retains the optimistic buffer, shows
+  **Save failed**, and marks the note for an exact-content retry.
+- A queued offline write is durable success, not an error.
+- Success clears both the visible error and the forced-retry marker.
+- Drafts become real notes only after their first durable nonblank save.
 
-- **Unit (node --test or in-app harness):** frontmatter parse/serialize,
-  content-hash stability, diff3 fast-forward/clean/conflict cases, derived-index
-  rebuild, attachment content-addressing/dedup.
-- **Compile-smoke:** esbuild-compile `index.jsx` (the mini-app build path).
-- **e2e in mobius-test:** create/edit/pin/color/search; inline image + file;
-  live-preview render; offline edit → reconnect → fast-forward; **forced
-  conflict** (edit same note on two simulated devices) → descriptor written →
-  resolver merges → card updates live; sync-status chip transitions.
-- **Dreaming:** confirm a dreaming run can read `notes-meta.json` + `notes/*.md`.
+## 6. Attachments and garbage collection
 
-## 16. Open risks / to resolve in planning
+Attachments live at `attachments/<sha256>.<ext>` and deduplicate by content.
+Every note save unions existing metadata with attachment references found in the
+live Markdown body.
 
-- **Editor-foundation vendoring** — building a correct single CM6 bundle (right
-  exports, singleton `state`) + KaTeX (CSS + fonts copied for offline math) and
-  wiring the `app-frame.html` importmap + Dockerfile vendor step. Well-precedented
-  (three/React) but the bundle script needs care. Lower-risk than the esm.sh
-  warm-cache path it replaces, and reusable by future apps.
-- **Reconcile-before-write CAS residual window** — inherent to LWW storage;
-  bounded + caught by next reconcile; documented, acceptable for single-owner.
-- **`deviceId` longevity** — IndexedDB can be evicted; if lost, a device gets a
-  new id (a new draft namespace) — safe (no clobber), at worst an extra
-  conflict. Acceptable.
-- **App-store registration mechanics** — confirm how an app enters the store
-  catalog (curated registry vs manifest URL) during delivery.
-- **Manual resolver ergonomics** — keep "Resolve now" clear and recoverable
-  when a descriptor exists.
+A blob receives an in-flight lease before it is written. The lease is released
+after the note durably references it or after attachment failure cleanup. GC
+also pins every reference in the open editor body. It removes only blobs absent
+from all authoritative notes, all open-body pins, and all in-flight leases. If
+note enumeration fails, GC does nothing.
 
-## 17. Out of scope
+Ultra-HDR images are flattened to SDR before storage when needed. Object URLs
+are revoked when previews change or unmount.
 
-CRDT/realtime; per-device git branches; a new server merge endpoint; cross-app
-note sharing; encryption-at-rest beyond what Möbius already provides.
+## 7. Derived index and offline loading
 
-## 18. Future shared platform libraries (noted; NOT a dependency of this app)
+`index.json` contains lightweight card projections and is never authoritative.
+Startup may paint its records as placeholders while canonical notes are listed.
+A placeholder cannot be edited or deleted until its full note document is loaded.
 
-Vendoring CM6 + KaTeX as general deps points at a small set of *powerful,
-reusable* libraries worth growing as a shared foundation (sizes measured,
-min+gzip):
+If listing is unavailable offline, the cache remains visible. On reconnection the
+app re-lists canonical notes and replaces placeholders. A confirmed empty list is
+the only state that renders “No notes yet.”
 
-| Capability | Library | gzip |
-|---|---|---|
-| Editor (this app) | CodeMirror 6 (minimal set) | 188 KB |
-| Math (this app) | KaTeX (JS) | 74 KB |
-| **In-browser git + filesystem** | isomorphic-git + lightning-fs | **83 KB** |
-| Alt. filesystem | @zenfs/core | 91 KB |
-| File-tree UI | react-arborist | 32 KB |
-| 3-way merge / diff | node-diff3 / diff-match-patch | 2 KB / 6 KB |
+## 8. Legacy migration and path compatibility
 
-`isomorphic-git + lightning-fs` is the "file management" analogue to CM6 — a
-complete client-side git + POSIX-ish filesystem in ~83 KB gz — and the natural
-foundation for the **LaTeX app** (multi-file projects + versioning) and future
-file/code/wiki apps. **This Notes app deliberately does NOT use it:** its
-per-file drafts + diff3 design is simpler and correct for
-cross-device quick-capture, and isomorphic-git would not ease the
-sync-through-a-blob-store problem (you would still build a storage-backed
-remote). Recommendation: vendor these **on first real use** (e.g. a
-latex/file-management track), not speculatively.
+Startup migrates legacy `notes/<id>.md` records to JSON. The Markdown file is
+removed only after the JSON write is server-confirmed; queued or refused writes
+leave it intact for retry.
+
+The collection remembers actual storage paths and tolerates historical records
+whose filename and `meta.id` disagree. Deletion removes the remembered JSON path,
+the canonical path, and dormant legacy Markdown variants so deleted notes cannot
+resurrect on the next migration.
+
+## 9. Git history
+
+The manifest schedules `job.sh` every ten minutes. The job:
+
+- initializes git in the numeric app data directory if necessary;
+- stages only `.gitignore`, `notes/`, and `notes-meta.json`;
+- commits only when that canonical set changed;
+- never invokes an agent and never rewrites note content;
+- logs staging or commit failures;
+- ignores attachments, the derived index, signals, temporary files, drafts, and
+  legacy conflict/lease directories.
+
+The schedule is fixed. It is restored by the platform from the manifest during
+install/update and after restart.
+
+## 10. Rendering and security
+
+- Markdown card previews are sanitized and cannot load arbitrary remote media.
+- Attachment resolution stays inside app-scoped storage.
+- KaTeX styling comes from the platform's versioned local asset.
+- No native dialogs are used; confirmations are in-app and accessible.
+- Touch targets meet the 44px floor and text inputs avoid iOS zoom.
+- The editor is a focus-managed modal surface with safe-area padding and a
+  save-aware shell Back handler.
+- Signals contain only primitive operational metadata, never note text, search
+  terms, or filenames.
+
+## 11. Verification
+
+The test suite covers:
+
+- last-write-wins collection updates and serialized write order;
+- queued offline writes, fatal refusals, exact retries, and save-aware closing;
+- external editor repaint and stale local-echo protection;
+- legacy migration and delete-without-resurrection;
+- attachment reference preservation, leases, and conservative GC;
+- offline placeholder loading and reconnect replacement;
+- index, hashing, search, preview sanitizing, checklist, and layout contracts;
+- the real platform document primitive when a platform checkout is supplied;
+- generated bundle parity via `npm run verify:mobius`.
+
+A release is complete only when the source tests pass, `index.jsx` is rebuilt,
+the live app can save/reload online and offline, migration fixtures survive, an
+attachment round-trip succeeds, and the scheduled snapshot produces a clean,
+recoverable git commit.

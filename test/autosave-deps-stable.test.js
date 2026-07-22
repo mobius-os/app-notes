@@ -172,7 +172,7 @@ function safeFind(pred) {
   }
   return null
 }
-const editorProps = () => { const n = safeFind((x) => x.props && Object.prototype.hasOwnProperty.call(x.props, 'conflict') && typeof x.props.onSave === 'function'); return n ? n.props : null }
+const editorProps = () => { const n = safeFind((x) => x.props && x.props.note && typeof x.props.onSave === 'function'); return n ? n.props : null }
 // TopBar is a real (unstubbed) function component the shim doesn't render, so reach
 // its onQuery prop on the element to drive a search-query state change.
 const topBar = () => safeFind((n) => n.props && typeof n.props.onQuery === 'function')
