@@ -26,7 +26,8 @@
       "@lezer/highlight",
       "katex",
       "marked",
-      "dompurify"
+      "dompurify",
+      "@openai/apps-sdk-ui/components/Icon"
     ],
     "esm_deps": []
   },
