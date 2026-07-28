@@ -42,14 +42,14 @@ before(async () => {
     name: 'editor-render-shim',
     setup(b) {
       b.onResolve({ filter: /^react(\/jsx-runtime)?$/ }, () => ({ path: SHIM, external: true }))
-      b.onResolve({ filter: /(Editor|ColorPicker)\.jsx$/ }, () => ({ path: 'stub', namespace: 'stub' }))
+      b.onResolve({ filter: /(Editor|ColorPicker|icons)\.jsx$/ }, () => ({ path: 'stub', namespace: 'stub' }))
       b.onResolve({ filter: /.*/ }, (a) => {
         if (a.kind === 'entry-point') return null
         if (!a.path.startsWith('.') && !a.path.startsWith('/')) return { path: 'noop', namespace: 'stub' }
         return null
       })
       b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
-        contents: 'export default function Stub(){return null}; export const createPortal=()=>null;',
+        contents: 'export default function Stub(){return null}; export const Icon=()=>null; export const createPortal=()=>null;',
         loader: 'js',
       }))
     },
