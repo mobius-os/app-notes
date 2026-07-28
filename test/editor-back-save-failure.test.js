@@ -42,7 +42,7 @@ before(async () => {
       b.onResolve({ filter: /^react(\/jsx-runtime)?$/ }, () => ({ path: SHIM, external: true }))
       // heavy children stubbed to inert components (avoid bundling CodeMirror /
       // react-dom; the jsx shim never invokes them anyway — it only records type).
-      b.onResolve({ filter: /(Editor|ColorPicker)\.jsx$/ }, () => ({ path: 'stub', namespace: 'stub' }))
+      b.onResolve({ filter: /(Editor|ColorPicker|icons)\.jsx$/ }, () => ({ path: 'stub', namespace: 'stub' }))
       // Any other bare library specifier is stubbed for this render-only test.
       b.onResolve({ filter: /.*/ }, (a) => {
         if (a.kind === 'entry-point') return null
@@ -50,7 +50,7 @@ before(async () => {
         return null
       })
       b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
-        contents: 'export default function Stub(){return null}; export const createPortal=()=>null;',
+        contents: 'export default function Stub(){return null}; export const Icon=()=>null; export const createPortal=()=>null;',
         loader: 'js',
       }))
     },

@@ -21,6 +21,7 @@ const EXTERNAL = [
   // Keep these as bare specifiers for the platform's dependency-complete
   // compiler to resolve and embed.
   'marked', 'dompurify',
+  '@openai/apps-sdk-ui/components/Icon',
 ]
 
 await build({
