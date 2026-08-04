@@ -152,7 +152,7 @@ test('open-editor color changes persist the live CodeMirror body', async () => {
   editorEl().props.viewRef.current = {
     state: { doc: { toString: () => 'live unsaved body' } },
   }
-  colorBtn().props.onClick()
+  colorBtn().props.onClick({ currentTarget: {} })
   await tick()
   colorPicker().props.onPick('moss')
   await tick()

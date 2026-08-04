@@ -6,6 +6,7 @@ import { normalizeColorName } from './colors.js'
 import { localImageRefs, renderPreviewHTML } from '../lib/preview.js'
 import ColorPicker from './ColorPicker.jsx'
 import { Icon } from './icons.jsx'
+import { noteOpenLabel } from '../lib/note-label.js'
 
 // Card previews are useful before they enter the viewport, but parsing/sanitizing
 // every note and resolving every thumbnail during the first grid paint is not.
@@ -170,6 +171,7 @@ function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachmen
   const isChecklist = meta.type === 'checklist'
   const locked = !!meta.locked
   const cardDate = formatCardDate(meta)
+  const openLabel = noteOpenLabel(meta, body, cardDate)
 
   // Long-press detection (~300ms) via pointer events. Touch/pen only — a mouse
   // reveals the tools on hover, so arming a long-press for it would wrongly suppress
@@ -215,7 +217,7 @@ function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachmen
           className="nt-card-body"
           role="button"
           tabIndex={0}
-          aria-label={meta.title ? `Open note: ${meta.title}` : 'Open untitled note'}
+          aria-label={openLabel}
           onClick={() => {
             // A long-press just opened the tools; swallow the release-click so it
             // doesn't open the editor over them. One-shot: clear and bail.
@@ -290,13 +292,13 @@ function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachmen
             )}
           </div>
           <IconBtn
-            title={locked ? 'Unlock note' : 'Lock note'}
+            title={locked ? 'Allow edits' : 'Make read-only'}
             active={locked}
             onClick={() => onLock(meta.id)}
-          ><Icon name={locked ? 'lock' : 'unlock'} size={15} /></IconBtn>
+          ><Icon name={locked ? 'edit' : 'lock'} size={15} /></IconBtn>
           <div className="nt-spacer" />
           <IconBtn
-            title={locked ? 'Unlock to delete' : 'Delete'}
+            title={locked ? 'Make editable to delete' : 'Delete'}
             danger
             disabled={locked}
             onClick={() => onDelete(meta.id)}

@@ -24,9 +24,9 @@ export default function ColorPicker({ anchorRef, current, onPick, onDismiss, pla
 
   // Estimate the rendered size so we can flip/clamp against the viewport. Must
   // match the .nt-color-picker CSS: repeat(4, 44px) swatches, gap 8, padding 8.
-  const width = 4 * 44 + 3 * 8 + 2 * 8
+  const width = 4 * 44 + 3 * 8 + 2 * 8 + 2 // tracks + gaps + padding + border
   const rows = Math.ceil(NOTE_COLORS.length / 4)
-  const height = rows * 44 + (rows - 1) * 8 + 2 * 8
+  const height = rows * 44 + (rows - 1) * 8 + 2 * 8 + 2
 
   useLayoutEffect(() => {
     function place() {

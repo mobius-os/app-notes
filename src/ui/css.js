@@ -23,6 +23,8 @@ const TONE_CSS = NOTE_COLORS.filter((c) => c.name).map((c) => `
 .nt-card--${c.name} .nt-card-tone-dot { background: color-mix(in srgb, var(--nt-note-tone) 72%, var(--surface)); }`).join('\n')
 
 export const CSS = `
+*, *::before, *::after { box-sizing: border-box; }
+
 /* mobius-ui:Root v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-root {
   --nt-measure: 704px;
@@ -134,6 +136,16 @@ export const CSS = `
   background: var(--surface);
 }
 .nt-search::placeholder { color: color-mix(in srgb, var(--text) 14%, var(--muted)); }
+.nt-search-clear {
+  min-width: 44px; min-height: 44px; margin: 0 -8px 0 0; padding: 0 8px;
+  border: 0; border-radius: 8px; background: transparent;
+  color: var(--nt-accent-ink); font: 650 12.5px/1 var(--font); cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease;
+}
+@media (hover: hover) {
+  .nt-search-clear:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+}
 .nt-new-note-btn {
   width: 44px; height: 44px; flex: 0 0 auto;
   border-radius: 11px;
@@ -193,7 +205,8 @@ export const CSS = `
 /* mobius-ui:Empty v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 0; padding: 18vh 24px; text-align: center; color: var(--muted);
+  min-height: 100%;
+  gap: 0; padding: clamp(40px, 12vh, 120px) 24px; text-align: center; color: var(--muted);
 }
 .nt-empty-icon {
   width: 56px; height: 56px; border-radius: 16px;
@@ -221,6 +234,10 @@ export const CSS = `
 }
 @media (hover: hover) { .nt-empty-action:hover { filter: brightness(0.94); } }
 .nt-empty-action:active { transform: scale(0.97); }
+.nt-empty-action--secondary {
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+@media (hover: hover) { .nt-empty-action--secondary:hover { filter: none; background: var(--surface2, var(--surface)); } }
 /* /mobius-ui:Empty */
 
 /* ── Grid ───────────────────────────────────────────────────────────────── */
@@ -248,13 +265,22 @@ export const CSS = `
   grid-auto-rows: min-content;
   gap: 12px; align-items: start;
 }
+.nt-cards:has(> :last-child:nth-child(-n + 3)) {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 270px));
+  justify-content: center;
+}
+@media (max-width: 520px) {
+  .nt-cards:has(> :last-child:nth-child(-n + 3)) {
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
+  }
+}
 
 /* ── Card ───────────────────────────────────────────────────────────────── */
 /* mobius-ui:Card v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-card-wrap {
-  min-width: 0; /* grid item — no extra margin needed with gap */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 180px;
+  /* Keep the grid item open to paint overflow; containment clipped the lifted edge. */
+  min-width: 0;
 }
 .nt-card {
   position: relative;
@@ -457,6 +483,7 @@ export const CSS = `
 }
 .nt-modal {
   width: 100%; max-width: 360px;
+  max-height: calc(100% - 40px); overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border); border-radius: 16px; padding: 20px;
   box-shadow: 0 4px 8px color-mix(in srgb, var(--text) 22%, transparent);
@@ -468,7 +495,7 @@ export const CSS = `
 .nt-modal-msg {
   font-size: 14px; color: var(--muted); line-height: 1.5; margin: 0 0 18px;
 }
-.nt-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.nt-modal-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
 .nt-modal-btn {
   min-height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -548,14 +575,13 @@ export const CSS = `
   scroll-padding-inline: 4px 20px;
 }
 .nt-editor-actions::-webkit-scrollbar { display: none; }
-@media (max-width: 480px) {
-  .nt-editor-toolbar { gap: 2px; }
-  .nt-editor-actions {
-    gap: 2px;
-    padding-inline-end: 18px;
-    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
-    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
-  }
+.nt-mobile-actions,
+.nt-mobile-note-options { display: none !important; }
+@media (max-width: 640px) {
+  .nt-desktop-only { display: none !important; }
+  .nt-mobile-actions { display: flex !important; align-items: center; gap: 4px; }
+  .nt-mobile-note-options { display: flex !important; }
+  .nt-editor-toolbar { gap: 4px; }
 }
 /* /mobius-ui:Header */
 /* mobius-ui:Button v1 — keep in sync; library candidate. Diverge below the marker only. */
@@ -581,6 +607,33 @@ export const CSS = `
 .nt-hdr-btn:not(:disabled):active { transform: scale(0.95); }
 /* keyboard focus ring comes from the shared mobius-ui:Focus block above */
 /* /mobius-ui:Button */
+.nt-mobile-note-options {
+  align-items: center; gap: 3px;
+  margin-top: 6px; padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+.nt-mobile-option-btn {
+  flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 4px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  border: 0; border-radius: 9px; background: transparent;
+  color: color-mix(in srgb, var(--text) 76%, var(--muted));
+  font: 620 11.5px/1 var(--font); white-space: nowrap; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease, color 0.12s ease, transform 0.1s ease;
+}
+.nt-mobile-option-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--nt-accent-ink);
+}
+.nt-mobile-option-btn.is-danger { color: var(--nt-danger-ink); }
+.nt-mobile-option-btn:disabled {
+  color: color-mix(in srgb, var(--text) 36%, var(--muted));
+  background: transparent; cursor: default;
+}
+@media (hover: hover) {
+  .nt-mobile-option-btn:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+}
+.nt-mobile-option-btn:not(:disabled):active { transform: scale(0.97); }
 .nt-color-dot {
   width: 9px; height: 9px; border-radius: 3px;
   flex-shrink: 0;
@@ -610,20 +663,10 @@ export const CSS = `
 .nt-title-input[readonly] { cursor: default; color: color-mix(in srgb, var(--text) 88%, var(--muted)); }
 .nt-cm-host .cm-scroller {
   overflow-x: hidden;
-  font-family: var(--font);
-  font-size: 16px;
-  line-height: 1.66;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 .nt-cm-host .cm-scroller::-webkit-scrollbar { display: none; width: 0; height: 0; }
-.nt-cm-host .cm-content {
-  box-sizing: border-box;
-  width: 100%;
-  max-width: var(--nt-measure);
-  margin: 0 auto;
-  padding: 12px 18px 34vh;
-}
 .nt-cm-host .cm-line {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -693,7 +736,7 @@ export const CSS = `
   flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
   gap: 8px 14px;
-  padding: 10px clamp(18px, 6vw, 40px) max(14px, var(--nt-safe-bottom));
+  padding: 10px clamp(18px, 6vw, 40px) 14px;
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   color: color-mix(in srgb, var(--text) 54%, var(--muted));
   font: 500 12px/1.2 var(--mono);
@@ -714,13 +757,39 @@ export const CSS = `
 }
 .nt-sync-pill.is-error { border-color: var(--danger); color: var(--danger); }
 
+/* mobius-ui:Toast v1 — keep in sync; library candidate. */
+.ma-toast {
+  position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 200;
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  background: var(--surface); border: 1px solid var(--accent); border-radius: 12px;
+  font-size: 14px; line-height: 1.5; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.ma-toast.is-success { border-color: var(--green); }
+.ma-toast.is-error { border-color: var(--danger); }
+/* /mobius-ui:Toast */
+.nt-undo-toast {
+  left: max(16px, var(--nt-safe-left)); right: max(16px, var(--nt-safe-right));
+  bottom: max(16px, var(--nt-safe-bottom)); margin: 0 auto; max-width: 520px;
+  animation: nt-toast-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.nt-undo-toast-copy { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.nt-undo-toast-action {
+  min-height: 44px; padding: 0 10px; flex: 0 0 auto;
+  border: 0; border-radius: 8px; background: transparent; color: var(--nt-accent-ink);
+  font: 700 13px/1 var(--font); cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.nt-undo-toast-action:disabled { color: var(--muted); cursor: default; }
+@media (hover: hover) { .nt-undo-toast-action:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 10%, transparent); } }
+@keyframes nt-toast-in { from { opacity: 0.7; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
 /* ── Stranded-attachment strip (editor) ─────────────────────────────────── */
 /* Images attached to the note (meta.attachments) whose markdown ref is no
    longer in the body. Without this strip they'd be invisible inside the note
    while still showing on the card — stranded data. */
 .nt-attach-strip {
   display: flex; gap: 8px; align-items: flex-start;
-  padding: 8px max(16px, var(--nt-safe-right)) max(10px, var(--nt-safe-bottom)) max(16px, var(--nt-safe-left));
+  padding: 8px 16px 10px;
   border-top: 1px solid var(--border);
   background: var(--surface2, var(--surface));
   overflow-x: auto; flex: 0 0 auto;
@@ -737,14 +806,36 @@ export const CSS = `
 /* ── Per-note color tones (generated from NOTE_COLORS) ──────────────────── */
 ${TONE_CSS}
 
-/* mobius-ui:ReducedMotion v1 — honor the OS reduce-motion setting */
+/* Reduced motion keeps state changes legible without movement. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  .nt-spinner {
+    animation: none;
+    border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+    box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent);
   }
+  .nt-undo-toast { animation: none; }
+  .nt-card,
+  .nt-card-footer,
+  .nt-new-note-btn,
+  .nt-empty-action,
+  .nt-search-wrap,
+  .nt-search-clear,
+  .nt-icon-btn,
+  .nt-swatch,
+  .nt-modal-btn,
+  .nt-hdr-btn,
+  .nt-mobile-option-btn,
+  .nt-cm-file-chip { transition: none; }
+  .nt-card:hover,
+  .nt-card:active,
+  .nt-new-note-btn:active,
+  .nt-empty-action:active,
+  .nt-icon-btn:active,
+  .nt-swatch:active,
+  .nt-swatch:hover,
+  .nt-modal-btn:active,
+  .nt-hdr-btn:active,
+  .nt-mobile-option-btn:active,
+  .nt-cm-file-chip:active { transform: none; }
 }
-/* /mobius-ui:ReducedMotion */
 `

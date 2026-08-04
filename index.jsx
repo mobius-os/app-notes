@@ -38,6 +38,8 @@ var TONE_CSS = NOTE_COLORS.filter((c) => c.name).map((c) => `
 .nt-color-dot--${c.name},
 .nt-card--${c.name} .nt-card-tone-dot { background: color-mix(in srgb, var(--nt-note-tone) 72%, var(--surface)); }`).join("\n");
 var CSS = `
+*, *::before, *::after { box-sizing: border-box; }
+
 /* mobius-ui:Root v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
 .nt-root {
   --nt-measure: 704px;
@@ -149,6 +151,16 @@ var CSS = `
   background: var(--surface);
 }
 .nt-search::placeholder { color: color-mix(in srgb, var(--text) 14%, var(--muted)); }
+.nt-search-clear {
+  min-width: 44px; min-height: 44px; margin: 0 -8px 0 0; padding: 0 8px;
+  border: 0; border-radius: 8px; background: transparent;
+  color: var(--nt-accent-ink); font: 650 12.5px/1 var(--font); cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease;
+}
+@media (hover: hover) {
+  .nt-search-clear:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+}
 .nt-new-note-btn {
   width: 44px; height: 44px; flex: 0 0 auto;
   border-radius: 11px;
@@ -208,7 +220,8 @@ var CSS = `
 /* mobius-ui:Empty v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
 .nt-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 0; padding: 18vh 24px; text-align: center; color: var(--muted);
+  min-height: 100%;
+  gap: 0; padding: clamp(40px, 12vh, 120px) 24px; text-align: center; color: var(--muted);
 }
 .nt-empty-icon {
   width: 56px; height: 56px; border-radius: 16px;
@@ -236,6 +249,10 @@ var CSS = `
 }
 @media (hover: hover) { .nt-empty-action:hover { filter: brightness(0.94); } }
 .nt-empty-action:active { transform: scale(0.97); }
+.nt-empty-action--secondary {
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+@media (hover: hover) { .nt-empty-action--secondary:hover { filter: none; background: var(--surface2, var(--surface)); } }
 /* /mobius-ui:Empty */
 
 /* \u2500\u2500 Grid \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
@@ -263,13 +280,22 @@ var CSS = `
   grid-auto-rows: min-content;
   gap: 12px; align-items: start;
 }
+.nt-cards:has(> :last-child:nth-child(-n + 3)) {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 270px));
+  justify-content: center;
+}
+@media (max-width: 520px) {
+  .nt-cards:has(> :last-child:nth-child(-n + 3)) {
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
+  }
+}
 
 /* \u2500\u2500 Card \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 /* mobius-ui:Card v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
 .nt-card-wrap {
-  min-width: 0; /* grid item \u2014 no extra margin needed with gap */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 180px;
+  /* Keep the grid item open to paint overflow; containment clipped the lifted edge. */
+  min-width: 0;
 }
 .nt-card {
   position: relative;
@@ -472,6 +498,7 @@ var CSS = `
 }
 .nt-modal {
   width: 100%; max-width: 360px;
+  max-height: calc(100% - 40px); overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border); border-radius: 16px; padding: 20px;
   box-shadow: 0 4px 8px color-mix(in srgb, var(--text) 22%, transparent);
@@ -483,7 +510,7 @@ var CSS = `
 .nt-modal-msg {
   font-size: 14px; color: var(--muted); line-height: 1.5; margin: 0 0 18px;
 }
-.nt-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.nt-modal-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
 .nt-modal-btn {
   min-height: 44px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -563,14 +590,13 @@ var CSS = `
   scroll-padding-inline: 4px 20px;
 }
 .nt-editor-actions::-webkit-scrollbar { display: none; }
-@media (max-width: 480px) {
-  .nt-editor-toolbar { gap: 2px; }
-  .nt-editor-actions {
-    gap: 2px;
-    padding-inline-end: 18px;
-    -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
-    mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 18px), transparent 100%);
-  }
+.nt-mobile-actions,
+.nt-mobile-note-options { display: none !important; }
+@media (max-width: 640px) {
+  .nt-desktop-only { display: none !important; }
+  .nt-mobile-actions { display: flex !important; align-items: center; gap: 4px; }
+  .nt-mobile-note-options { display: flex !important; }
+  .nt-editor-toolbar { gap: 4px; }
 }
 /* /mobius-ui:Header */
 /* mobius-ui:Button v1 \u2014 keep in sync; library candidate. Diverge below the marker only. */
@@ -596,6 +622,33 @@ var CSS = `
 .nt-hdr-btn:not(:disabled):active { transform: scale(0.95); }
 /* keyboard focus ring comes from the shared mobius-ui:Focus block above */
 /* /mobius-ui:Button */
+.nt-mobile-note-options {
+  align-items: center; gap: 3px;
+  margin-top: 6px; padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+.nt-mobile-option-btn {
+  flex: 1 1 0; min-width: 0; min-height: 44px; padding: 0 4px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  border: 0; border-radius: 9px; background: transparent;
+  color: color-mix(in srgb, var(--text) 76%, var(--muted));
+  font: 620 11.5px/1 var(--font); white-space: nowrap; cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  transition: background 0.12s ease, color 0.12s ease, transform 0.1s ease;
+}
+.nt-mobile-option-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--nt-accent-ink);
+}
+.nt-mobile-option-btn.is-danger { color: var(--nt-danger-ink); }
+.nt-mobile-option-btn:disabled {
+  color: color-mix(in srgb, var(--text) 36%, var(--muted));
+  background: transparent; cursor: default;
+}
+@media (hover: hover) {
+  .nt-mobile-option-btn:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+}
+.nt-mobile-option-btn:not(:disabled):active { transform: scale(0.97); }
 .nt-color-dot {
   width: 9px; height: 9px; border-radius: 3px;
   flex-shrink: 0;
@@ -625,20 +678,10 @@ var CSS = `
 .nt-title-input[readonly] { cursor: default; color: color-mix(in srgb, var(--text) 88%, var(--muted)); }
 .nt-cm-host .cm-scroller {
   overflow-x: hidden;
-  font-family: var(--font);
-  font-size: 16px;
-  line-height: 1.66;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 .nt-cm-host .cm-scroller::-webkit-scrollbar { display: none; width: 0; height: 0; }
-.nt-cm-host .cm-content {
-  box-sizing: border-box;
-  width: 100%;
-  max-width: var(--nt-measure);
-  margin: 0 auto;
-  padding: 12px 18px 34vh;
-}
 .nt-cm-host .cm-line {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -708,7 +751,7 @@ var CSS = `
   flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
   gap: 8px 14px;
-  padding: 10px clamp(18px, 6vw, 40px) max(14px, var(--nt-safe-bottom));
+  padding: 10px clamp(18px, 6vw, 40px) 14px;
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   color: color-mix(in srgb, var(--text) 54%, var(--muted));
   font: 500 12px/1.2 var(--mono);
@@ -729,13 +772,39 @@ var CSS = `
 }
 .nt-sync-pill.is-error { border-color: var(--danger); color: var(--danger); }
 
+/* mobius-ui:Toast v1 \u2014 keep in sync; library candidate. */
+.ma-toast {
+  position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 200;
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  background: var(--surface); border: 1px solid var(--accent); border-radius: 12px;
+  font-size: 14px; line-height: 1.5; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.ma-toast.is-success { border-color: var(--green); }
+.ma-toast.is-error { border-color: var(--danger); }
+/* /mobius-ui:Toast */
+.nt-undo-toast {
+  left: max(16px, var(--nt-safe-left)); right: max(16px, var(--nt-safe-right));
+  bottom: max(16px, var(--nt-safe-bottom)); margin: 0 auto; max-width: 520px;
+  animation: nt-toast-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.nt-undo-toast-copy { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.nt-undo-toast-action {
+  min-height: 44px; padding: 0 10px; flex: 0 0 auto;
+  border: 0; border-radius: 8px; background: transparent; color: var(--nt-accent-ink);
+  font: 700 13px/1 var(--font); cursor: pointer;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.nt-undo-toast-action:disabled { color: var(--muted); cursor: default; }
+@media (hover: hover) { .nt-undo-toast-action:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 10%, transparent); } }
+@keyframes nt-toast-in { from { opacity: 0.7; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
 /* \u2500\u2500 Stranded-attachment strip (editor) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 /* Images attached to the note (meta.attachments) whose markdown ref is no
    longer in the body. Without this strip they'd be invisible inside the note
    while still showing on the card \u2014 stranded data. */
 .nt-attach-strip {
   display: flex; gap: 8px; align-items: flex-start;
-  padding: 8px max(16px, var(--nt-safe-right)) max(10px, var(--nt-safe-bottom)) max(16px, var(--nt-safe-left));
+  padding: 8px 16px 10px;
   border-top: 1px solid var(--border);
   background: var(--surface2, var(--surface));
   overflow-x: auto; flex: 0 0 auto;
@@ -752,16 +821,38 @@ var CSS = `
 /* \u2500\u2500 Per-note color tones (generated from NOTE_COLORS) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 ${TONE_CSS}
 
-/* mobius-ui:ReducedMotion v1 \u2014 honor the OS reduce-motion setting */
+/* Reduced motion keeps state changes legible without movement. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  .nt-spinner {
+    animation: none;
+    border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+    box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent);
   }
+  .nt-undo-toast { animation: none; }
+  .nt-card,
+  .nt-card-footer,
+  .nt-new-note-btn,
+  .nt-empty-action,
+  .nt-search-wrap,
+  .nt-search-clear,
+  .nt-icon-btn,
+  .nt-swatch,
+  .nt-modal-btn,
+  .nt-hdr-btn,
+  .nt-mobile-option-btn,
+  .nt-cm-file-chip { transition: none; }
+  .nt-card:hover,
+  .nt-card:active,
+  .nt-new-note-btn:active,
+  .nt-empty-action:active,
+  .nt-icon-btn:active,
+  .nt-swatch:active,
+  .nt-swatch:hover,
+  .nt-modal-btn:active,
+  .nt-hdr-btn:active,
+  .nt-mobile-option-btn:active,
+  .nt-cm-file-chip:active { transform: none; }
 }
-/* /mobius-ui:ReducedMotion */
 `;
 
 // src/lib/hash.js
@@ -1407,9 +1498,9 @@ function ColorPicker({ anchorRef, current, onPick, onDismiss, placement = "above
   dismissRef.current = onDismiss;
   const normalizedCurrent = normalizeColorName(current);
   const ready = !!pos;
-  const width = 4 * 44 + 3 * 8 + 2 * 8;
+  const width = 4 * 44 + 3 * 8 + 2 * 8 + 2;
   const rows = Math.ceil(NOTE_COLORS.length / 4);
-  const height = rows * 44 + (rows - 1) * 8 + 2 * 8;
+  const height = rows * 44 + (rows - 1) * 8 + 2 * 8 + 2;
   useLayoutEffect(() => {
     function place() {
       const el = anchorRef && anchorRef.current;
@@ -1573,6 +1664,32 @@ function Icon({ name, size = 17, ...props }) {
   return null;
 }
 
+// src/lib/note-label.js
+var MAX_SUMMARY = 72;
+function cleanMarkdownLine(line) {
+  return String(line || "").trim().replace(/^#{1,6}\s+/, "").replace(/^>\s?/, "").replace(/^[-*+]\s+\[[ xX]\]\s+/, "").replace(/^[-*+]\s+/, "").replace(/^\d+[.)]\s+/, "").replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/[`*_~]/g, "").replace(/\s+/g, " ").trim();
+}
+function firstMeaningfulLine(body, maxLength = MAX_SUMMARY) {
+  const lines = String(body || "").split(/\r?\n/);
+  for (const line of lines) {
+    const cleaned = cleanMarkdownLine(line);
+    if (!cleaned) continue;
+    return cleaned.length > maxLength ? `${cleaned.slice(0, Math.max(1, maxLength - 1)).trimEnd()}\u2026` : cleaned;
+  }
+  return "";
+}
+function noteDisplayName(meta = {}, body = "") {
+  const title = String(meta.title || "").trim();
+  if (title) return title;
+  return firstMeaningfulLine(body) || (meta.type === "checklist" ? "Untitled checklist" : "Untitled note");
+}
+function noteOpenLabel(meta = {}, body = "", date = "") {
+  const title = String(meta.title || "").trim();
+  if (title) return `Open note: ${title}`;
+  const summary = firstMeaningfulLine(body) || (meta.type === "checklist" ? "Empty checklist" : "Empty note");
+  return `Open untitled note: ${summary}${date ? `, ${date}` : ""}`;
+}
+
 // src/ui/Card.jsx
 import { Fragment, jsx as jsx3, jsxs as jsxs2 } from "react/jsx-runtime";
 var nearCardCallbacks = /* @__PURE__ */ new WeakMap();
@@ -1711,6 +1828,7 @@ function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachmen
   const isChecklist = meta.type === "checklist";
   const locked = !!meta.locked;
   const cardDate = formatCardDate(meta);
+  const openLabel = noteOpenLabel(meta, body, cardDate);
   const onPointerDown = useCallback((e) => {
     if (e.pointerType === "mouse") return;
     longPressTimer.current = setTimeout(() => {
@@ -1742,7 +1860,7 @@ function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachmen
             className: "nt-card-body",
             role: "button",
             tabIndex: 0,
-            "aria-label": meta.title ? `Open note: ${meta.title}` : "Open untitled note",
+            "aria-label": openLabel,
             onClick: () => {
               if (suppressNextClick.current) {
                 suppressNextClick.current = false;
@@ -1812,17 +1930,17 @@ function Card({ note, onOpen, onPin, onColor, onLock, onDelete, resolveAttachmen
           /* @__PURE__ */ jsx3(
             IconBtn,
             {
-              title: locked ? "Unlock note" : "Lock note",
+              title: locked ? "Allow edits" : "Make read-only",
               active: locked,
               onClick: () => onLock(meta.id),
-              children: /* @__PURE__ */ jsx3(Icon, { name: locked ? "lock" : "unlock", size: 15 })
+              children: /* @__PURE__ */ jsx3(Icon, { name: locked ? "edit" : "lock", size: 15 })
             }
           ),
           /* @__PURE__ */ jsx3("div", { className: "nt-spacer" }),
           /* @__PURE__ */ jsx3(
             IconBtn,
             {
-              title: locked ? "Unlock to delete" : "Delete",
+              title: locked ? "Make editable to delete" : "Delete",
               danger: true,
               disabled: locked,
               onClick: () => onDelete(meta.id),
@@ -2226,12 +2344,21 @@ function findMathSpans(text) {
 
 // src/editor/livePreview.js
 var HIDE_MARKS = /* @__PURE__ */ new Set(["HeaderMark", "EmphasisMark", "StrikethroughMark"]);
+var mathSpansField = StateField.define({
+  create(state) {
+    return findMathSpans(state.doc.toString());
+  },
+  update(value, tr) {
+    if (!tr.docChanged) return value;
+    return findMathSpans(tr.state.doc.toString());
+  }
+});
 function buildMathDecorations(state) {
   const sel = state.selection.main;
   const aFrom = state.doc.lineAt(sel.from).from;
   const aTo = state.doc.lineAt(sel.to).to;
   const onActive = (from, to) => to >= aFrom && from <= aTo;
-  const spans = findMathSpans(state.doc.toString());
+  const spans = state.field(mathSpansField);
   const ranges = [];
   for (const sp of spans) {
     if (onActive(sp.from, sp.to)) continue;
@@ -2273,7 +2400,7 @@ function livePreview({ resolveAttachment } = {}) {
           const aFrom = state.doc.lineAt(sel.from).from;
           const aTo = state.doc.lineAt(sel.to).to;
           const onActive = (from, to) => to >= aFrom && from <= aTo;
-          const mathSpans = findMathSpans(state.doc.toString());
+          const mathSpans = state.field(mathSpansField);
           const inMath = (from, to) => mathSpans.some((s) => from < s.to && to > s.from);
           const out = [];
           const tree = syntaxTree(state);
@@ -2372,7 +2499,7 @@ var theme = EditorView2.theme({
   ".cm-selectionBackground": { backgroundColor: "color-mix(in srgb, var(--accent) 22%, transparent)" },
   "&.cm-focused .cm-selectionBackground": { backgroundColor: "color-mix(in srgb, var(--accent) 30%, transparent)" },
   ".cm-line": { padding: "0", overflowWrap: "anywhere", wordBreak: "break-word" }
-}, { dark: true });
+});
 function wrap(mark, markEnd = mark) {
   return (view) => {
     const tr = view.state.changeByRange((range) => {
@@ -2401,10 +2528,12 @@ function buildExtensions({ onDocChange, resolveAttachment, editableCompartment, 
     syntaxHighlighting(highlightStyle),
     indentOnInput(),
     EditorView2.lineWrapping,
+    mathSpansField,
     livePreview({ resolveAttachment }),
     mathPreview,
     keymap.of([...mdKeymap, indentWithTab, ...historyKeymap, ...defaultKeymap]),
     theme,
+    EditorView2.contentAttributes.of({ "aria-label": "Note body" }),
     EditorView2.updateListener.of((u) => {
       if (u.docChanged) onDocChange(u.state.doc.toString());
     })
@@ -2489,7 +2618,7 @@ function taskSummary(body) {
   const done = tasks.filter((task) => /\[[xX]\]/.test(task)).length;
   return `${tasks.length} task${tasks.length === 1 ? "" : "s"} \xB7 ${done} done`;
 }
-function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment: putAttachment2, status, forceSave, closeRequestRef, inactive = false }) {
+function EditorPanel({ note, onSave, onBack, onDelete, resolveAttachment, putAttachment: putAttachment2, status, forceSave, closeRequestRef, inactive = false, isDraft = false }) {
   const [title, setTitle] = useState3(note.meta.title || "");
   const [body, setBody] = useState3(note.body || "");
   const [showColors, setShowColors] = useState3(false);
@@ -2512,6 +2641,10 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
   const localWriteBodies = useRef4(/* @__PURE__ */ new Set());
   const isChecklist = note.meta.type === "checklist";
   const locked = !!note.meta.locked;
+  const toggleColorPicker = useCallback2((event) => {
+    colorBtnRef.current = event.currentTarget;
+    setShowColors((visible) => !visible);
+  }, []);
   useEffect4(() => {
     if (latest.current.note.meta.id === note.meta.id) {
       latest.current = { note, title, body };
@@ -2801,22 +2934,22 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
   }
   const stranded = useMemo2(() => strandedImageRefs(note.meta, body), [note.meta, body]);
   const strandedKey = stranded.join("\n");
-  const [strandedUrls, setStrandedUrls] = useState3([]);
+  const [strandedItems, setStrandedItems] = useState3([]);
   useEffect4(() => {
     let live = true;
     let urls = [];
     const refs = strandedKey ? strandedKey.split("\n") : [];
-    setStrandedUrls([]);
+    setStrandedItems([]);
     if (!refs.length || !resolveAttachment) return () => {
     };
-    Promise.all(refs.map((ref) => resolveAttachment(ref).catch(() => null))).then((resolved) => {
-      const next = resolved.filter(Boolean);
+    Promise.all(refs.map(async (ref) => ({ ref, url: await resolveAttachment(ref).catch(() => null) }))).then((resolved) => {
+      const next = resolved.filter((item) => item.url);
       if (!live) {
-        next.forEach((u) => URL.revokeObjectURL(u));
+        next.forEach((item) => URL.revokeObjectURL(item.url));
         return;
       }
-      urls = next;
-      setStrandedUrls(next);
+      urls = next.map((item) => item.url);
+      setStrandedItems(next);
     }).catch(() => {
     });
     return () => {
@@ -2861,7 +2994,7 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
                     children: /* @__PURE__ */ jsx6(Icon, { name: "back", size: 18 })
                   }
                 ),
-                /* @__PURE__ */ jsxs4("div", { className: "nt-editor-actions", role: "toolbar", "aria-label": "Note actions", children: [
+                /* @__PURE__ */ jsxs4("div", { className: "nt-editor-actions nt-desktop-only", role: "toolbar", "aria-label": "Note actions", children: [
                   /* @__PURE__ */ jsx6(
                     "button",
                     {
@@ -2891,47 +3024,57 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
                       children: /* @__PURE__ */ jsx6(Icon, { name: "paperclip", size: 16 })
                     }
                   ),
-                  /* @__PURE__ */ jsxs4("div", { ref: colorBtnRef, className: "nt-color-anchor", children: [
-                    /* @__PURE__ */ jsx6(
-                      "button",
-                      {
-                        type: "button",
-                        onClick: () => setShowColors((v) => !v),
-                        "aria-label": "Color",
-                        title: "Color",
-                        disabled: closing,
-                        className: "nt-hdr-btn",
-                        children: /* @__PURE__ */ jsx6(Icon, { name: "palette", size: 17 })
-                      }
-                    ),
-                    showColors && /* @__PURE__ */ jsx6(
-                      ColorPicker,
-                      {
-                        anchorRef: colorBtnRef,
-                        placement: "below",
-                        align: "start",
-                        current: note.meta.color,
-                        onPick: (c) => {
-                          saveMetaPatch({ color: c }).catch(() => {
-                          });
-                          setShowColors(false);
-                        },
-                        onDismiss: () => setShowColors(false)
-                      }
-                    )
-                  ] }),
+                  /* @__PURE__ */ jsx6("div", { className: "nt-color-anchor", children: /* @__PURE__ */ jsx6(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: toggleColorPicker,
+                      "aria-label": "Color",
+                      title: "Color",
+                      disabled: closing,
+                      className: "nt-hdr-btn",
+                      children: /* @__PURE__ */ jsx6(Icon, { name: "palette", size: 17 })
+                    }
+                  ) }),
                   /* @__PURE__ */ jsx6(
                     "button",
                     {
                       type: "button",
                       onClick: () => saveMetaPatch({ locked: !locked }).catch(() => {
                       }),
-                      "aria-label": locked ? "Unlock note" : "Lock note",
+                      "aria-label": locked ? "Allow edits" : "Make read-only",
                       "aria-pressed": locked,
                       disabled: closing,
-                      title: locked ? "Unlock note" : "Lock note",
+                      title: locked ? "Allow edits" : "Make read-only",
                       className: `nt-hdr-btn${locked ? " is-active" : ""}`,
-                      children: /* @__PURE__ */ jsx6(Icon, { name: locked ? "lock" : "unlock", size: 16 })
+                      children: /* @__PURE__ */ jsx6(Icon, { name: locked ? "edit" : "lock", size: 16 })
+                    }
+                  ),
+                  /* @__PURE__ */ jsx6(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: toggleType,
+                      "aria-label": isChecklist ? "Switch to note" : "Switch to checklist",
+                      "aria-pressed": isChecklist,
+                      disabled: locked || closing,
+                      title: isChecklist ? "Switch to note" : "Switch to checklist",
+                      className: `nt-hdr-btn${isChecklist ? " is-active" : ""}`,
+                      children: /* @__PURE__ */ jsx6(Icon, { name: isChecklist ? "checklist" : "note", size: 16 })
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxs4("div", { className: "nt-mobile-actions", role: "toolbar", "aria-label": "Writing actions", children: [
+                  /* @__PURE__ */ jsx6(
+                    "button",
+                    {
+                      type: "button",
+                      onClick: () => attachmentRef.current && attachmentRef.current.click(),
+                      "aria-label": "Attach image or file",
+                      title: "Attach image or file",
+                      disabled: locked || closing,
+                      className: "nt-hdr-btn",
+                      children: /* @__PURE__ */ jsx6(Icon, { name: "paperclip", size: 16 })
                     }
                   ),
                   /* @__PURE__ */ jsx6(
@@ -2956,13 +3099,92 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
                     type: "button",
                     onClick: () => onDelete(note.meta.id),
                     "aria-label": "Delete",
-                    title: locked ? "Unlock to delete" : "Delete",
+                    title: locked ? "Allow edits before deleting" : "Delete",
                     disabled: locked || closing,
-                    className: "nt-hdr-btn is-danger",
+                    className: "nt-hdr-btn is-danger nt-desktop-only",
                     children: /* @__PURE__ */ jsx6(Icon, { name: "trash", size: 16 })
                   }
                 )
               ] }),
+              /* @__PURE__ */ jsxs4("div", { className: "nt-mobile-note-options", role: "toolbar", "aria-label": "Note options", children: [
+                /* @__PURE__ */ jsxs4(
+                  "button",
+                  {
+                    type: "button",
+                    onClick: () => saveMetaPatch({ pinned: !note.meta.pinned }).catch(() => {
+                    }),
+                    "aria-label": note.meta.pinned ? "Unpin note" : "Pin note",
+                    "aria-pressed": note.meta.pinned,
+                    disabled: closing,
+                    className: `nt-mobile-option-btn${note.meta.pinned ? " is-active" : ""}`,
+                    children: [
+                      /* @__PURE__ */ jsx6(Icon, { name: "pin", size: 15 }),
+                      /* @__PURE__ */ jsx6("span", { children: note.meta.pinned ? "Unpin" : "Pin" })
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ jsxs4(
+                  "button",
+                  {
+                    type: "button",
+                    onClick: toggleColorPicker,
+                    "aria-label": "Color",
+                    "aria-expanded": showColors,
+                    disabled: closing,
+                    className: "nt-mobile-option-btn",
+                    children: [
+                      /* @__PURE__ */ jsx6(Icon, { name: "palette", size: 16 }),
+                      /* @__PURE__ */ jsx6("span", { children: "Color" })
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ jsxs4(
+                  "button",
+                  {
+                    type: "button",
+                    onClick: () => saveMetaPatch({ locked: !locked }).catch(() => {
+                    }),
+                    "aria-label": locked ? "Allow edits" : "Make read-only",
+                    "aria-pressed": locked,
+                    disabled: closing,
+                    className: `nt-mobile-option-btn${locked ? " is-active" : ""}`,
+                    children: [
+                      /* @__PURE__ */ jsx6(Icon, { name: locked ? "edit" : "lock", size: 15 }),
+                      /* @__PURE__ */ jsx6("span", { children: locked ? "Edit" : "Read-only" })
+                    ]
+                  }
+                ),
+                /* @__PURE__ */ jsxs4(
+                  "button",
+                  {
+                    type: "button",
+                    onClick: () => onDelete(note.meta.id),
+                    "aria-label": "Delete note",
+                    title: locked ? "Allow edits before deleting" : "Delete note",
+                    disabled: locked || closing,
+                    className: "nt-mobile-option-btn is-danger",
+                    children: [
+                      /* @__PURE__ */ jsx6(Icon, { name: "trash", size: 15 }),
+                      /* @__PURE__ */ jsx6("span", { children: "Delete" })
+                    ]
+                  }
+                )
+              ] }),
+              showColors && /* @__PURE__ */ jsx6(
+                ColorPicker,
+                {
+                  anchorRef: colorBtnRef,
+                  placement: "below",
+                  align: "start",
+                  current: note.meta.color,
+                  onPick: (c) => {
+                    saveMetaPatch({ color: c }).catch(() => {
+                    });
+                    setShowColors(false);
+                  },
+                  onDismiss: () => setShowColors(false)
+                }
+              ),
               /* @__PURE__ */ jsx6("input", { ref: attachmentRef, type: "file", name: "note-attachment", onChange: handleFile, disabled: locked, className: "nt-file-input" })
             ] }),
             attachErr && /* @__PURE__ */ jsx6("div", { className: "nt-attach-err", role: "alert", children: attachErr }),
@@ -2985,16 +3207,25 @@ function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAt
             /* @__PURE__ */ jsx6("div", { className: "nt-editor-body", children: /* @__PURE__ */ jsx6(Editor, { value: body, onChange: locked || closing ? () => {
             } : setBody, resolveAttachment, viewRef, syncKey: note.meta.id, readOnly: locked || closing }) }),
             /* @__PURE__ */ jsxs4("footer", { className: "nt-editor-foot", "aria-label": "Note metadata", children: [
-              /* @__PURE__ */ jsx6("span", { children: editorDate(note.meta) }),
+              /* @__PURE__ */ jsx6("span", { children: isDraft ? "New note" : editorDate(note.meta) }),
               /* @__PURE__ */ jsxs4("span", { children: [
                 count,
                 " word",
                 count === 1 ? "" : "s"
               ] }),
+              isDraft && /* @__PURE__ */ jsx6("span", { children: "Autosaves as you type" }),
               tasks && /* @__PURE__ */ jsx6("span", { children: tasks }),
-              locked && /* @__PURE__ */ jsx6("span", { children: "Locked" })
+              locked && /* @__PURE__ */ jsx6("span", { children: "Read-only" })
             ] }),
-            strandedUrls.length > 0 && /* @__PURE__ */ jsx6("div", { className: "nt-attach-strip", "aria-label": "Attached images", children: strandedUrls.map((u) => /* @__PURE__ */ jsx6("img", { src: u, alt: "", className: "nt-attach-thumb" }, u)) })
+            strandedItems.length > 0 && /* @__PURE__ */ jsx6("div", { className: "nt-attach-strip", "aria-label": "Attached images", children: strandedItems.map((item, index) => /* @__PURE__ */ jsx6(
+              "img",
+              {
+                src: item.url,
+                alt: `Attached image ${index + 1}`,
+                className: "nt-attach-thumb"
+              },
+              item.ref
+            )) })
           ]
         }
       )
@@ -3131,18 +3362,31 @@ function TopBar({ appId, query, onQuery, onCreate }) {
         }
       )
     ] }),
-    /* @__PURE__ */ jsxs6("label", { className: "nt-search-wrap", children: [
+    /* @__PURE__ */ jsxs6("div", { className: "nt-search-wrap", role: "search", children: [
       /* @__PURE__ */ jsx8(Icon, { name: "search", size: 17 }),
       /* @__PURE__ */ jsx8(
         "input",
         {
           value: query,
           onChange: (e) => onQuery(e.target.value),
+          onKeyDown: (e) => {
+            if (e.key === "Escape" && query) onQuery("");
+          },
           name: "notes-search",
           autoComplete: "off",
           placeholder: "Search notes\u2026",
           "aria-label": "Search notes",
           className: "nt-search"
+        }
+      ),
+      query && /* @__PURE__ */ jsx8(
+        "button",
+        {
+          type: "button",
+          className: "nt-search-clear",
+          onClick: () => onQuery(""),
+          "aria-label": "Clear search",
+          children: "Clear"
         }
       )
     ] })
@@ -3162,12 +3406,13 @@ function LoadingGrid() {
     ] }, i)) })
   ] });
 }
-function EmptyState({ filtered, onCreate }) {
+function EmptyState({ filtered, onCreate, onClear }) {
   return /* @__PURE__ */ jsxs6("div", { className: "nt-empty", children: [
     /* @__PURE__ */ jsx8("div", { className: "nt-empty-icon", children: /* @__PURE__ */ jsx8(Icon, { name: filtered ? "search" : "note", size: 26 }) }),
     /* @__PURE__ */ jsx8("div", { className: "nt-empty-msg", children: filtered ? "No matching notes" : "No notes yet" }),
     /* @__PURE__ */ jsx8("div", { className: "nt-empty-hint", children: filtered ? "Try another word or clear search to return to your notes." : "Jot a thought, a list, or a draft. Your agent can read and tidy them later." }),
-    !filtered && /* @__PURE__ */ jsx8("button", { type: "button", className: "nt-empty-action", onClick: onCreate, children: "New note" })
+    !filtered && /* @__PURE__ */ jsx8("button", { type: "button", className: "nt-empty-action", onClick: onCreate, children: "New note" }),
+    filtered && /* @__PURE__ */ jsx8("button", { type: "button", className: "nt-empty-action nt-empty-action--secondary", onClick: onClear, children: "Clear search" })
   ] });
 }
 var ErrorBoundary = class extends React.Component {
@@ -3207,16 +3452,19 @@ function App({ appId }) {
   const [view, setView] = useState4({ mode: "grid", id: null });
   const [draft, setDraft] = useState4(null);
   const [confirmId, setConfirmId] = useState4(null);
+  const [recentlyDeleted, setRecentlyDeleted] = useState4(null);
   const [saveError, setSaveError] = useState4(null);
   const [failedSaveIds, setFailedSaveIds] = useState4(() => /* @__PURE__ */ new Set());
   const gcTimer = useRef6(null);
   const indexTimer = useRef6(null);
+  const deleteUndoTimer = useRef6(null);
   const editorNavOwned = useRef6(false);
   const editorCloseRef = useRef6(null);
   const openIdRef = useRef6(null);
   const notesRef = useRef6([]);
   const draftRef = useRef6(null);
   const failedSaveIdsRef = useRef6(/* @__PURE__ */ new Set());
+  const recentlyDeletedRef = useRef6(null);
   const [online, setOnline] = useState4(() => isOnline());
   const setDraftNow = useCallback4((next) => {
     draftRef.current = typeof next === "function" ? next(draftRef.current) : next;
@@ -3227,6 +3475,10 @@ function App({ appId }) {
     notesRef.current = next;
     setNotes(next);
     return next;
+  }, []);
+  const setRecentlyDeletedNow = useCallback4((next) => {
+    recentlyDeletedRef.current = typeof next === "function" ? next(recentlyDeletedRef.current) : next;
+    setRecentlyDeleted(recentlyDeletedRef.current);
   }, []);
   const collection = useMemo3(() => makeNoteCollection(), []);
   const openId = view.mode === "editor" ? view.id : null;
@@ -3343,6 +3595,7 @@ function App({ appId }) {
   useEffect6(() => () => {
     if (gcTimer.current) clearTimeout(gcTimer.current);
     if (indexTimer.current) clearTimeout(indexTimer.current);
+    if (deleteUndoTimer.current) clearTimeout(deleteUndoTimer.current);
   }, []);
   const pushEditorNav = useCallback4(() => {
     if (typeof window === "undefined" || !window.parent) return Promise.resolve(false);
@@ -3495,10 +3748,18 @@ function App({ appId }) {
     if (n) persist({ ...n.meta, locked: !n.meta.locked }, n.body).catch(() => {
     });
   }, [draft, ensureAuthoritative, persist, setDraftNow]);
-  const queueDelete = useCallback4(async (id) => {
+  const queueDelete = useCallback4(async (id, { deferGc = false } = {}) => {
     const result = await collection.remove(id);
-    if (canGcAfterDurableResult(result)) scheduleGc();
+    if (!deferGc && canGcAfterDurableResult(result)) scheduleGc();
+    return result;
   }, [collection, scheduleGc, canGcAfterDurableResult]);
+  const finishDeleteUndoWindow = useCallback4(() => {
+    if (!recentlyDeletedRef.current) return;
+    if (deleteUndoTimer.current) clearTimeout(deleteUndoTimer.current);
+    deleteUndoTimer.current = null;
+    setRecentlyDeletedNow(null);
+    scheduleGc();
+  }, [scheduleGc, setRecentlyDeletedNow]);
   const doDelete = useCallback4(async (id) => {
     setConfirmId(null);
     if (draft && draft.meta.id === id) {
@@ -3509,12 +3770,13 @@ function App({ appId }) {
     }
     const n = notes.find((x) => x.meta.id === id);
     if (n?.meta?.locked) {
-      setSaveError({ id, kind: "delete", message: "Unlock this note before deleting it." });
+      setSaveError({ id, kind: "delete", message: "Allow edits before deleting this note." });
       return;
     }
     if (n) {
       try {
-        await queueDelete(id);
+        if (recentlyDeletedRef.current) finishDeleteUndoWindow();
+        await queueDelete(id, { deferGc: true });
         window.mobius?.signal?.("item_deleted", { type: n.meta.type || "note" });
       } catch (err) {
         window.mobius?.signal?.("error", { message: err?.message ?? "delete failed", source: "deleteNote" });
@@ -3530,7 +3792,38 @@ function App({ appId }) {
       }
       return v;
     });
-  }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode, setDraftNow, setNotesNow]);
+    if (n) {
+      const pending = {
+        note: { meta: n.meta, body: n.body },
+        label: noteDisplayName(n.meta, n.body),
+        restoring: false,
+        error: ""
+      };
+      setRecentlyDeletedNow(pending);
+      deleteUndoTimer.current = setTimeout(finishDeleteUndoWindow, 6500);
+    }
+  }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode, setDraftNow, setNotesNow, finishDeleteUndoWindow, setRecentlyDeletedNow]);
+  const undoDelete = useCallback4(async () => {
+    const pending = recentlyDeletedRef.current;
+    if (!pending || pending.restoring) return;
+    if (deleteUndoTimer.current) clearTimeout(deleteUndoTimer.current);
+    deleteUndoTimer.current = null;
+    setRecentlyDeletedNow({ ...pending, restoring: true, error: "" });
+    const { meta, body } = pending.note;
+    try {
+      await collection.update(meta.id, () => ({ meta, body }));
+      setNotesNow((prev) => prev.some((note) => note.meta.id === meta.id) ? prev : [{ meta, body }, ...prev]);
+      setRecentlyDeletedNow(null);
+      window.mobius?.signal?.("item_restored", { type: meta.type || "note" });
+    } catch (err) {
+      window.mobius?.signal?.("error", { message: err?.message ?? "restore failed", source: "undoDelete" });
+      setRecentlyDeletedNow({
+        ...pending,
+        restoring: false,
+        error: "Could not restore the note. Try again."
+      });
+    }
+  }, [collection, setNotesNow, setRecentlyDeletedNow]);
   const leaveEditor = useCallback4((fromShell = false) => {
     if (!fromShell) popEditorNav();
     else editorNavOwned.current = false;
@@ -3585,6 +3878,10 @@ function App({ appId }) {
     return () => clearTimeout(h);
   }, [deferredQuery, visible.length, loading]);
   const editing = view.mode === "editor" ? notes.find((n) => n.meta.id === view.id && !n.placeholder) || (draft && draft.meta.id === view.id ? draft : null) : null;
+  const editingIsDraft = !!(editing && draft && draft.meta.id === editing.meta.id);
+  const confirmTarget = confirmId ? notes.find((note) => note.meta.id === confirmId) || (draft && draft.meta.id === confirmId ? draft : null) : null;
+  const confirmIsDraft = !!(confirmTarget && draft && draft.meta.id === confirmTarget.meta.id);
+  const confirmName = confirmTarget ? noteDisplayName(confirmTarget.meta, confirmTarget.body) : "this note";
   const status = saveError && editing && saveError.id === editing.meta.id ? saveError.kind === "delete" ? "Delete failed" : "Save failed" : !online ? "Offline" : null;
   return /* @__PURE__ */ jsxs6("div", { className: "nt-root", children: [
     /* @__PURE__ */ jsx8("style", { children: CSS }),
@@ -3610,7 +3907,14 @@ function App({ appId }) {
                 }
               )
             ] }),
-            /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsx8(LoadingGrid, {}) : visible.length === 0 ? /* @__PURE__ */ jsx8(EmptyState, { filtered: !!deferredQuery.trim(), onCreate: createNote }) : /* @__PURE__ */ jsx8(
+            /* @__PURE__ */ jsx8("main", { className: "nt-scroll", children: loading ? /* @__PURE__ */ jsx8(LoadingGrid, {}) : visible.length === 0 ? /* @__PURE__ */ jsx8(
+              EmptyState,
+              {
+                filtered: !!deferredQuery.trim(),
+                onCreate: createNote,
+                onClear: () => setQuery("")
+              }
+            ) : /* @__PURE__ */ jsx8(
               Grid_default,
               {
                 notes: visible,
@@ -3631,30 +3935,50 @@ function App({ appId }) {
           note: editing,
           onSave: persist,
           onBack: back,
-          onPin: togglePin,
-          onColor: setColor,
           onDelete: setConfirmId,
           resolveAttachment: attachmentURL,
           putAttachment,
           status,
           forceSave: failedSaveIds.has(editing.meta.id),
           closeRequestRef: editorCloseRef,
-          inactive: !!confirmId
+          inactive: !!confirmId,
+          isDraft: editingIsDraft
         }
       ),
       /* @__PURE__ */ jsx8(
         ConfirmModal,
         {
           open: !!confirmId,
-          title: "Delete note?",
-          message: "This note will be permanently deleted.",
-          confirmLabel: "Delete",
+          title: confirmIsDraft ? "Discard draft?" : "Delete note?",
+          message: confirmIsDraft ? "This new note has not been saved." : `\u201C${confirmName}\u201D will be removed. You can undo for a few seconds.`,
+          confirmLabel: confirmIsDraft ? "Discard" : "Delete note",
           danger: true,
           onConfirm: () => doDelete(confirmId),
           onCancel: () => setConfirmId(null)
         }
       ),
-      !online && view.mode !== "editor" && /* @__PURE__ */ jsx8("div", { className: "nt-sync-pill", role: "status", children: "Offline" })
+      recentlyDeleted && /* @__PURE__ */ jsxs6(
+        "div",
+        {
+          className: `ma-toast nt-undo-toast${recentlyDeleted.error ? " is-error" : ""}`,
+          role: recentlyDeleted.error ? "alert" : "status",
+          "aria-live": recentlyDeleted.error ? "assertive" : "polite",
+          children: [
+            /* @__PURE__ */ jsx8("span", { className: "nt-undo-toast-copy", children: recentlyDeleted.error || `Deleted \u201C${recentlyDeleted.label}\u201D.` }),
+            /* @__PURE__ */ jsx8(
+              "button",
+              {
+                type: "button",
+                className: "nt-undo-toast-action",
+                onClick: undoDelete,
+                disabled: recentlyDeleted.restoring,
+                children: recentlyDeleted.restoring ? "Restoring\u2026" : recentlyDeleted.error ? "Try again" : "Undo"
+              }
+            )
+          ]
+        }
+      ),
+      !online && view.mode !== "editor" && !recentlyDeleted && /* @__PURE__ */ jsx8("div", { className: "nt-sync-pill", role: "status", children: "Offline" })
     ] })
   ] });
 }

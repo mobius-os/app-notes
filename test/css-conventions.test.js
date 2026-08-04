@@ -98,8 +98,6 @@ test('the card grid uses the documented fluid auto-fill tracks', () => {
 })
 
 test('large notebooks defer offscreen card work and non-urgent search rendering', () => {
-  assert.match(CSS, new RegExp(inBlock('.nt-card-wrap').source + 'content-visibility:\\s*auto'), 'card wrappers skip offscreen layout and paint')
-  assert.match(CSS, new RegExp(inBlock('.nt-card-wrap').source + 'contain-intrinsic-size:\\s*auto 180px'), 'offscreen cards reserve a stable intrinsic size')
   assert.match(CARD, /nearCardObserver = new window\.IntersectionObserver/, 'all cards share one near-viewport observer')
   assert.match(CARD, /show\?\.\(entry\.isIntersecting\)/, 'cards release offscreen DOM when they leave the observer margin')
   assert.match(CARD, /if \(!nearViewport\) return undefined[\s\S]*renderPreviewHTML/, 'markdown parsing waits until a card is near the viewport')
@@ -120,10 +118,27 @@ test('new-note actions stay visible without a footer-obscuring floating overlay'
   assert.doesNotMatch(CSS, /\.nt-fab\b/, 'floating action button CSS is removed')
 })
 
-test('narrow editor toolbar prioritizes one combined attachment action', () => {
+test('search and deletion recovery expose direct reversible actions', () => {
+  assert.match(APP, /aria-label="Clear search"[\s\S]*>Clear<\/button>/, 'search field exposes a one-tap clear control')
+  assert.match(APP, /filtered && \([\s\S]*Clear search/, 'no-results state exposes the same recovery action')
+  assert.match(APP, /const undoDelete = useCallback[\s\S]*collection\.update\(meta\.id[\s\S]*item_restored/, 'Undo restores the exact removed note through the collection writer')
+  assert.match(APP, /You can undo for a few seconds/, 'delete confirmation names the reversible recovery window')
+  assert.match(CSS, /\.ma-toast\s*\{[\s\S]*\.nt-undo-toast/, 'delete recovery uses the canonical in-app toast shape')
+})
+
+test('narrow editor toolbar keeps writing and note actions directly visible', () => {
   assert.match(EDITOR_PANEL, /aria-label=\{note\.meta\.pinned[\s\S]*aria-label="Attach image or file"[\s\S]*aria-label="Color"/, 'Attach follows Pin before secondary styling controls')
   assert.match(EDITOR_PANEL, /<input ref=\{attachmentRef\} type="file" name="note-attachment"/, 'one file input accepts both image and file attachments')
   assert.doesNotMatch(EDITOR_PANEL, /imageRef|fileRef|Insert image|Attach file/, 'separate hidden attachment controls stay removed')
+  assert.match(EDITOR_PANEL, /className="nt-mobile-actions"[\s\S]*aria-label="Attach image or file"[\s\S]*Switch to checklist/, 'mobile keeps only writing actions visible')
+  assert.match(EDITOR_PANEL, /className="nt-mobile-note-options"[\s\S]*'Unpin' : 'Pin'/, 'Pin is directly visible in the mobile note header')
+  assert.match(EDITOR_PANEL, /className="nt-mobile-note-options"[\s\S]*>Color<[\s\S]*'Edit' : 'Read-only'[\s\S]*>Delete</, 'all remaining note actions stay visible without a More menu')
+  assert.doesNotMatch(EDITOR_PANEL, /More note options|NoteOptionsSheet|nt-more-/, 'mobile note actions add no disclosure click')
+})
+
+test('hover lift can paint beyond the grid item without clipping', () => {
+  assert.doesNotMatch(CSS, /content-visibility:\s*auto\s*;/, 'card wrappers do not impose paint containment')
+  assert.match(CSS, /\.nt-card:hover\s*\{[^}]*transform:\s*translateY\(-2px\)/, 'the deliberate hover lift remains')
 })
 
 test('the loading state is a shaped skeleton, not a bare text screen', () => {
@@ -161,8 +176,26 @@ test('visible text inputs carry stable names and autocomplete policy', () => {
 })
 
 test('locked notes expose read-only editor and protected delete controls', () => {
-  assert.match(CARD, /title=\{locked \? 'Unlock to delete' : 'Delete'\}[\s\S]*disabled=\{locked\}/, 'locked cards disable delete')
+  assert.match(CARD, /title=\{locked \? 'Make editable to delete' : 'Delete'\}[\s\S]*disabled=\{locked\}/, 'read-only cards disable delete with precise recovery copy')
   assert.match(EDITOR_PANEL, /readOnly=\{locked \|\| closing\}/, 'locked or closing editor title is read-only')
   assert.match(EDITOR_PANEL, /<Editor[\s\S]*readOnly=\{locked \|\| closing\}/, 'locked or closing editor body is read-only')
   assert.match(EDITOR, /EditorView\.editable\.of\(!readOnly\)/, 'CodeMirror editable facet follows lock state')
+})
+
+test('primary writing and untitled-card controls have descriptive accessible names', () => {
+  assert.match(EXT, /EditorView\.contentAttributes\.of\(\{ 'aria-label': 'Note body' \}\)/, 'CodeMirror exposes the note body name')
+  assert.match(CARD, /noteOpenLabel\(meta, body, cardDate\)/, 'untitled card names derive from distinguishing note content')
+  assert.match(EDITOR_PANEL, /alt=\{`Attached image \$\{index \+ 1\}`\}/, 'stranded attachment thumbnails remain present nonvisually')
+})
+
+test('math scanning is cached per document revision and theme ownership stays token-driven', () => {
+  assert.match(LIVE_PREVIEW, /export const mathSpansField = StateField\.define/, 'one state field owns parsed math ranges')
+  assert.equal((LIVE_PREVIEW.match(/findMathSpans\(/g) || []).length, 2, 'math is scanned only in the cache create/update path')
+  assert.match(EXT, /mathSpansField,[\s\S]*livePreview\(\{ resolveAttachment \}\),[\s\S]*mathPreview/, 'shared math cache loads before both decoration consumers')
+  assert.doesNotMatch(EXT, /\}, \{ dark: true \}\)/, 'CodeMirror is not permanently declared dark')
+})
+
+test('reduced motion preserves static state feedback instead of globally killing motion', () => {
+  assert.match(CSS, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.nt-spinner[\s\S]*animation:\s*none/, 'spinner has a deliberate static reduced-motion state')
+  assert.doesNotMatch(CSS, /prefers-reduced-motion: reduce\)[\s\S]*\*, \*::before, \*::after/, 'reduced motion is not a global 0.01ms kill')
 })
