@@ -1,6 +1,6 @@
 // Notes — a markdown notes app for Möbius.
 //
-// Source entry. build.mjs (npm run build) esbuild-bundles this +
+// Source entry. build.mjs (npm run build) Rolldown-bundles this +
 // src/{lib,ui,editor}/* into the single index.jsx the platform installs. The
 // platform's Rolldown compiler then embeds React, CodeMirror, KaTeX, Marked,
 // DOMPurify, and their dependency graphs into the installed module; the render
