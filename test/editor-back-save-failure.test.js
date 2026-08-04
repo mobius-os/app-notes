@@ -5,7 +5,7 @@
 // the 'Save failed' status instead of a silent close-as-saved (data-loss UX).
 //
 // We render EditorPanel in ISOLATION (not the full App — that needs useId/
-// useLayoutEffect/window.mobius/document) by esbuild-transpiling its JSX with
+// useLayoutEffect/window.mobius/document) by Rolldown-transpiling its JSX with
 // `react`/`react/jsx-runtime` aliased to the shared hook+jsx shim in
 // editor-render-shim.mjs (kept EXTERNAL so the bundle and this test share one
 // module instance), and the heavy children (Editor=CodeMirror, ColorPicker=
@@ -20,47 +20,30 @@
 
 import { test, before, after } from 'node:test'
 import assert from 'node:assert'
-import { build } from 'esbuild'
 import { resolve } from 'node:path'
-import { writeFileSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname } from 'node:path'
+import { bundleForRender, RENDER_SHIM as SHIM } from './render-bundle.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')
-const SHIM = resolve(HERE, 'editor-render-shim.mjs')
 const BUNDLE = resolve(ROOT, '.tmp-editor-back-bundle.mjs')
+
+// Heavy children stubbed to inert components (avoid bundling CodeMirror /
+// react-dom; the jsx shim never invokes them anyway — it only records type).
+const STUB = 'export default function Stub(){return null}; export const Icon=()=>null; export const createPortal=()=>null;'
 
 let EditorPanel, shim
 
 before(async () => {
-  const plugin = {
-    name: 'editor-render-shim',
-    setup(b) {
-      // react + jsx-runtime -> the shared shim, EXTERNAL so the bundle keeps an
-      // import to the same module instance this test imports (shared hook slots).
-      b.onResolve({ filter: /^react(\/jsx-runtime)?$/ }, () => ({ path: SHIM, external: true }))
-      // heavy children stubbed to inert components (avoid bundling CodeMirror /
-      // react-dom; the jsx shim never invokes them anyway — it only records type).
-      b.onResolve({ filter: /(Editor|ColorPicker|icons)\.jsx$/ }, () => ({ path: 'stub', namespace: 'stub' }))
-      // Any other bare library specifier is stubbed for this render-only test.
-      b.onResolve({ filter: /.*/ }, (a) => {
-        if (a.kind === 'entry-point') return null
-        if (!a.path.startsWith('.') && !a.path.startsWith('/')) return { path: 'noop', namespace: 'stub' }
-        return null
-      })
-      b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
-        contents: 'export default function Stub(){return null}; export const Icon=()=>null; export const createPortal=()=>null;',
-        loader: 'js',
-      }))
-    },
-  }
-  const r = await build({
-    entryPoints: [resolve(ROOT, 'src/ui/EditorPanel.jsx')],
-    bundle: true, write: false, format: 'esm', jsx: 'automatic',
-    platform: 'neutral', plugins: [plugin], logLevel: 'silent',
+  await bundleForRender({
+    entry: resolve(ROOT, 'src/ui/EditorPanel.jsx'),
+    outfile: BUNDLE,
+    stubs: [{ match: /(Editor|ColorPicker|icons)\.jsx$/, code: STUB }],
+    // Any other bare library specifier is stubbed for this render-only test.
+    stubBareImports: STUB,
   })
-  writeFileSync(BUNDLE, r.outputFiles[0].text)
 
   // Minimal globals EditorPanel's effects/handlers touch (no DOM, no react-dom).
   if (!globalThis.document) globalThis.document = { addEventListener() {}, removeEventListener() {}, visibilityState: 'visible' }

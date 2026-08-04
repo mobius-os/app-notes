@@ -5,61 +5,48 @@
 
 import { test, before, after } from 'node:test'
 import assert from 'node:assert'
-import { build } from 'esbuild'
 import { resolve, dirname } from 'node:path'
-import { writeFileSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { bundleForRender, RENDER_SHIM as SHIM } from './render-bundle.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')
-const SHIM = resolve(HERE, 'editor-render-shim.mjs')
 const BUNDLE = resolve(ROOT, '.tmp-editor-input-source-bundle.mjs')
+
+const EXTENSIONS_STUB = 'export function buildExtensions(){ return [] }'
+
+const STATE_STUB = `
+  class Doc { constructor(text){ this.text = text || '' } toString(){ return this.text } }
+  export class Compartment { of(v){ return v } reconfigure(v){ return { reconfigure: v } } }
+  export const EditorState = { create(opts){ return { doc: new Doc(opts.doc || '') } } }
+`
+
+const VIEW_STUB = `
+  class Doc { constructor(text){ this.text = text || '' } toString(){ return this.text } }
+  globalThis.__editorDispatches = []
+  export class EditorView {
+    constructor(opts){ this.state = opts.state; globalThis.__lastEditorView = this }
+    dispatch(spec){
+      globalThis.__editorDispatches.push(spec)
+      if (spec && spec.changes) this.state.doc = new Doc(spec.changes.insert || '')
+    }
+    destroy(){}
+  }
+`
 
 let Editor, shim
 
 before(async () => {
-  const plugin = {
-    name: 'editor-input-source-shim',
-    setup(b) {
-      b.onResolve({ filter: /^react(\/jsx-runtime)?$/ }, () => ({ path: SHIM, external: true }))
-      b.onResolve({ filter: /extensions\.js$/ }, () => ({ path: 'extensions', namespace: 'stub' }))
-      b.onResolve({ filter: /^@codemirror\/state$/ }, () => ({ path: 'state', namespace: 'stub' }))
-      b.onResolve({ filter: /^@codemirror\/view$/ }, () => ({ path: 'view', namespace: 'stub' }))
-      b.onLoad({ filter: /^extensions$/, namespace: 'stub' }, () => ({
-        contents: 'export function buildExtensions(){ return [] }',
-        loader: 'js',
-      }))
-      b.onLoad({ filter: /^state$/, namespace: 'stub' }, () => ({
-        contents: `
-          class Doc { constructor(text){ this.text = text || '' } toString(){ return this.text } }
-          export class Compartment { of(v){ return v } reconfigure(v){ return { reconfigure: v } } }
-          export const EditorState = { create(opts){ return { doc: new Doc(opts.doc || '') } } }
-        `,
-        loader: 'js',
-      }))
-      b.onLoad({ filter: /^view$/, namespace: 'stub' }, () => ({
-        contents: `
-          class Doc { constructor(text){ this.text = text || '' } toString(){ return this.text } }
-          globalThis.__editorDispatches = []
-          export class EditorView {
-            constructor(opts){ this.state = opts.state; globalThis.__lastEditorView = this }
-            dispatch(spec){
-              globalThis.__editorDispatches.push(spec)
-              if (spec && spec.changes) this.state.doc = new Doc(spec.changes.insert || '')
-            }
-            destroy(){}
-          }
-        `,
-        loader: 'js',
-      }))
-    },
-  }
-  const r = await build({
-    entryPoints: [resolve(ROOT, 'src/editor/Editor.jsx')],
-    bundle: true, write: false, format: 'esm', jsx: 'automatic',
-    platform: 'neutral', plugins: [plugin], logLevel: 'silent',
+  await bundleForRender({
+    entry: resolve(ROOT, 'src/editor/Editor.jsx'),
+    outfile: BUNDLE,
+    stubs: [
+      { match: /extensions\.js$/, code: EXTENSIONS_STUB },
+      { match: /^@codemirror\/state$/, code: STATE_STUB },
+      { match: /^@codemirror\/view$/, code: VIEW_STUB },
+    ],
   })
-  writeFileSync(BUNDLE, r.outputFiles[0].text)
   shim = await import(pathToFileURL(SHIM).href)
   Editor = await import(pathToFileURL(BUNDLE).href)
 })

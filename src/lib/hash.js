@@ -2,9 +2,10 @@
 //
 // Uses `globalThis.crypto.subtle` directly — always present in the browser (the
 // mini-app's real home) and in modern Node. We deliberately do NOT import
-// `node:crypto`: a static node-builtin import breaks the browser bundle esbuild
-// produces for the mini-app. The test runner polyfills the global on older Node
-// (see test/setup.mjs), so `src/` stays browser-pure.
+// `node:crypto`: a static node-builtin import breaks the browser bundle the
+// platform's Rolldown compiler produces for the mini-app. The test runner
+// polyfills the global on older Node (see test/setup.mjs), so `src/` stays
+// browser-pure.
 
 const encoder = new TextEncoder()
 
