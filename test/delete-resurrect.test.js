@@ -36,3 +36,22 @@ test('deleted note does NOT resurrect from a leftover legacy .md on reload', asy
     assert.equal(listed.find((n) => n.meta.id === 'x'), undefined, 'deleted note reappeared in the list')
   })
 })
+
+test('a confirmed delete can be restored exactly through the collection writer', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    const original = {
+      meta: { id: 'undo-me', title: 'Recoverable', attachments: ['attachments/a.jpeg'] },
+      body: 'Exact **markdown** body',
+    }
+    h.seed(notePath('undo-me'), original, 'json')
+
+    const coll = makeNoteCollection()
+    await coll.list()
+    await coll.remove('undo-me')
+    assert.equal(h.server.has(notePath('undo-me')), false)
+
+    await coll.update('undo-me', () => original)
+    assert.deepEqual(h.server.get(notePath('undo-me')).value, original)
+  })
+})

@@ -32,6 +32,7 @@ import EditorPanel from './ui/EditorPanel.jsx'
 import ConfirmModal from './ui/ConfirmModal.jsx'
 import { Icon } from './ui/icons.jsx'
 import { idleDocumentPath } from './lib/runtime-compat.js'
+import { noteDisplayName } from './lib/note-label.js'
 
 // A no-op document handle: the value the open-note hook returns under the
 // unit-test harness, where window.mobius
@@ -83,16 +84,25 @@ function TopBar({ appId, query, onQuery, onCreate }) {
             title="New note"
           ><Icon name="plus" size={20} /></button>
         </div>
-        <label className="nt-search-wrap">
+        <div className="nt-search-wrap" role="search">
           <Icon name="search" size={17} />
           <input
             value={query} onChange={(e) => onQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape' && query) onQuery('') }}
             name="notes-search"
             autoComplete="off"
             placeholder="Search notes…" aria-label="Search notes"
             className="nt-search"
           />
-        </label>
+          {query && (
+            <button
+              type="button"
+              className="nt-search-clear"
+              onClick={() => onQuery('')}
+              aria-label="Clear search"
+            >Clear</button>
+          )}
+        </div>
       </div>
     </header>
   )
@@ -119,7 +129,7 @@ function LoadingGrid() {
   )
 }
 
-function EmptyState({ filtered, onCreate }) {
+function EmptyState({ filtered, onCreate, onClear }) {
   return (
     <div className="nt-empty">
       <div className="nt-empty-icon"><Icon name={filtered ? 'search' : 'note'} size={26} /></div>
@@ -132,6 +142,11 @@ function EmptyState({ filtered, onCreate }) {
       {!filtered && (
         <button type="button" className="nt-empty-action" onClick={onCreate}>
           New note
+        </button>
+      )}
+      {filtered && (
+        <button type="button" className="nt-empty-action nt-empty-action--secondary" onClick={onClear}>
+          Clear search
         </button>
       )}
     </div>
@@ -191,6 +206,7 @@ export default function App({ appId }) {
   const [view, setView] = useState({ mode: 'grid', id: null })
   const [draft, setDraft] = useState(null)
   const [confirmId, setConfirmId] = useState(null)
+  const [recentlyDeleted, setRecentlyDeleted] = useState(null)
   const [saveError, setSaveError] = useState(null)
   // Ids whose LAST durable write was REFUSED (dead-lettered). The optimistic
   // upsert leaves such a note's in-memory value equal to its editor buffer, which
@@ -200,6 +216,7 @@ export default function App({ appId }) {
   const [failedSaveIds, setFailedSaveIds] = useState(() => new Set())
   const gcTimer = useRef(null)
   const indexTimer = useRef(null)
+  const deleteUndoTimer = useRef(null)
   const editorNavOwned = useRef(false)
   // EditorPanel installs its durability-aware close function here. Shell Back
   // must use the same flush-before-leave path as the visible Back button; calling
@@ -213,6 +230,7 @@ export default function App({ appId }) {
   const notesRef = useRef([])
   const draftRef = useRef(null)
   const failedSaveIdsRef = useRef(new Set())
+  const recentlyDeletedRef = useRef(null)
   // Connectivity as REACTIVE state (not a render-time store.isOnline() read, which
   // never updated until an unrelated re-render). Driven by the window online/offline
   // events; going online also re-lists the canonical notes (see the effect below),
@@ -228,6 +246,11 @@ export default function App({ appId }) {
     notesRef.current = next
     setNotes(next)
     return next
+  }, [])
+
+  const setRecentlyDeletedNow = useCallback((next) => {
+    recentlyDeletedRef.current = typeof next === 'function' ? next(recentlyDeletedRef.current) : next
+    setRecentlyDeleted(recentlyDeletedRef.current)
   }, [])
 
   // The per-note document collection for notes not currently open. Built once so
@@ -402,6 +425,7 @@ export default function App({ appId }) {
   useEffect(() => () => {
     if (gcTimer.current) clearTimeout(gcTimer.current)
     if (indexTimer.current) clearTimeout(indexTimer.current)
+    if (deleteUndoTimer.current) clearTimeout(deleteUndoTimer.current)
   }, [])
 
   const pushEditorNav = useCallback(() => {
@@ -604,10 +628,19 @@ export default function App({ appId }) {
   // Delete a note: remove its canonical document via the collection (the runtime
   // queues the delete offline and drains it on reconnect), then sweep orphaned
   // attachments after.
-  const queueDelete = useCallback(async (id) => {
+  const queueDelete = useCallback(async (id, { deferGc = false } = {}) => {
     const result = await collection.remove(id)
-    if (canGcAfterDurableResult(result)) scheduleGc()
+    if (!deferGc && canGcAfterDurableResult(result)) scheduleGc()
+    return result
   }, [collection, scheduleGc, canGcAfterDurableResult])
+
+  const finishDeleteUndoWindow = useCallback(() => {
+    if (!recentlyDeletedRef.current) return
+    if (deleteUndoTimer.current) clearTimeout(deleteUndoTimer.current)
+    deleteUndoTimer.current = null
+    setRecentlyDeletedNow(null)
+    scheduleGc()
+  }, [scheduleGc, setRecentlyDeletedNow])
 
   const doDelete = useCallback(async (id) => {
     setConfirmId(null)
@@ -621,12 +654,13 @@ export default function App({ appId }) {
     }
     const n = notes.find((x) => x.meta.id === id)
     if (n?.meta?.locked) {
-      setSaveError({ id, kind: 'delete', message: 'Unlock this note before deleting it.' })
+      setSaveError({ id, kind: 'delete', message: 'Allow edits before deleting this note.' })
       return
     }
     if (n) {
       try {
-        await queueDelete(id)
+        if (recentlyDeletedRef.current) finishDeleteUndoWindow()
+        await queueDelete(id, { deferGc: true })
         window.mobius?.signal?.('item_deleted', { type: n.meta.type || 'note' })
       } catch (err) {
         window.mobius?.signal?.('error', { message: err?.message ?? 'delete failed', source: 'deleteNote' })
@@ -643,7 +677,43 @@ export default function App({ appId }) {
       }
       return v
     })
-  }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode, setDraftNow, setNotesNow])
+    if (n) {
+      const pending = {
+        note: { meta: n.meta, body: n.body },
+        label: noteDisplayName(n.meta, n.body),
+        restoring: false,
+        error: '',
+      }
+      setRecentlyDeletedNow(pending)
+      deleteUndoTimer.current = setTimeout(finishDeleteUndoWindow, 6500)
+    }
+  }, [draft, notes, popEditorNav, queueDelete, view.id, view.mode, setDraftNow, setNotesNow, finishDeleteUndoWindow, setRecentlyDeletedNow])
+
+  const undoDelete = useCallback(async () => {
+    const pending = recentlyDeletedRef.current
+    if (!pending || pending.restoring) return
+    if (deleteUndoTimer.current) clearTimeout(deleteUndoTimer.current)
+    deleteUndoTimer.current = null
+    setRecentlyDeletedNow({ ...pending, restoring: true, error: '' })
+    const { meta, body } = pending.note
+    try {
+      await collection.update(meta.id, () => ({ meta, body }))
+      setNotesNow((prev) => (
+        prev.some((note) => note.meta.id === meta.id)
+          ? prev
+          : [{ meta, body }, ...prev]
+      ))
+      setRecentlyDeletedNow(null)
+      window.mobius?.signal?.('item_restored', { type: meta.type || 'note' })
+    } catch (err) {
+      window.mobius?.signal?.('error', { message: err?.message ?? 'restore failed', source: 'undoDelete' })
+      setRecentlyDeletedNow({
+        ...pending,
+        restoring: false,
+        error: 'Could not restore the note. Try again.',
+      })
+    }
+  }, [collection, setNotesNow, setRecentlyDeletedNow])
 
   const leaveEditor = useCallback((fromShell = false) => {
     if (!fromShell) popEditorNav()
@@ -715,6 +785,12 @@ export default function App({ appId }) {
   const editing = view.mode === 'editor'
     ? (notes.find((n) => n.meta.id === view.id && !n.placeholder) || (draft && draft.meta.id === view.id ? draft : null))
     : null
+  const editingIsDraft = !!(editing && draft && draft.meta.id === editing.meta.id)
+  const confirmTarget = confirmId
+    ? (notes.find((note) => note.meta.id === confirmId) || (draft && draft.meta.id === confirmId ? draft : null))
+    : null
+  const confirmIsDraft = !!(confirmTarget && draft && draft.meta.id === confirmTarget.meta.id)
+  const confirmName = confirmTarget ? noteDisplayName(confirmTarget.meta, confirmTarget.body) : 'this note'
   // Standard: silent when healthy. Saving/pending is plumbing — only Offline and
   // hard save/delete errors surface.
   const status = saveError && editing && saveError.id === editing.meta.id
@@ -753,7 +829,11 @@ export default function App({ appId }) {
         {loading
           ? <LoadingGrid />
           : visible.length === 0
-            ? <EmptyState filtered={!!deferredQuery.trim()} onCreate={createNote} />
+            ? <EmptyState
+                filtered={!!deferredQuery.trim()}
+                onCreate={createNote}
+                onClear={() => setQuery('')}
+              />
             : <Grid
                 notes={visible}
                 onOpen={handleOpen}
@@ -772,8 +852,6 @@ export default function App({ appId }) {
           note={editing}
           onSave={persist}
           onBack={back}
-          onPin={togglePin}
-          onColor={setColor}
           onDelete={setConfirmId}
           resolveAttachment={store.attachmentURL}
           putAttachment={store.putAttachment}
@@ -781,23 +859,44 @@ export default function App({ appId }) {
           forceSave={failedSaveIds.has(editing.meta.id)}
           closeRequestRef={editorCloseRef}
           inactive={!!confirmId}
+          isDraft={editingIsDraft}
         />
       )}
 
       <ConfirmModal
         open={!!confirmId}
-        title="Delete note?"
-        message="This note will be permanently deleted."
-        confirmLabel="Delete"
+        title={confirmIsDraft ? 'Discard draft?' : 'Delete note?'}
+        message={confirmIsDraft
+          ? 'This new note has not been saved.'
+          : `“${confirmName}” will be removed. You can undo for a few seconds.`}
+        confirmLabel={confirmIsDraft ? 'Discard' : 'Delete note'}
         danger
         onConfirm={() => doDelete(confirmId)}
         onCancel={() => setConfirmId(null)}
       />
 
+      {recentlyDeleted && (
+        <div
+          className={`ma-toast nt-undo-toast${recentlyDeleted.error ? ' is-error' : ''}`}
+          role={recentlyDeleted.error ? 'alert' : 'status'}
+          aria-live={recentlyDeleted.error ? 'assertive' : 'polite'}
+        >
+          <span className="nt-undo-toast-copy">
+            {recentlyDeleted.error || `Deleted “${recentlyDeleted.label}”.`}
+          </span>
+          <button
+            type="button"
+            className="nt-undo-toast-action"
+            onClick={undoDelete}
+            disabled={recentlyDeleted.restoring}
+          >{recentlyDeleted.restoring ? 'Restoring…' : recentlyDeleted.error ? 'Try again' : 'Undo'}</button>
+        </div>
+      )}
+
       {/* Silent when healthy: the pill mounts ONLY when offline, and not over the
           editor overlay (which shows its own 'Offline' status). Plain copy, no
           counts/timestamps. */}
-      {!online && view.mode !== 'editor' && (
+      {!online && view.mode !== 'editor' && !recentlyDeleted && (
         <div className="nt-sync-pill" role="status">Offline</div>
       )}
       </ErrorBoundary>

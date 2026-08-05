@@ -15,7 +15,7 @@ import {
 } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 import { EditorView, keymap } from '@codemirror/view'
-import { livePreview, mathPreview } from './livePreview.js'
+import { livePreview, mathPreview, mathSpansField } from './livePreview.js'
 
 const heading = (size, weight) => ({ fontSize: size, fontWeight: weight, lineHeight: '1.3' })
 
@@ -51,7 +51,7 @@ const theme = EditorView.theme({
   '.cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--accent) 22%, transparent)' },
   '&.cm-focused .cm-selectionBackground': { backgroundColor: 'color-mix(in srgb, var(--accent) 30%, transparent)' },
   '.cm-line': { padding: '0', overflowWrap: 'anywhere', wordBreak: 'break-word' },
-}, { dark: true })
+})
 
 // Wrap the selection in `mark`…`markEnd` (bold, italic, code, strike). With no
 // selection, inserts the pair and parks the cursor between the markers.
@@ -85,10 +85,12 @@ export function buildExtensions({ onDocChange, resolveAttachment, editableCompar
     syntaxHighlighting(highlightStyle),
     indentOnInput(),
     EditorView.lineWrapping,
+    mathSpansField,
     livePreview({ resolveAttachment }),
     mathPreview,
     keymap.of([...mdKeymap, indentWithTab, ...historyKeymap, ...defaultKeymap]),
     theme,
+    EditorView.contentAttributes.of({ 'aria-label': 'Note body' }),
     EditorView.updateListener.of((u) => { if (u.docChanged) onDocChange(u.state.doc.toString()) }),
   ]
 }

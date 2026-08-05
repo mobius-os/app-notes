@@ -1,4 +1,4 @@
-// Overlay note editor: header (back, title, pin, color, lock, type toggle,
+// Overlay note editor: header (back, title, pin, color, read-only, type toggle,
 // attach, status, delete) + live-inline CodeMirror body. Image attachments the
 // body no longer embeds render in a strip below the editor (see strandedImageRefs).
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
@@ -32,7 +32,7 @@ function taskSummary(body) {
   return `${tasks.length} task${tasks.length === 1 ? '' : 's'} · ${done} done`
 }
 
-export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDelete, resolveAttachment, putAttachment, status, forceSave, closeRequestRef, inactive = false }) {
+export default function EditorPanel({ note, onSave, onBack, onDelete, resolveAttachment, putAttachment, status, forceSave, closeRequestRef, inactive = false, isDraft = false }) {
   const [title, setTitle] = useState(note.meta.title || '')
   const [body, setBody] = useState(note.body || '')
   const [showColors, setShowColors] = useState(false)
@@ -64,6 +64,11 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
 
   const isChecklist = note.meta.type === 'checklist'
   const locked = !!note.meta.locked
+
+  const toggleColorPicker = useCallback((event) => {
+    colorBtnRef.current = event.currentTarget
+    setShowColors((visible) => !visible)
+  }, [])
 
   useEffect(() => {
     // Keep the buffer in sync only while the note identity is unchanged; the
@@ -445,19 +450,19 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
   // so they stay visible inside the note (they already show on the card).
   const stranded = useMemo(() => strandedImageRefs(note.meta, body), [note.meta, body])
   const strandedKey = stranded.join('\n')
-  const [strandedUrls, setStrandedUrls] = useState([])
+  const [strandedItems, setStrandedItems] = useState([])
   useEffect(() => {
     let live = true
     let urls = []
     const refs = strandedKey ? strandedKey.split('\n') : []
-    setStrandedUrls([])
+    setStrandedItems([])
     if (!refs.length || !resolveAttachment) return () => {}
-    Promise.all(refs.map((ref) => resolveAttachment(ref).catch(() => null)))
+    Promise.all(refs.map(async (ref) => ({ ref, url: await resolveAttachment(ref).catch(() => null) })))
       .then((resolved) => {
-        const next = resolved.filter(Boolean)
-        if (!live) { next.forEach((u) => URL.revokeObjectURL(u)); return }
-        urls = next
-        setStrandedUrls(next)
+        const next = resolved.filter((item) => item.url)
+        if (!live) { next.forEach((item) => URL.revokeObjectURL(item.url)); return }
+        urls = next.map((item) => item.url)
+        setStrandedItems(next)
       })
       .catch(() => {})
     return () => { live = false; urls.forEach((u) => URL.revokeObjectURL(u)) }
@@ -493,7 +498,7 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
             disabled={closing}
             className="nt-hdr-btn"
           ><Icon name="back" size={18} /></button>
-          <div className="nt-editor-actions" role="toolbar" aria-label="Note actions">
+          <div className="nt-editor-actions nt-desktop-only" role="toolbar" aria-label="Note actions">
             <button
               type="button"
               onClick={() => {
@@ -514,35 +519,44 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
               disabled={locked || closing}
               className="nt-hdr-btn"
             ><Icon name="paperclip" size={16} /></button>
-            <div ref={colorBtnRef} className="nt-color-anchor">
+            <div className="nt-color-anchor">
               <button
                 type="button"
-                onClick={() => setShowColors((v) => !v)}
+                onClick={toggleColorPicker}
                 aria-label="Color"
                 title="Color"
                 disabled={closing}
                 className="nt-hdr-btn"
               ><Icon name="palette" size={17} /></button>
-              {showColors && (
-                <ColorPicker
-                  anchorRef={colorBtnRef}
-                  placement="below"
-                  align="start"
-                  current={note.meta.color}
-                  onPick={(c) => { saveMetaPatch({ color: c }).catch(() => {}); setShowColors(false) }}
-                  onDismiss={() => setShowColors(false)}
-                />
-              )}
             </div>
             <button
               type="button"
               onClick={() => saveMetaPatch({ locked: !locked }).catch(() => {})}
-              aria-label={locked ? 'Unlock note' : 'Lock note'}
+              aria-label={locked ? 'Allow edits' : 'Make read-only'}
               aria-pressed={locked}
               disabled={closing}
-              title={locked ? 'Unlock note' : 'Lock note'}
+              title={locked ? 'Allow edits' : 'Make read-only'}
               className={`nt-hdr-btn${locked ? ' is-active' : ''}`}
-            ><Icon name={locked ? 'lock' : 'unlock'} size={16} /></button>
+            ><Icon name={locked ? 'edit' : 'lock'} size={16} /></button>
+            <button
+              type="button"
+              onClick={toggleType}
+              aria-label={isChecklist ? 'Switch to note' : 'Switch to checklist'}
+              aria-pressed={isChecklist}
+              disabled={locked || closing}
+              title={isChecklist ? 'Switch to note' : 'Switch to checklist'}
+              className={`nt-hdr-btn${isChecklist ? ' is-active' : ''}`}
+            ><Icon name={isChecklist ? 'checklist' : 'note'} size={16} /></button>
+          </div>
+          <div className="nt-mobile-actions" role="toolbar" aria-label="Writing actions">
+            <button
+              type="button"
+              onClick={() => attachmentRef.current && attachmentRef.current.click()}
+              aria-label="Attach image or file"
+              title="Attach image or file"
+              disabled={locked || closing}
+              className="nt-hdr-btn"
+            ><Icon name="paperclip" size={16} /></button>
             <button
               type="button"
               onClick={toggleType}
@@ -563,11 +577,67 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
             type="button"
             onClick={() => onDelete(note.meta.id)}
             aria-label="Delete"
-            title={locked ? 'Unlock to delete' : 'Delete'}
+            title={locked ? 'Allow edits before deleting' : 'Delete'}
             disabled={locked || closing}
-            className="nt-hdr-btn is-danger"
+            className="nt-hdr-btn is-danger nt-desktop-only"
           ><Icon name="trash" size={16} /></button>
         </div>
+        <div className="nt-mobile-note-options" role="toolbar" aria-label="Note options">
+          <button
+            type="button"
+            onClick={() => saveMetaPatch({ pinned: !note.meta.pinned }).catch(() => {})}
+            aria-label={note.meta.pinned ? 'Unpin note' : 'Pin note'}
+            aria-pressed={note.meta.pinned}
+            disabled={closing}
+            className={`nt-mobile-option-btn${note.meta.pinned ? ' is-active' : ''}`}
+          >
+            <Icon name="pin" size={15} />
+            <span>{note.meta.pinned ? 'Unpin' : 'Pin'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={toggleColorPicker}
+            aria-label="Color"
+            aria-expanded={showColors}
+            disabled={closing}
+            className="nt-mobile-option-btn"
+          >
+            <Icon name="palette" size={16} />
+            <span>Color</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => saveMetaPatch({ locked: !locked }).catch(() => {})}
+            aria-label={locked ? 'Allow edits' : 'Make read-only'}
+            aria-pressed={locked}
+            disabled={closing}
+            className={`nt-mobile-option-btn${locked ? ' is-active' : ''}`}
+          >
+            <Icon name={locked ? 'edit' : 'lock'} size={15} />
+            <span>{locked ? 'Edit' : 'Read-only'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(note.meta.id)}
+            aria-label="Delete note"
+            title={locked ? 'Allow edits before deleting' : 'Delete note'}
+            disabled={locked || closing}
+            className="nt-mobile-option-btn is-danger"
+          >
+            <Icon name="trash" size={15} />
+            <span>Delete</span>
+          </button>
+        </div>
+        {showColors && (
+          <ColorPicker
+            anchorRef={colorBtnRef}
+            placement="below"
+            align="start"
+            current={note.meta.color}
+            onPick={(c) => { saveMetaPatch({ color: c }).catch(() => {}); setShowColors(false) }}
+            onDismiss={() => setShowColors(false)}
+          />
+        )}
         <input ref={attachmentRef} type="file" name="note-attachment" onChange={handleFile} disabled={locked} className="nt-file-input" />
       </header>
 
@@ -594,16 +664,22 @@ export default function EditorPanel({ note, onSave, onBack, onPin, onColor, onDe
       </div>
 
       <footer className="nt-editor-foot" aria-label="Note metadata">
-        <span>{editorDate(note.meta)}</span>
+        <span>{isDraft ? 'New note' : editorDate(note.meta)}</span>
         <span>{count} word{count === 1 ? '' : 's'}</span>
+        {isDraft && <span>Autosaves as you type</span>}
         {tasks && <span>{tasks}</span>}
-        {locked && <span>Locked</span>}
+        {locked && <span>Read-only</span>}
       </footer>
 
-      {strandedUrls.length > 0 && (
+      {strandedItems.length > 0 && (
         <div className="nt-attach-strip" aria-label="Attached images">
-          {strandedUrls.map((u) => (
-            <img key={u} src={u} alt="" className="nt-attach-thumb" />
+          {strandedItems.map((item, index) => (
+            <img
+              key={item.ref}
+              src={item.url}
+              alt={`Attached image ${index + 1}`}
+              className="nt-attach-thumb"
+            />
           ))}
         </div>
       )}

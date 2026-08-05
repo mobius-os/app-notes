@@ -19,6 +19,19 @@ import { findMathSpans } from '../lib/math-scan.js'
 
 const HIDE_MARKS = new Set(['HeaderMark', 'EmphasisMark', 'StrikethroughMark'])
 
+// Parse math once per document revision. Both decoration providers below need
+// the same ranges, and cursor movement should rebuild only the selection-aware
+// decorations—not rescan the full note twice.
+export const mathSpansField = StateField.define({
+  create(state) {
+    return findMathSpans(state.doc.toString())
+  },
+  update(value, tr) {
+    if (!tr.docChanged) return value
+    return findMathSpans(tr.state.doc.toString())
+  },
+})
+
 // Math decorations live in a StateField, not the ViewPlugin below. A display
 // `$$…$$` block spans line breaks, and CodeMirror forbids plugin-provided
 // decorations from replacing a line break ("Decorations that replace line
@@ -31,7 +44,7 @@ function buildMathDecorations(state) {
   const aFrom = state.doc.lineAt(sel.from).from
   const aTo = state.doc.lineAt(sel.to).to
   const onActive = (from, to) => to >= aFrom && from <= aTo
-  const spans = findMathSpans(state.doc.toString())
+  const spans = state.field(mathSpansField)
   const ranges = []
   for (const sp of spans) {
     // Reveal the raw `$…$` source when the selection touches the math range so
@@ -71,7 +84,7 @@ export function livePreview({ resolveAttachment } = {}) {
           // decoration that falls inside a math span (e.g. `*` inside `$a*b$`)
           // so the two providers never emit overlapping replace decorations,
           // which CodeMirror rejects.
-          const mathSpans = findMathSpans(state.doc.toString())
+          const mathSpans = state.field(mathSpansField)
           const inMath = (from, to) => mathSpans.some((s) => from < s.to && to > s.from)
           const out = []
           const tree = syntaxTree(state)
