@@ -10,45 +10,32 @@
 
 import { test, before, after } from 'node:test'
 import assert from 'node:assert'
-import { build } from 'esbuild'
 import { resolve, dirname } from 'node:path'
-import { writeFileSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { bundleForRender, RENDER_SHIM as SHIM } from './render-bundle.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')
-const SHIM = resolve(HERE, 'editor-render-shim.mjs')
 const BUNDLE = resolve(ROOT, '.tmp-card-longpress-bundle.mjs')
+
+const STUB =
+  'export default function Stub(){return null};' +
+  'export const Icon=()=>null; export const createPortal=()=>null;' +
+  'export const localImageRefs=()=>[]; export const renderPreviewHTML=async()=>"";'
 
 let Card, shim
 
 before(async () => {
-  const plugin = {
-    name: 'card-render-shim',
-    setup(b) {
-      b.onResolve({ filter: /^react(\/jsx-runtime)?$/ }, () => ({ path: SHIM, external: true }))
-      b.onResolve({ filter: /(ColorPicker|icons)\.jsx$/ }, () => ({ path: 'stub', namespace: 'stub' }))
-      b.onResolve({ filter: /preview\.js$/ }, () => ({ path: 'stub', namespace: 'stub' }))
-      b.onResolve({ filter: /.*/ }, (a) => {
-        if (a.kind === 'entry-point') return null
-        if (!a.path.startsWith('.') && !a.path.startsWith('/')) return { path: 'noop', namespace: 'stub' }
-        return null
-      })
-      b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
-        contents:
-          'export default function Stub(){return null};' +
-          'export const Icon=()=>null; export const createPortal=()=>null;' +
-          'export const localImageRefs=()=>[]; export const renderPreviewHTML=async()=>"";',
-        loader: 'js',
-      }))
-    },
-  }
-  const r = await build({
-    entryPoints: [resolve(ROOT, 'src/ui/Card.jsx')],
-    bundle: true, write: false, format: 'esm', jsx: 'automatic',
-    platform: 'neutral', plugins: [plugin], logLevel: 'silent',
+  await bundleForRender({
+    entry: resolve(ROOT, 'src/ui/Card.jsx'),
+    outfile: BUNDLE,
+    stubs: [
+      { match: /(ColorPicker|icons)\.jsx$/, code: STUB },
+      { match: /preview\.js$/, code: STUB },
+    ],
+    stubBareImports: STUB,
   })
-  writeFileSync(BUNDLE, r.outputFiles[0].text)
   globalThis.document = globalThis.document || { addEventListener() {}, removeEventListener() {} }
   globalThis.window = globalThis.window || { addEventListener() {}, removeEventListener() {}, location: { origin: 'http://localhost' } }
   shim = await import(pathToFileURL(SHIM).href)

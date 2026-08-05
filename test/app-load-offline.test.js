@@ -12,42 +12,31 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert'
 import { webcrypto } from 'node:crypto'
-import { build } from 'esbuild'
 import { resolve, dirname } from 'node:path'
-import { writeFileSync, rmSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { bundleForRender, RENDER_SHIM as SHIM } from './render-bundle.mjs'
 
 if (!globalThis.crypto || !globalThis.crypto.subtle) globalThis.crypto = webcrypto
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..')
-const SHIM = resolve(HERE, 'editor-render-shim.mjs')
 const BUNDLE = resolve(ROOT, '.tmp-app-load-offline-bundle.mjs')
+
+const STUB = 'export default function Stub(){return null};'
+  + 'export const Icon=()=>null; export const createPortal=()=>null;'
 
 let App, shim
 
 before(async () => {
-  const plugin = {
-    name: 'app-render-shim',
-    setup(b) {
-      b.onResolve({ filter: /^react(\/jsx-runtime)?$/ }, () => ({ path: SHIM, external: true }))
-      b.onResolve({ filter: /(Editor|ColorPicker|EditorPanel|Grid|ConfirmModal|icons)\.jsx$/ },
-        () => ({ path: 'stub', namespace: 'stub' }))
-      b.onResolve({ filter: /^(marked|dompurify|katex|codemirror|@codemirror\/|@lezer\/)/ },
-        () => ({ path: 'noop', namespace: 'stub' }))
-      b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
-        contents: 'export default function Stub(){return null};'
-          + 'export const Icon=()=>null; export const createPortal=()=>null;',
-        loader: 'js',
-      }))
-    },
-  }
-  const r = await build({
-    entryPoints: [resolve(ROOT, 'src/app.jsx')],
-    bundle: true, write: false, format: 'esm', jsx: 'automatic',
-    platform: 'neutral', plugins: [plugin], logLevel: 'silent',
+  await bundleForRender({
+    entry: resolve(ROOT, 'src/app.jsx'),
+    outfile: BUNDLE,
+    stubs: [
+      { match: /(Editor|ColorPicker|EditorPanel|Grid|ConfirmModal|icons)\.jsx$/, code: STUB },
+      { match: /^(marked|dompurify|katex|codemirror|@codemirror\/|@lezer\/)/, code: STUB },
+    ],
   })
-  writeFileSync(BUNDLE, r.outputFiles[0].text)
   shim = await import(pathToFileURL(SHIM).href)
   App = (await import(pathToFileURL(BUNDLE).href)).default
 })

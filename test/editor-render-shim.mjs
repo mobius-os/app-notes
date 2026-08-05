@@ -6,9 +6,10 @@
 // records the element tree so a test can locate a node by aria-label and fire
 // its onClick.
 //
-// Both the esbuild-bundled component AND the test import THIS module by the same
-// absolute path (it is marked external in the bundle), so they share one module
-// instance — the component's hooks and the test's driver read the same slots.
+// Both the Rolldown-bundled component AND the test import THIS module by the
+// same absolute path (it is marked external in the bundle), so they share one
+// module instance — the component's hooks and the test's driver read the same
+// slots. test/render-bundle.mjs is the helper that wires up that aliasing.
 
 let stateSlots = []
 let hookSlots = []        // ref / memo / callback / effect bookkeeping, slot-indexed
