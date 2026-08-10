@@ -10,3 +10,9 @@ test('manifest schedules the deterministic snapshot job every ten minutes', () =
   assert.equal(manifest.schedule?.default, '*/10 * * * *')
   assert.equal(manifest.schedule?.user_configurable, false)
 })
+
+test('manifest ships maintainable source directly instead of a generated bundle', () => {
+  assert.equal(manifest.entry, 'index.jsx')
+  assert.ok(manifest.source_files.includes('src/app.jsx'))
+  assert.ok(manifest.source_files.includes('src/ui/EditorPanel.jsx'))
+})

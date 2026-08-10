@@ -171,9 +171,9 @@ The test suite covers:
 - offline placeholder loading and reconnect replacement;
 - index, hashing, search, preview sanitizing, checklist, and layout contracts;
 - the real platform document primitive when a platform checkout is supplied;
-- generated bundle parity via `npm run verify:mobius`.
+- the complete manifest-declared source graph via the platform validator.
 
-A release is complete only when the source tests pass, `index.jsx` is rebuilt,
+A release is complete only when the source tests and manifest validation pass,
 the live app can save/reload online and offline, migration fixtures survive, an
 attachment round-trip succeeds, and the scheduled snapshot produces a clean,
 recoverable git commit.

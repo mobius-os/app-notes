@@ -7,18 +7,18 @@ receive automatic local git snapshots.
 
 ## Development
 
-Möbius installs a single JSX entry, while the maintainable source lives under
-`src/` and builds into `index.jsx`:
+Möbius compiles the source tree directly. `index.jsx` is only the stable entry;
+the maintainable implementation lives under `src/`:
 
 ```sh
 npm install
-npm run build        # bundle src/app.jsx -> index.jsx
 npm test             # unit and render-harness regressions
 npm run verify:mobius
 ```
 
-`index.jsx` is generated. Edit `src/app.jsx` or `src/{lib,ui,editor}/*`, then
-rebuild it.
+There is no generated application bundle in the repository. Edit
+`src/app.jsx` or `src/{lib,ui,editor}/*`; Möbius resolves those declared source
+files when the app is applied or installed.
 
 ### Source map
 
