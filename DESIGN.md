@@ -11,8 +11,7 @@ The durable design is intentionally small:
 1. one JSON document per note;
 2. platform last-write-wins synchronization;
 3. explicit, visible handling of rejected writes;
-4. derived caches that can always be rebuilt;
-5. automatic local git history for recovery.
+4. derived caches that can always be rebuilt.
 
 ### Non-goals
 
@@ -76,7 +75,7 @@ serializing updates per path.
 When two devices write the same note, the platform's later value wins. The app
 does not attempt to combine bodies or metadata. This tradeoff is explicit: a
 simple convergence rule avoids the former class of permanent save locks, while
-automatic git snapshots provide a recovery trail.
+keeping persistence entirely within the platform-owned path.
 
 The editor mirrors a newer platform value into CodeMirror immediately. Local
 optimistic writes are marked only long enough to recognize their echo. If the
@@ -132,22 +131,7 @@ whose filename and `meta.id` disagree. Deletion removes the remembered JSON path
 the canonical path, and dormant legacy Markdown variants so deleted notes cannot
 resurrect on the next migration.
 
-## 9. Git history
-
-The manifest schedules `job.sh` every ten minutes. The job:
-
-- initializes git in the numeric app data directory if necessary;
-- stages only `.gitignore`, `notes/`, and `notes-meta.json`;
-- commits only when that canonical set changed;
-- never invokes an agent and never rewrites note content;
-- logs staging or commit failures;
-- ignores attachments, the derived index, signals, temporary files, drafts, and
-  legacy conflict/lease directories.
-
-The schedule is fixed. It is restored by the platform from the manifest during
-install/update and after restart.
-
-## 10. Rendering and security
+## 9. Rendering and security
 
 - Markdown card previews are sanitized and cannot load arbitrary remote media.
 - Attachment resolution stays inside app-scoped storage.
@@ -159,7 +143,7 @@ install/update and after restart.
 - Signals contain only primitive operational metadata, never note text, search
   terms, or filenames.
 
-## 11. Verification
+## 10. Verification
 
 The test suite covers:
 
@@ -175,5 +159,4 @@ The test suite covers:
 
 A release is complete only when the source tests and manifest validation pass,
 the live app can save/reload online and offline, migration fixtures survive, an
-attachment round-trip succeeds, and the scheduled snapshot produces a clean,
-recoverable git commit.
+attachment round-trip succeeds, and no unsaved source changes remain.

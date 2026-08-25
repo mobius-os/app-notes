@@ -3,7 +3,7 @@
 A clean notes app for [Möbius](https://github.com/mobius-os). Markdown renders
 live as you type, with checklists, images and file attachments, LaTeX math,
 pinning, per-note color, locking, and instant search. Notes work offline and
-receive automatic local git snapshots.
+save through the platform's storage system.
 
 ## Development
 
@@ -40,7 +40,6 @@ attachments/<sha256>.<ext>   content-addressed image/file blobs
 index.json                   derived grid cache; never authoritative
 notes-meta.json              self-describing data contract
 signals.jsonl                text-free app activity signals
-.git/                        local note snapshot history
 ```
 
 The `body` field is plain Markdown. A startup migration safely converts legacy
@@ -76,13 +75,6 @@ existing attachment records and references found in the live editor body.
 In-flight leases and the open-body pin prevent garbage collection from deleting
 a blob before its note write becomes visible. GC skips entirely if authoritative
 note enumeration is unavailable.
-
-## History snapshots
-
-`job.sh` runs every ten minutes. It is deterministic and agent-free: when note
-content changed, it commits canonical notes and lightweight metadata to the data
-directory's local git history. Derived files, activity signals, attachments,
-temporary files, and legacy conflict/lease directories are ignored.
 
 ## Signals
 

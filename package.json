@@ -1,9 +1,9 @@
 {
   "name": "app-notes",
-  "version": "1.2.35",
+  "version": "1.2.36",
   "private": true,
   "type": "module",
-  "description": "Markdown notes for M\u00f6bius \u2014 live-inline editor, offline, git-tracked.",
+  "description": "Markdown notes for M\u00f6bius \u2014 live-inline editor with offline support.",
   "scripts": {
     "test": "node --import ./test/setup.mjs --test",
     "verify:mobius": "npm test"
