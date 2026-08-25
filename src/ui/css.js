@@ -81,9 +81,7 @@ export const CSS = `
   padding: max(14px, var(--nt-safe-top)) 0 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
   position: sticky; top: 0;
-  background: color-mix(in srgb, var(--bg) 86%, transparent); z-index: 5;
-  backdrop-filter: saturate(1.35) blur(14px);
-  -webkit-backdrop-filter: saturate(1.35) blur(14px);
+  background: var(--bg); z-index: 5;
   flex: 0 0 auto;
 }
 .nt-topbar-inner {
@@ -838,4 +836,14 @@ ${TONE_CSS}
   .nt-mobile-option-btn:active,
   .nt-cm-file-chip:active { transform: none; }
 }
+
+/* mobius-ui:CenteredRail v1 */
+@media (min-width: 900px) {
+  .nt-root {
+
+  }
+  .nt-topbar { width: min(100%, 1040px); margin-inline: auto; }
+
+}
+/* /mobius-ui:CenteredRail */
 `
