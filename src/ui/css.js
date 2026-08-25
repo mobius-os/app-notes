@@ -840,12 +840,6 @@ ${TONE_CSS}
 /* mobius-ui:CenteredRail v1 */
 @media (min-width: 900px) {
   .nt-root {
-    background:
-      linear-gradient(var(--bg), var(--bg)) center / min(100%, 1040px) 100% no-repeat,
-      radial-gradient(ellipse 76% 112% at 50% 46%,
-        color-mix(in srgb, var(--accent) 18%, var(--bg)) 0%,
-        color-mix(in srgb, var(--accent) 7%, var(--bg)) 46%,
-        color-mix(in srgb, var(--text) 2%, var(--bg)) 100%);
 
   }
   .nt-topbar { width: min(100%, 1040px); margin-inline: auto; }
