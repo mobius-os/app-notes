@@ -1,7 +1,7 @@
 {
   "id": "notes",
   "name": "Notes",
-  "version": "1.2.35",
+  "version": "1.2.36",
   "description": "Markdown notes that render as you type, with checklists, pins, colors, search, and images.",
   "author": "mobius-os",
   "license": "MIT",
@@ -78,10 +78,5 @@
     "reads": true,
     "writes": "queued",
     "execution": "full"
-  },
-  "schedule": {
-    "default": "*/10 * * * *",
-    "user_configurable": false,
-    "job": "job.sh"
   }
 }

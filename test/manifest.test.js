@@ -5,10 +5,8 @@ import { resolve } from 'node:path'
 
 const manifest = JSON.parse(readFileSync(resolve(process.cwd(), 'mobius.json'), 'utf8'))
 
-test('manifest schedules the deterministic snapshot job every ten minutes', () => {
-  assert.equal(manifest.schedule?.job, 'job.sh')
-  assert.equal(manifest.schedule?.default, '*/10 * * * *')
-  assert.equal(manifest.schedule?.user_configurable, false)
+test('manifest does not schedule background work', () => {
+  assert.equal(manifest.schedule, undefined)
 })
 
 test('manifest ships maintainable source directly instead of a generated bundle', () => {

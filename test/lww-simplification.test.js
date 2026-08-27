@@ -19,13 +19,3 @@ test('Notes has one LWW persistence model and no custom conflict machinery', () 
   assert.doesNotMatch(store, /writeConflict|conflicts\//)
   assert.equal(existsSync(resolve(root, 'src/lib/merge.js')), false)
 })
-
-test('snapshot job is deterministic, scoped, and agent-free', () => {
-  const job = read('job.sh')
-  assert.doesNotMatch(job, /\bclaude\b|RESOLVE_PROMPT|resolver_summary/)
-  assert.match(job, /git add -A --/)
-  assert.match(job, /git rm -r -q --cached --ignore-unmatch/)
-  assert.match(job, /notes-meta\.json/)
-  assert.match(job, /signals\.jsonl/)
-  assert.match(job, /git diff --cached --quiet --exit-code/)
-})
