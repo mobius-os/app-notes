@@ -78,8 +78,7 @@ export const CSS = `
 /* mobius-ui:Header v1 — keep in sync; library candidate. Diverge below the marker only. */
 .nt-topbar {
   /* top-pinned bar: pad past the notch/status bar on notched phones */
-  padding: max(14px, var(--nt-safe-top)) 0 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  padding: max(14px, var(--nt-safe-top)) 0 0;
   position: sticky; top: 0;
   background: var(--bg); z-index: 5;
   flex: 0 0 auto;
@@ -87,8 +86,9 @@ export const CSS = `
 .nt-topbar-inner {
   box-sizing: border-box;
   width: 100%; max-width: 1040px; margin: 0 auto;
-  padding: 0 max(18px, var(--nt-safe-right)) 0 max(18px, var(--nt-safe-left));
+  padding: 0 max(18px, var(--nt-safe-right)) 12px max(18px, var(--nt-safe-left));
   display: flex; flex-direction: column; gap: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
 }
 .nt-topbar-row {
   display: flex; align-items: center; gap: 11px; min-width: 0;
