@@ -16,6 +16,7 @@
     "@codemirror/view": "6.43.0",
     "@lezer/highlight": "1.2.3",
     "fake-indexeddb": "^6.2.5",
-    "katex": "0.17.0"
+    "katex": "0.17.0",
+    "rolldown": "1.2.6"
   }
 }
