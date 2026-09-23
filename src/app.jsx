@@ -13,9 +13,10 @@
 // + offline outbox replace the app's old shadow-IndexedDB outbox, seq-CAS
 // promote, and reconcile driver (all deleted). A note write is durable on a
 // 'synced' or 'queued' result; a server refusal rejects DurableWriteError, which
-// surfaces as an error (never a false "saved"). Concurrent same-note writes use
-// the platform's built-in last-write-wins behavior; Notes does not layer another
-// merge, conflict state machine, or resolver on top. See DESIGN.md for the model.
+// surfaces as an error (never a false "saved"). Same-note writes use the
+// platform's conditional transport; if two offline devices diverge, Notes keeps
+// the refused full document as a separate recovery note rather than guessing at
+// a character-level merge or silently losing one version. See DESIGN.md.
 
 import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react'
 import { CSS } from './ui/css.js'
@@ -129,15 +130,21 @@ function LoadingGrid() {
   )
 }
 
-function EmptyState({ filtered, onCreate, onClear }) {
+function EmptyState({ filtered, unavailableOffline, onCreate, onClear }) {
   return (
     <div className="nt-empty">
       <div className="nt-empty-icon"><Icon name={filtered ? 'search' : 'note'} size={26} /></div>
-      <div className="nt-empty-msg">{filtered ? 'No matching notes' : 'No notes yet'}</div>
+      <div className="nt-empty-msg">{
+        filtered ? 'No matching notes'
+          : unavailableOffline ? 'No notes are available offline yet'
+            : 'No notes yet'
+      }</div>
       <div className="nt-empty-hint">
         {filtered
           ? 'Try another word or clear search to return to your notes.'
-          : 'Jot a thought, a list, or a draft. Your agent can read and tidy them later.'}
+          : unavailableOffline
+            ? 'Reconnect to load your notes.'
+            : 'Jot a thought, a list, or a draft. Your agent can read and tidy them later.'}
       </div>
       {!filtered && (
         <button type="button" className="nt-empty-action" onClick={onCreate}>
@@ -236,6 +243,7 @@ export default function App({ appId }) {
   // events; going online also re-lists the canonical notes (see the effect below),
   // because list() has no offline mirror so a cold offline load can't enumerate.
   const [online, setOnline] = useState(() => store.isOnline())
+  const [collectionUnavailable, setCollectionUnavailable] = useState(false)
   const setDraftNow = useCallback((next) => {
     draftRef.current = typeof next === 'function' ? next(draftRef.current) : next
     setDraft(draftRef.current)
@@ -259,10 +267,11 @@ export default function App({ appId }) {
   // useDocument hook below — its writes and the collection's never target the
   // same path (grid actions act on closed notes; editor actions on the open one).
   const collection = useMemo(() => makeNoteCollection(), [])
+  useEffect(() => () => collection.destroy?.(), [collection])
 
   // The live document hook for the currently-open note (literal per-note
   // useDocument). It provides the open note's optimistic value, save status, and
-  // lastError. The platform owns last-write-wins reconciliation for this document.
+  // lastError. Notes owns conflict recovery; the platform only supplies CAS.
   const openId = view.mode === 'editor' ? view.id : null
   const openNote = openId ? notes.find((n) => n.meta.id === openId && !n.placeholder) : null
   const openPath = openId
@@ -278,11 +287,12 @@ export default function App({ appId }) {
   // fallback until the app is recompiled, avoiding a bogus "null" document.
   // Keeping the live options stable also prevents an unrelated render from
   // re-arming an open note's subscription.
+  const supportsConflictRecovery = typeof window.mobius?.storage?.onConflict === 'function'
   const openDocOptions = useMemo(() => ({
     initial: null,
     identity: NOTE_DOC_IDENTITY,
-    mode: 'lww',
-  }), [])
+    mode: supportsConflictRecovery ? 'cas' : 'lww',
+  }), [supportsConflictRecovery])
   // Always called at a stable hook position; the test harness returns NO_DOC.
   const liveDoc = useDocument(openPath, openDocOptions)
   // useDocument returns a FRESH handle object every render, so depending on the whole
@@ -304,7 +314,7 @@ export default function App({ appId }) {
     }
   }, [openId, liveDoc.lastError])
 
-  // Mirror the platform's last-write-wins value back into the grid's `notes`
+  // Mirror the platform's current durable value back into the grid's `notes`
   // array. The editor buffer reconciles via its own note-prop effect.
   useEffect(() => {
     const v = liveDoc.value
@@ -373,12 +383,14 @@ export default function App({ appId }) {
       if (!live) return
       setLoading(false)
       if (canonical == null) {
+        setCollectionUnavailable(notesRef.current.length === 0)
         // Enumeration is UNAVAILABLE (offline cold load — list() has no offline
         // mirror). Do NOT wipe to empty: keep whatever the index.json cache already
         // painted, and report app_ready as offline with the currently-visible count.
         // The online event re-lists the moment we reconnect (effect below).
         window.mobius?.signal?.('app_ready', { item_count: notesRef.current.length, offline: true })
       } else {
+        setCollectionUnavailable(false)
         setNotesNow(canonical)
         window.mobius?.signal?.('app_ready', { item_count: canonical.length, offline: false })
       }
@@ -393,7 +405,11 @@ export default function App({ appId }) {
     const goOnline = () => {
       setOnline(true)
       collection.list().then((canonical) => {
-        if (canonical != null) { setNotesNow(canonical); setLoading(false) }
+        if (canonical != null) {
+          setCollectionUnavailable(false)
+          setNotesNow(canonical)
+          setLoading(false)
+        }
       }).catch(() => {})
     }
     const goOffline = () => setOnline(false)
@@ -514,7 +530,7 @@ export default function App({ appId }) {
   // given note path: the OPEN editor note writes through its live useDocument
   // hook (liveDoc.update — the literal per-note document); every other note (grid
   // pin/color/delete on a closed note, a draft's first save) writes through the
-  // collection's serialized last-write-wins update. The
+  // collection's serialized conditional update. The
   // routing is exclusive — the editor overlay owns the open note, so the grid
   // never acts on that same note — and the two writers can never target the same path
   // concurrently. Both serialize writes per path and resolve DURABLE
@@ -831,6 +847,7 @@ export default function App({ appId }) {
           : visible.length === 0
             ? <EmptyState
                 filtered={!!deferredQuery.trim()}
+                unavailableOffline={!online && collectionUnavailable}
                 onCreate={createNote}
                 onClear={() => setQuery('')}
               />

@@ -54,10 +54,13 @@ function makeChains() {
   }
 }
 
-async function writeJson(path, value) {
+async function writeJson(path, value, { version, conditional = false } = {}) {
   const storage = S()
   if (typeof storage.durableWrite === 'function') {
-    return storage.durableWrite(path, value, { kind: 'json' })
+    return storage.durableWrite(path, value, {
+      kind: 'json',
+      ...(conditional ? (version ? { ifMatch: version } : { ifNoneMatch: true }) : {}),
+    })
   }
   const result = await storage.set(path, value)
   return {
@@ -72,6 +75,7 @@ async function writeJson(path, value) {
 // reports a false save.
 export function makeNoteCollection() {
   const withChain = makeChains()
+  const recoveriesInFlight = new Map()
   // bases[id] = the last document loaded or durably written in this session.
   const bases = new Map()
   // paths[id] = every JSON document path that has presented this meta.id. This
@@ -79,6 +83,79 @@ export function makeNoteCollection() {
   // doc.meta.id diverged: deletes and later writes must target the actual file,
   // not only notes/<meta.id>.json, or the broken note resurrects on every list().
   const paths = new Map()
+
+  // A same-note edit made on two offline devices cannot be merged safely at
+  // character level without a CRDT. Use conditional writes and preserve the
+  // refused full document as a normal recovery note instead of silently losing
+  // either version. The platform only reports the transport conflict; this
+  // note-specific recovery policy remains app-owned.
+  const supportsConflictRecovery = typeof S().onConflict === 'function'
+  function stableRecoveryId(writeId) {
+    const input = String(writeId || 'unknown')
+    let hash = 0xcbf29ce484222325n
+    for (let i = 0; i < input.length; i += 1) {
+      hash ^= BigInt(input.charCodeAt(i))
+      hash = BigInt.asUintN(64, hash * 0x100000001b3n)
+    }
+    const readable = input.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48)
+    return `recovered-${readable || 'edit'}-${hash.toString(16).padStart(16, '0')}`
+  }
+
+  async function existingRecovery(path, writeId) {
+    if (typeof S().get !== 'function') return false
+    try {
+      const existing = await S().get(path)
+      return existing?.meta?.recoveredConflictWriteId === writeId
+    } catch { return false }
+  }
+
+  const detachConflict = supportsConflictRecovery
+    ? S().onConflict((conflict) => {
+        const mine = conflict?.refusedValue
+        if (!/^notes\/[^/]+\.json$/.test(String(conflict?.path || ''))
+            || !mine?.meta?.id || !conflict?.writeId) return false
+        const key = String(conflict.writeId)
+        if (recoveriesInFlight.has(key)) return recoveriesInFlight.get(key)
+        const task = (async () => {
+          // A second frame may race the same create-only recovery. Its 412 is
+          // an idempotency confirmation, not a new edit that needs another copy.
+          if (conflict.ifNoneMatch === true && mine.meta.recoveredConflictWriteId) {
+            return existingRecovery(conflict.path, mine.meta.recoveredConflictWriteId)
+          }
+          const recoveredId = stableRecoveryId(key)
+          const recoveryPath = notePath(recoveredId)
+          if (await existingRecovery(recoveryPath, key)) return true
+          const recoveredAt = new Date().toISOString()
+          const recovered = {
+            ...mine,
+            meta: {
+              ...mine.meta,
+              id: recoveredId,
+              title: `${mine.meta.title || 'Untitled'} — recovered offline edit`,
+              updated: recoveredAt,
+              recoveredFromConflict: mine.meta.id,
+              recoveredConflictWriteId: key,
+            },
+          }
+          try {
+            await S().durableWrite(recoveryPath, recovered, {
+              kind: 'json', ifNoneMatch: true,
+            })
+            return true
+          } catch (error) {
+            if (await existingRecovery(recoveryPath, key)) return true
+            window.mobius?.signal?.('error', {
+              source: 'offline-conflict-recovery',
+              message: String(error?.message || error),
+            })
+            return false
+          }
+        })()
+        recoveriesInFlight.set(key, task)
+        task.finally(() => { if (recoveriesInFlight.get(key) === task) recoveriesInFlight.delete(key) })
+        return task
+      })
+    : () => {}
 
   function rememberPath(id, path) {
     if (!id || !path) return
@@ -113,17 +190,19 @@ export function makeNoteCollection() {
     return found
   }
 
-  // Enumerate notes/ and parse each JSON document. `storage.list()` has NO offline
-  // mirror (unlike get()): it returns `null` on a network failure and throws on a
-  // hard error, and `[]` ONLY for a genuinely-empty successful enumeration. We must
-  // preserve that distinction — collapsing "enumeration unavailable" to `[]` is what
-  // let an offline cold-load wipe the cached grid to "No notes yet". So: return
-  // `null` when enumeration is unavailable (offline / error) and `[]` only for a
-  // confirmed-empty list. Callers keep the cached placeholders on `null`.
+  // Enumerate notes/ only from a complete server/last-known snapshot. A cold
+  // device may have cached one opened note without ever seeing its siblings;
+  // replacing index.json from that partial set would silently hide the rest.
+  // `null` means "use the derived index until a complete enumeration exists".
   async function list() {
-    let entries
-    try { entries = await S().list('notes') } catch { return null }
-    if (entries == null) return null
+    let listing
+    try {
+      listing = typeof S().listWithStatus === 'function'
+        ? await S().listWithStatus('notes')
+        : { entries: await S().list('notes'), complete: window.mobius?.online !== false }
+    } catch { return null }
+    if (!listing || listing.complete !== true) return null
+    const entries = listing.entries || []
     const out = []
     for (const { path, doc } of await readJsonDocuments(entries)) {
       if (doc && doc.meta && doc.meta.id) {
@@ -163,12 +242,28 @@ export function makeNoteCollection() {
     return withChain(path, async () => {
       const remembered = bases.get(id) ?? null
       let current = remembered
-      try { current = (await S().get(path)) ?? remembered } catch {}
+      let version
+      let conditional = false
+      try {
+        if (typeof S().getWithVersion === 'function') {
+          const loaded = await S().getWithVersion(path)
+          current = loaded.value ?? remembered
+          version = loaded.version
+          // An older runtime can perform CAS but cannot report a delayed
+          // reconnect conflict back to the app. Use conditional writes only
+          // when the matching recovery event exists; otherwise preserve the
+          // former explicit LWW compatibility behavior rather than losing an
+          // offline edit silently during a rolling platform update.
+          conditional = supportsConflictRecovery
+        } else {
+          current = (await S().get(path)) ?? remembered
+        }
+      } catch {}
       const mine = fn(current ? { meta: current.meta, body: current.body } : null)
       // durableWrite resolves DURABLE (synced/queued) or REJECTS DurableWriteError
       // on a dead-letter; we let the rejection propagate so the caller surfaces it
       // (no false "saved"). The remembered value advances only after durability.
-      const result = await writeJson(path, mine)
+      const result = await writeJson(path, mine, { version, conditional })
       bases.set(id, mine)
       rememberPath(id, path)
       return { result, value: mine }
@@ -210,5 +305,5 @@ export function makeNoteCollection() {
     })
   }
 
-  return { list, load, update, remove, notePath }
+  return { list, load, update, remove, notePath, destroy: detachConflict }
 }

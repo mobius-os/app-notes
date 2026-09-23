@@ -48,10 +48,10 @@ is server-confirmed.
 
 ## Persistence and offline behavior
 
-The open note uses the platform's `useDocument(..., { mode: 'lww' })` primitive.
-Closed-note updates use a small serialized last-write-wins collection over the
-same storage contract. Notes deliberately adds no second merge engine, conflict
-descriptor state machine, or agent resolver.
+The open note uses the platform's conditional `useDocument(..., { mode: 'cas' })`
+primitive. Closed-note updates use the same versioned-write contract through a
+small per-path serialized collection. Notes deliberately adds no CRDT, merge
+engine, or agent resolver.
 
 A write resolves only when it is either server-synced or durably queued in the
 platform's offline outbox. Fatal refusals remain visible as **Save failed**, keep
@@ -59,10 +59,11 @@ the editor open, and are retried rather than reported as saved. Queued writes
 are available immediately through the runtime's read-your-writes overlay and
 drain after reconnection.
 
-Concurrent writes to the same note are last-write-wins. When the platform
-publishes a newer value, the open editor adopts it verbatim. A small local-echo
-guard prevents an older optimistic save response from moving the cursor backward
-when typing has already continued; it is not a merge or conflict subsystem.
+When two devices edit the same note offline, the first accepted version remains
+canonical and the refused full document is saved as a separate “recovered
+offline edit” note. This makes the conflict visible and lossless without
+pretending Markdown can always be merged safely. A small local-echo guard still
+prevents an older optimistic response from moving the cursor backward.
 
 A cold offline load paints `index.json` placeholders. Because enumeration may be
 unavailable offline, the app keeps those placeholders until reconnection instead

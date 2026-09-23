@@ -127,6 +127,108 @@ test('(c) an OFFLINE write is durable success (queued), not a failure', async ()
   })
 })
 
+test('a delayed same-note conflict preserves the refused document as a recovery note', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    let conflictHandler = null
+    h.storage.onConflict = (cb) => { conflictHandler = cb; return () => { conflictHandler = null } }
+    const c = makeNoteCollection()
+    const refused = note('shared', 'my offline body', { title: 'Trip plan' })
+
+    conflictHandler({
+      path: notePath('shared'),
+      status: 412,
+      writeId: 'offline-write',
+      refusedValue: refused,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const recovered = [...h.server.entries()]
+      .filter(([path]) => /^notes\/[^/]+\.json$/.test(path) && path !== notePath('shared'))
+      .map(([, record]) => record.value)
+    assert.equal(recovered.length, 1)
+    assert.equal(recovered[0].body, 'my offline body')
+    assert.equal(recovered[0].meta.recoveredFromConflict, 'shared')
+    assert.match(recovered[0].meta.title, /recovered offline edit/)
+    c.destroy()
+  })
+})
+
+test('conflict recovery is idempotent for one write and remains enabled for recovered-note edits', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    let conflictHandler = null
+    h.storage.onConflict = (cb) => { conflictHandler = cb; return () => { conflictHandler = null } }
+    const writes = []
+    const original = h.storage.durableWrite
+    h.storage.durableWrite = async (path, value, options) => {
+      writes.push({ path, value, options })
+      return original(path, value, options)
+    }
+    const c = makeNoteCollection()
+    const conflict = {
+      path: notePath('shared'),
+      status: 412,
+      writeId: 'same-offline-write',
+      refusedValue: note('shared', 'mine'),
+    }
+    await Promise.all([conflictHandler(conflict), conflictHandler(conflict)])
+    assert.equal(writes.length, 1)
+
+    const recovered = writes[0].value
+    await conflictHandler({
+      path: writes[0].path,
+      status: 412,
+      writeId: 'edit-of-recovered-note',
+      refusedValue: { ...recovered, body: 'edited again' },
+    })
+    assert.equal(writes.length, 2)
+    assert.equal(writes[1].value.body, 'edited again')
+    assert.notEqual(writes[1].path, writes[0].path)
+    c.destroy()
+  })
+})
+
+test('closed-note writes use CAS only when delayed-conflict recovery is available', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    h.storage.getWithVersion = async () => ({
+      value: note('shared', 'server body'),
+      version: 'etag-server',
+    })
+    h.storage.onConflict = () => () => {}
+    const calls = []
+    const original = h.storage.durableWrite
+    h.storage.durableWrite = async (path, value, options) => {
+      calls.push(options)
+      return original(path, value, options)
+    }
+    const c = makeNoteCollection()
+    await c.update('shared', (current) => ({ ...current, body: 'mine' }))
+    assert.equal(calls[0].ifMatch, 'etag-server')
+    c.destroy()
+  })
+})
+
+test('a rolling older runtime keeps LWW instead of queuing unrecoverable CAS', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    h.storage.getWithVersion = async () => ({
+      value: note('shared', 'server body'),
+      version: 'etag-server',
+    })
+    const calls = []
+    const original = h.storage.durableWrite
+    h.storage.durableWrite = async (path, value, options) => {
+      calls.push(options)
+      return original(path, value, options)
+    }
+    const c = makeNoteCollection()
+    await c.update('shared', (current) => ({ ...current, body: 'mine' }))
+    assert.equal(calls[0].ifMatch, undefined)
+  })
+})
+
 test('(d) an updater sees the latest readable value and its result wins', async () => {
   const h = makeMockStorage()
   await withWindow(h, async () => {

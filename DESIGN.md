@@ -9,7 +9,7 @@ without inventing a persistence system beside the platform's own.
 The durable design is intentionally small:
 
 1. one JSON document per note;
-2. platform last-write-wins synchronization;
+2. platform conditional synchronization with app-owned recovery;
 3. explicit, visible handling of rejected writes;
 4. derived caches that can always be rebuilt.
 
@@ -17,7 +17,7 @@ The durable design is intentionally small:
 
 - collaborative cursors or multi-user editing;
 - a CRDT or application-level three-way merge engine;
-- conflict descriptors, leases, or an agent resolver;
+- a CRDT, interactive conflict resolver, or agent resolver;
 - a second offline queue;
 - arbitrary external network content in previews.
 
@@ -32,8 +32,8 @@ The app runs in a sandboxed Möbius frame and persists only through
 - Both paths use the platform's serialized writer and offline outbox.
 - A result with durability `synced` or `queued` is durable success.
 - A fatal write refusal rejects and must never be rendered as saved.
-- `storage.get()` provides the queued-write overlay. Enumeration may be
-  unavailable offline, so a failed list is distinct from a confirmed empty list.
+- `storage.get()` provides the queued-write overlay. `listWithStatus()` keeps a
+  partial device cache distinct from a complete server/last-known snapshot.
 
 ## 3. Document model
 
@@ -66,16 +66,17 @@ encode merge ancestry.
 The JSON envelope is required by the document primitive. The body remains plain
 Markdown so it is readable by people, git, search, and authorized Möbius agents.
 
-## 4. Last-write-wins behavior
+## 4. Same-note conflict behavior
 
-The open note calls `useDocument(path, { initial, identity, mode: 'lww' })` with
-no app-supplied merge callback. The collection writes closed notes verbatim after
-serializing updates per path.
+The open note calls `useDocument(path, { initial, identity, mode: 'cas' })` with
+no app-supplied text merge callback. The collection uses the same conditional
+write contract for closed notes after serializing updates per path.
 
-When two devices write the same note, the platform's later value wins. The app
-does not attempt to combine bodies or metadata. This tradeoff is explicit: a
-simple convergence rule avoids the former class of permanent save locks, while
-keeping persistence entirely within the platform-owned path.
+When two offline devices write the same note, the platform reports the refused
+conditional write and restores the server value. Notes preserves the refused
+full document under a new id with a “recovered offline edit” title. This avoids
+silent loss and unsafe character-level guesses while keeping the platform free
+of note semantics.
 
 The editor mirrors a newer platform value into CodeMirror immediately. Local
 optimistic writes are marked only long enough to recognize their echo. If the
