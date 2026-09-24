@@ -13,7 +13,7 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert'
 import { webcrypto } from 'node:crypto'
 import { resolve, dirname } from 'node:path'
-import { rmSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { bundleForRender, RENDER_SHIM as SHIM } from './render-bundle.mjs'
 
@@ -154,6 +154,23 @@ test('offline cold load keeps the cached index placeholders instead of wiping to
   assert.equal(grid.props.notes.length, 1, 'the cached placeholder note remains')
   assert.equal(grid.props.notes[0].placeholder, true, 'it is the display-only index placeholder')
   assert.ok(safeFind((n) => n.props && n.props.className === 'nt-sync-pill'), 'the grid shows the Offline pill (reactive connectivity)')
+  teardown()
+})
+
+test('offline cold load without an index explains that no notes are cached yet', async () => {
+  teardown()
+  const env = makeEnv({ online: false })
+  env.setListNull()
+
+  shim.mount(() => App({ appId: '1', token: 't' }))
+  await flush()
+
+  const empty = emptyEl()
+  assert.ok(empty, 'the app renders its empty-state surface')
+  assert.equal(empty.props.unavailableOffline, true, 'the empty state distinguishes unavailable offline data')
+  const source = readFileSync(resolve(ROOT, 'src/app.jsx'), 'utf8')
+  assert.match(source, /No notes are available offline yet/)
+  assert.match(source, /Reconnect to load your notes\./)
   teardown()
 })
 

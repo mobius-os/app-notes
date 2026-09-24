@@ -12,7 +12,14 @@ import { notePath } from '../src/lib/note-doc.js'
 
 function withWindow(harness, fn) {
   const prev = globalThis.window
-  globalThis.window = { mobius: { storage: harness.storage, online: true, signal() {} } }
+  globalThis.window = {
+    mobius: {
+      storage: harness.storage,
+      online: true,
+      runtimeFeatures: { authoritativeVersionedReads: true },
+      signal() {},
+    },
+  }
   return Promise.resolve(fn()).finally(() => { globalThis.window = prev })
 }
 
@@ -124,6 +131,195 @@ test('(c) an OFFLINE write is durable success (queued), not a failure', async ()
     assert.equal(h.overlay.has(notePath('n3')), true)
     assert.equal(h.server.has(notePath('n3')), false)
     assert.equal(await h.storage.pendingCount(), 1)
+  })
+})
+
+test('a delayed same-note conflict preserves the refused document as a recovery note', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    let conflictHandler = null
+    h.storage.onConflict = (cb) => { conflictHandler = cb; return () => { conflictHandler = null } }
+    const c = makeNoteCollection()
+    const refused = note('shared', 'my offline body', { title: 'Trip plan' })
+
+    conflictHandler({
+      path: notePath('shared'),
+      status: 412,
+      writeId: 'offline-write',
+      refusedValue: refused,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const recovered = [...h.server.entries()]
+      .filter(([path]) => /^notes\/[^/]+\.json$/.test(path) && path !== notePath('shared'))
+      .map(([, record]) => record.value)
+    assert.equal(recovered.length, 1)
+    assert.equal(recovered[0].body, 'my offline body')
+    assert.equal(recovered[0].meta.recoveredFromConflict, 'shared')
+    assert.match(recovered[0].meta.title, /recovered offline edit/)
+    c.destroy()
+  })
+})
+
+test('a queued recovery keeps the original conflict pending until the server confirms it', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    let conflictHandler = null
+    h.storage.onConflict = (cb) => { conflictHandler = cb; return () => { conflictHandler = null } }
+    const c = makeNoteCollection()
+    const conflict = {
+      path: notePath('shared'),
+      status: 412,
+      writeId: 'queued-recovery',
+      refusedValue: note('shared', 'my offline body'),
+    }
+
+    h.setOnline(false)
+    assert.equal(await conflictHandler(conflict), false, 'a queued recovery cannot acknowledge the original conflict')
+    const recoveryPath = [...h.overlay.keys()].find((path) => path !== notePath('shared'))
+    assert.ok(recoveryPath, 'the recovery copy is held in the local outbox')
+
+    await h.drain()
+    assert.equal(await conflictHandler(conflict), true, 'the replay acknowledges only after the recovery reaches the server')
+    c.destroy()
+  })
+})
+
+test('replayed note recovery cannot confirm its own queued overlay', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    let conflictHandler = null
+    let authoritative = null
+    let queuedOverlay = null
+    let writes = 0
+    h.storage.onConflict = (cb) => { conflictHandler = cb; return () => { conflictHandler = null } }
+    h.storage.getWithVersion = async () => ({
+      value: authoritative,
+      version: authoritative ? 'server-v2' : null,
+      offline: false,
+    })
+    h.storage.durableWrite = async (_path, value) => {
+      writes += 1
+      queuedOverlay = value
+      return { durability: 'queued' }
+    }
+    const c = makeNoteCollection()
+    const conflict = {
+      path: notePath('shared'),
+      status: 412,
+      writeId: 'queued-replay',
+      refusedValue: note('shared', 'my offline body'),
+    }
+
+    assert.equal(await conflictHandler(conflict), false)
+    assert.ok(queuedOverlay, 'the local overlay exists but is not authoritative')
+    assert.equal(await conflictHandler(conflict), false)
+    assert.equal(writes, 2, 'replay remains pending while the server has no recovery copy')
+
+    authoritative = queuedOverlay
+    assert.equal(await conflictHandler(conflict), true)
+    assert.equal(writes, 2, 'server confirmation is acknowledged without another write')
+    c.destroy()
+  })
+})
+
+test('conflict recovery is idempotent for one write and remains enabled for recovered-note edits', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    let conflictHandler = null
+    h.storage.onConflict = (cb) => { conflictHandler = cb; return () => { conflictHandler = null } }
+    const writes = []
+    const original = h.storage.durableWrite
+    h.storage.durableWrite = async (path, value, options) => {
+      writes.push({ path, value, options })
+      return original(path, value, options)
+    }
+    const c = makeNoteCollection()
+    const conflict = {
+      path: notePath('shared'),
+      status: 412,
+      writeId: 'same-offline-write',
+      refusedValue: note('shared', 'mine'),
+    }
+    await Promise.all([conflictHandler(conflict), conflictHandler(conflict)])
+    assert.equal(writes.length, 1)
+
+    const recovered = writes[0].value
+    await conflictHandler({
+      path: writes[0].path,
+      status: 412,
+      writeId: 'edit-of-recovered-note',
+      refusedValue: { ...recovered, body: 'edited again' },
+    })
+    assert.equal(writes.length, 2)
+    assert.equal(writes[1].value.body, 'edited again')
+    assert.notEqual(writes[1].path, writes[0].path)
+    c.destroy()
+  })
+})
+
+test('closed-note writes use CAS only when delayed-conflict recovery is available', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    h.storage.getWithVersion = async () => ({
+      value: note('shared', 'server body'),
+      version: 'etag-server',
+    })
+    h.storage.onConflict = () => () => {}
+    const calls = []
+    const original = h.storage.durableWrite
+    h.storage.durableWrite = async (path, value, options) => {
+      calls.push(options)
+      return original(path, value, options)
+    }
+    const c = makeNoteCollection()
+    await c.update('shared', (current) => ({ ...current, body: 'mine' }))
+    assert.equal(calls[0].ifMatch, 'etag-server')
+    c.destroy()
+  })
+})
+
+test('older runtimes keep Notes on the non-CAS compatibility path', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    delete window.mobius.runtimeFeatures
+    let installed = false
+    h.storage.onConflict = () => { installed = true; return () => {} }
+    h.storage.getWithVersion = async () => ({
+      value: note('legacy-shared', 'server body'),
+      version: 'etag-server',
+    })
+    const calls = []
+    const original = h.storage.durableWrite
+    h.storage.durableWrite = async (path, value, options) => {
+      calls.push(options)
+      return original(path, value, options)
+    }
+    const c = makeNoteCollection()
+    await c.update('legacy-shared', (current) => ({ ...current, body: 'mine' }))
+    assert.equal(installed, false)
+    assert.equal(calls[0].ifMatch, undefined)
+    assert.equal(calls[0].ifNoneMatch, undefined)
+    c.destroy()
+  })
+})
+
+test('a rolling older runtime keeps LWW instead of queuing unrecoverable CAS', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    h.storage.getWithVersion = async () => ({
+      value: note('shared', 'server body'),
+      version: 'etag-server',
+    })
+    const calls = []
+    const original = h.storage.durableWrite
+    h.storage.durableWrite = async (path, value, options) => {
+      calls.push(options)
+      return original(path, value, options)
+    }
+    const c = makeNoteCollection()
+    await c.update('shared', (current) => ({ ...current, body: 'mine' }))
+    assert.equal(calls[0].ifMatch, undefined)
   })
 })
 
@@ -257,4 +453,35 @@ test('remove rejects on durable delete failure so the UI can keep the note visib
     )
     assert.equal(h.raw.has(notePath('keep')), true, 'failed delete left the note on disk for retry')
   })
+})
+
+test('a complete membership listing with a missing body is still incomplete', async () => {
+  const previousWindow = globalThis.window
+  const good = {
+    meta: { id: 'good', title: 'Good', updated: '2026-09-24T00:00:00Z' },
+    body: 'available',
+  }
+  globalThis.window = {
+    mobius: {
+      online: false,
+      storage: {
+        async listWithStatus() {
+          return {
+            complete: true,
+            source: 'cache',
+            entries: [
+              { type: 'file', name: 'good.json', path: 'notes/good.json' },
+              { type: 'file', name: 'missing.json', path: 'notes/missing.json' },
+            ],
+          }
+        },
+        async get(path) { return path === 'notes/good.json' ? good : null },
+      },
+    },
+  }
+  try {
+    assert.equal(await makeNoteCollection().list(), null)
+  } finally {
+    globalThis.window = previousWindow
+  }
 })

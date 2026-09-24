@@ -41,15 +41,23 @@ function extFromName(name) {
 // pass converts). The collection owns this for the app; this copy backs the
 // attachment GC, which must read the AUTHORITATIVE on-disk note set.
 export async function listNotes() {
-  let entries
-  try { entries = await S().list('notes') } catch { return null }
-  if (entries == null) return null
+  let listing
+  try {
+    listing = typeof S().listWithStatus === 'function'
+      ? await S().listWithStatus('notes')
+      : { entries: await S().list('notes'), complete: window.mobius?.online !== false }
+  } catch { return null }
+  if (!listing || listing.complete !== true) return null
+  const entries = listing.entries || []
   const out = []
   for (const e of entries || []) {
     if (e.type !== 'file' || !e.name.endsWith('.json')) continue
     let doc
     try { doc = await S().get(e.path) } catch { return null }
-    if (doc && doc.meta && doc.meta.id) out.push({ meta: doc.meta, body: doc.body ?? '' })
+    // Complete directory membership does not imply every member body is
+    // cached. GC must stop if even one listed note is missing or malformed.
+    if (!doc || !doc.meta || !doc.meta.id) return null
+    out.push({ meta: doc.meta, body: doc.body ?? '' })
   }
   return out
 }
@@ -114,8 +122,15 @@ export async function putAttachment(file) {
 // also transiently drop a ref). Pinning the open body's refs closes that window so
 // a transient stale write can never orphan an in-use blob.
 export async function gcAttachments(pin = []) {
-  let entries
-  try { entries = await S().list('attachments') } catch { return }
+  let listing
+  try {
+    listing = typeof S().listWithStatus === 'function'
+      ? await S().listWithStatus('attachments')
+      : { entries: await S().list('attachments'), complete: window.mobius?.online !== false }
+  } catch { return }
+  // Deletion is the dangerous path: never collect from a partial directory.
+  if (!listing || listing.complete !== true) return
+  const entries = listing.entries || []
   const live = entries && entries.length ? entries.filter((e) => e.type === 'file' && e.path.startsWith('attachments/')) : []
   if (!live.length) return
   const notes = await listNotes().catch(() => null)

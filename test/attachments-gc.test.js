@@ -208,3 +208,24 @@ test('GC skips deletion when authoritative note enumeration fails', async () => 
   const after = await originalList('attachments')
   assert.ok(after.some((e) => e.path === path), 'GC failed closed and kept the referenced blob')
 })
+
+test('GC skips deletion when membership is complete but a listed note body is not cached', async () => {
+  const prior = globalThis.window
+  const removed = []
+  globalThis.window = { mobius: { online: false, storage: {
+    async listWithStatus(prefix) {
+      return prefix === 'notes'
+        ? { complete: true, source: 'cache', entries: [{ type: 'file', name: 'n1.json', path: 'notes/n1.json' }] }
+        : { complete: true, source: 'cache', entries: [{ type: 'file', name: 'live.png', path: 'attachments/live.png' }] }
+    },
+    async get() { return null },
+    async remove(path) { removed.push(path) },
+  } } }
+  try {
+    const store = await import('../src/lib/store.js?gc-missing-body')
+    await store.gcAttachments()
+    assert.deepEqual(removed, [])
+  } finally {
+    globalThis.window = prior
+  }
+})
