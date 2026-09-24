@@ -360,3 +360,34 @@ test('remove rejects on durable delete failure so the UI can keep the note visib
     assert.equal(h.raw.has(notePath('keep')), true, 'failed delete left the note on disk for retry')
   })
 })
+
+test('a complete membership listing with a missing body is still incomplete', async () => {
+  const previousWindow = globalThis.window
+  const good = {
+    meta: { id: 'good', title: 'Good', updated: '2026-09-24T00:00:00Z' },
+    body: 'available',
+  }
+  globalThis.window = {
+    mobius: {
+      online: false,
+      storage: {
+        async listWithStatus() {
+          return {
+            complete: true,
+            source: 'cache',
+            entries: [
+              { type: 'file', name: 'good.json', path: 'notes/good.json' },
+              { type: 'file', name: 'missing.json', path: 'notes/missing.json' },
+            ],
+          }
+        },
+        async get(path) { return path === 'notes/good.json' ? good : null },
+      },
+    },
+  }
+  try {
+    assert.equal(await makeNoteCollection().list(), null)
+  } finally {
+    globalThis.window = previousWindow
+  }
+})

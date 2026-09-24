@@ -203,8 +203,14 @@ export function makeNoteCollection() {
     } catch { return null }
     if (!listing || listing.complete !== true) return null
     const entries = listing.entries || []
+    const documents = await readJsonDocuments(entries)
+    // Directory completeness only proves membership. If even one listed body
+    // is unavailable, replacing the grid (and its derived index) from the
+    // readable subset would silently hide a real note. Keep the prior/index
+    // view until every listed body can be assembled.
+    if (documents.some(({ doc }) => doc === null)) return null
     const out = []
-    for (const { path, doc } of await readJsonDocuments(entries)) {
+    for (const { path, doc } of documents) {
       if (doc && doc.meta && doc.meta.id) {
         bases.set(doc.meta.id, doc)
         rememberPath(doc.meta.id, path)
