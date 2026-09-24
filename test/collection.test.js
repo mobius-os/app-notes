@@ -154,6 +154,30 @@ test('a delayed same-note conflict preserves the refused document as a recovery 
   })
 })
 
+test('a queued recovery keeps the original conflict pending until the server confirms it', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    let conflictHandler = null
+    h.storage.onConflict = (cb) => { conflictHandler = cb; return () => { conflictHandler = null } }
+    const c = makeNoteCollection()
+    const conflict = {
+      path: notePath('shared'),
+      status: 412,
+      writeId: 'queued-recovery',
+      refusedValue: note('shared', 'my offline body'),
+    }
+
+    h.setOnline(false)
+    assert.equal(await conflictHandler(conflict), false, 'a queued recovery cannot acknowledge the original conflict')
+    const recoveryPath = [...h.overlay.keys()].find((path) => path !== notePath('shared'))
+    assert.ok(recoveryPath, 'the recovery copy is held in the local outbox')
+
+    await h.drain()
+    assert.equal(await conflictHandler(conflict), true, 'the replay acknowledges only after the recovery reaches the server')
+    c.destroy()
+  })
+})
+
 test('conflict recovery is idempotent for one write and remains enabled for recovered-note edits', async () => {
   const h = makeMockStorage()
   await withWindow(h, async () => {

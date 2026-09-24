@@ -101,11 +101,16 @@ export function makeNoteCollection() {
     return `recovered-${readable || 'edit'}-${hash.toString(16).padStart(16, '0')}`
   }
 
-  async function existingRecovery(path, writeId) {
-    if (typeof S().get !== 'function') return false
+  async function confirmedRecovery(path, writeId) {
+    if (typeof S().getWithVersion !== 'function') return false
     try {
-      const existing = await S().get(path)
-      return existing?.meta?.recoveredConflictWriteId === writeId
+      const existing = await S().getWithVersion(path)
+      // get() includes the local queued overlay, so it cannot prove that a
+      // recovery reached the server. A server version is the confirmation that
+      // lets this handler acknowledge the original refused write.
+      return existing?.version != null
+        && existing?.offline !== true
+        && existing?.value?.meta?.recoveredConflictWriteId === writeId
     } catch { return false }
   }
 
@@ -120,11 +125,11 @@ export function makeNoteCollection() {
           // A second frame may race the same create-only recovery. Its 412 is
           // an idempotency confirmation, not a new edit that needs another copy.
           if (conflict.ifNoneMatch === true && mine.meta.recoveredConflictWriteId) {
-            return existingRecovery(conflict.path, mine.meta.recoveredConflictWriteId)
+            return confirmedRecovery(conflict.path, mine.meta.recoveredConflictWriteId)
           }
           const recoveredId = stableRecoveryId(key)
           const recoveryPath = notePath(recoveredId)
-          if (await existingRecovery(recoveryPath, key)) return true
+          if (await confirmedRecovery(recoveryPath, key)) return true
           const recoveredAt = new Date().toISOString()
           const recovered = {
             ...mine,
@@ -138,12 +143,15 @@ export function makeNoteCollection() {
             },
           }
           try {
-            await S().durableWrite(recoveryPath, recovered, {
+            const result = await S().durableWrite(recoveryPath, recovered, {
               kind: 'json', ifNoneMatch: true,
             })
-            return true
+            // A queued recovery is durable locally, but the original conflict
+            // remains pending until this copy is server-confirmed. onConflict()
+            // replays that pending conflict after reconnect or remount.
+            return result?.durability === 'synced'
           } catch (error) {
-            if (await existingRecovery(recoveryPath, key)) return true
+            if (await confirmedRecovery(recoveryPath, key)) return true
             window.mobius?.signal?.('error', {
               source: 'offline-conflict-recovery',
               message: String(error?.message || error),

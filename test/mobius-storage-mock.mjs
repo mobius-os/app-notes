@@ -104,6 +104,14 @@ export function makeMockStorage() {
       if (!rec || rec.value == null) return null
       return String(rec.value)
     },
+    async getWithVersion(path) {
+      const rec = effective(path)
+      return {
+        value: rec?.value == null ? null : JSON.parse(JSON.stringify(rec.value)),
+        version: server.has(path) ? `server:${path}` : null,
+        offline: !online,
+      }
+    },
     async getBlob(path) {
       const rec = effective(path)
       return rec ? rec.value : null
