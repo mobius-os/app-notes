@@ -89,7 +89,12 @@ export function makeNoteCollection() {
   // refused full document as a normal recovery note instead of silently losing
   // either version. The platform only reports the transport conflict; this
   // note-specific recovery policy remains app-owned.
-  const supportsConflictRecovery = typeof S().onConflict === 'function'
+  // Conditional writes are safe only when the runtime can pair an online
+  // server body with its own ETag. Older runtimes keep the legacy LWW path;
+  // otherwise a queued overlay can be mistaken for server confirmation.
+  const supportsConflictRecovery =
+    window.mobius?.runtimeFeatures?.authoritativeVersionedReads === true
+    && typeof S().onConflict === 'function'
   function stableRecoveryId(writeId) {
     const input = String(writeId || 'unknown')
     let hash = 0xcbf29ce484222325n

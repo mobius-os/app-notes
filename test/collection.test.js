@@ -12,7 +12,14 @@ import { notePath } from '../src/lib/note-doc.js'
 
 function withWindow(harness, fn) {
   const prev = globalThis.window
-  globalThis.window = { mobius: { storage: harness.storage, online: true, signal() {} } }
+  globalThis.window = {
+    mobius: {
+      storage: harness.storage,
+      online: true,
+      runtimeFeatures: { authoritativeVersionedReads: true },
+      signal() {},
+    },
+  }
   return Promise.resolve(fn()).finally(() => { globalThis.window = prev })
 }
 
@@ -178,6 +185,44 @@ test('a queued recovery keeps the original conflict pending until the server con
   })
 })
 
+test('replayed note recovery cannot confirm its own queued overlay', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    let conflictHandler = null
+    let authoritative = null
+    let queuedOverlay = null
+    let writes = 0
+    h.storage.onConflict = (cb) => { conflictHandler = cb; return () => { conflictHandler = null } }
+    h.storage.getWithVersion = async () => ({
+      value: authoritative,
+      version: authoritative ? 'server-v2' : null,
+      offline: false,
+    })
+    h.storage.durableWrite = async (_path, value) => {
+      writes += 1
+      queuedOverlay = value
+      return { durability: 'queued' }
+    }
+    const c = makeNoteCollection()
+    const conflict = {
+      path: notePath('shared'),
+      status: 412,
+      writeId: 'queued-replay',
+      refusedValue: note('shared', 'my offline body'),
+    }
+
+    assert.equal(await conflictHandler(conflict), false)
+    assert.ok(queuedOverlay, 'the local overlay exists but is not authoritative')
+    assert.equal(await conflictHandler(conflict), false)
+    assert.equal(writes, 2, 'replay remains pending while the server has no recovery copy')
+
+    authoritative = queuedOverlay
+    assert.equal(await conflictHandler(conflict), true)
+    assert.equal(writes, 2, 'server confirmation is acknowledged without another write')
+    c.destroy()
+  })
+})
+
 test('conflict recovery is idempotent for one write and remains enabled for recovered-note edits', async () => {
   const h = makeMockStorage()
   await withWindow(h, async () => {
@@ -230,6 +275,31 @@ test('closed-note writes use CAS only when delayed-conflict recovery is availabl
     const c = makeNoteCollection()
     await c.update('shared', (current) => ({ ...current, body: 'mine' }))
     assert.equal(calls[0].ifMatch, 'etag-server')
+    c.destroy()
+  })
+})
+
+test('older runtimes keep Notes on the non-CAS compatibility path', async () => {
+  const h = makeMockStorage()
+  await withWindow(h, async () => {
+    delete window.mobius.runtimeFeatures
+    let installed = false
+    h.storage.onConflict = () => { installed = true; return () => {} }
+    h.storage.getWithVersion = async () => ({
+      value: note('legacy-shared', 'server body'),
+      version: 'etag-server',
+    })
+    const calls = []
+    const original = h.storage.durableWrite
+    h.storage.durableWrite = async (path, value, options) => {
+      calls.push(options)
+      return original(path, value, options)
+    }
+    const c = makeNoteCollection()
+    await c.update('legacy-shared', (current) => ({ ...current, body: 'mine' }))
+    assert.equal(installed, false)
+    assert.equal(calls[0].ifMatch, undefined)
+    assert.equal(calls[0].ifNoneMatch, undefined)
     c.destroy()
   })
 })

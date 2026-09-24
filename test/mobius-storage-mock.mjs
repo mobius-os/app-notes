@@ -105,7 +105,10 @@ export function makeMockStorage() {
       return String(rec.value)
     },
     async getWithVersion(path) {
-      const rec = effective(path)
+      // Online CAS reads pair the authoritative server body with its ETag.
+      // Plain reads retain the queued overlay; an offline versioned read does
+      // too, but marks that it cannot confirm server acceptance.
+      const rec = online ? server.get(path) : effective(path)
       return {
         value: rec?.value == null ? null : JSON.parse(JSON.stringify(rec.value)),
         version: server.has(path) ? `server:${path}` : null,
