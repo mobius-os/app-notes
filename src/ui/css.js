@@ -117,7 +117,7 @@ export const CSS = `
   display: flex; align-items: center; gap: 9px;
   padding: 0 12px; border-radius: 11px;
   border: 1px solid transparent;
-  background: var(--surface2, var(--surface)); color: var(--muted);
+  background: var(--surface-2, var(--surface)); color: var(--muted);
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .nt-search {
@@ -210,7 +210,7 @@ export const CSS = `
   width: 56px; height: 56px; border-radius: 16px;
   display: grid; place-items: center;
   margin-bottom: 16px;
-  background: var(--surface2, var(--surface));
+  background: var(--surface-2, var(--surface));
   color: color-mix(in srgb, var(--muted) 74%, transparent);
 }
 .nt-empty-msg {
@@ -235,7 +235,7 @@ export const CSS = `
 .nt-empty-action--secondary {
   border: 1px solid var(--border); background: var(--surface); color: var(--text);
 }
-@media (hover: hover) { .nt-empty-action--secondary:hover { filter: none; background: var(--surface2, var(--surface)); } }
+@media (hover: hover) { .nt-empty-action--secondary:hover { filter: none; background: var(--surface-2, var(--surface)); } }
 /* /mobius-ui:Empty */
 
 /* ── Grid ───────────────────────────────────────────────────────────────── */
@@ -355,7 +355,7 @@ export const CSS = `
 .nt-card-thumb {
   width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; border-radius: 6px;
   border: 1px solid var(--border);
-  background: var(--surface2, var(--surface));
+  background: var(--surface-2, var(--surface));
   /* Render an already-stored Ultra HDR image (gain-map JPEG) as SDR. Without
      this, Chrome on Android promotes the display surface to HDR while the image
      is painted and tone-shifts the whole shell+app background — visible to the
@@ -455,7 +455,7 @@ export const CSS = `
   position: fixed; z-index: 60;
   display: grid; grid-template-columns: repeat(4, 44px); gap: 8px;
   max-width: calc(100vw - 24px); padding: 8px;
-  background: var(--surface2, var(--surface));
+  background: var(--surface-2, var(--surface));
   border: 1px solid var(--border); border-radius: 12px;
   box-shadow: 0 4px 8px color-mix(in srgb, var(--text) 20%, transparent);
 }
@@ -686,13 +686,13 @@ export const CSS = `
   margin: 2px; padding: 6px 10px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   border-radius: 8px; border: 1px solid var(--border);
-  background: var(--surface2, var(--surface)); color: var(--text);
+  background: var(--surface-2, var(--surface)); color: var(--text);
   font: 500 13px/1.25 var(--font); cursor: pointer;
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
   transition: background 0.12s ease, transform 0.1s ease;
 }
 @media (hover: hover) {
-  .nt-cm-file-chip:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface2, var(--surface))); }
+  .nt-cm-file-chip:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface-2, var(--surface))); }
 }
 .nt-cm-file-chip:active { transform: scale(0.98); }
 .nt-editor-sheet.is-locked .cm-content { cursor: default; }
@@ -789,7 +789,7 @@ export const CSS = `
   display: flex; gap: 8px; align-items: flex-start;
   padding: 8px 16px 10px;
   border-top: 1px solid var(--border);
-  background: var(--surface2, var(--surface));
+  background: var(--surface-2, var(--surface));
   overflow-x: auto; flex: 0 0 auto;
   overscroll-behavior: contain;
 }

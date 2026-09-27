@@ -29,7 +29,7 @@ const highlightStyle = HighlightStyle.define([
   { tag: tags.strikethrough, textDecoration: 'line-through' },
   { tag: tags.link, color: 'var(--nt-accent-ink)', textDecoration: 'underline' },
   { tag: tags.url, color: 'var(--muted)' },
-  { tag: [tags.monospace], fontFamily: 'var(--mono)', fontSize: '0.92em', background: 'var(--surface2)', borderRadius: '4px', padding: '0 3px' },
+  { tag: [tags.monospace], fontFamily: 'var(--mono)', fontSize: '0.92em', background: 'var(--surface-2)', borderRadius: '4px', padding: '0 3px' },
   { tag: tags.quote, color: 'var(--muted)', fontStyle: 'italic' },
   { tag: tags.list, color: 'var(--text)' },
   { tag: tags.processingInstruction, color: 'var(--muted)', opacity: 0.6 },
