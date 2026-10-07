@@ -19,17 +19,40 @@ import { notePath, legacyPath } from './note-doc.js'
 const S = () => window.mobius.storage
 const READ_BATCH_SIZE = 8
 
-// Note documents are independent reads. Small batches remove the serial
-// waterfall without creating an unbounded request/memory spike for users with
-// very large notebooks or locally-modified runtimes.
-async function readJsonDocuments(entries) {
+// The listing's storage stamp for one file; null when the runtime did not
+// report both fields (derived/offline entries), which disables reuse.
+function listedStamp(entry) {
+  return entry.modified_at && Number.isFinite(entry.size)
+    ? `${entry.modified_at}|${entry.size}`
+    : null
+}
+
+// Note documents are independent reads. A body is taken, in order, from the
+// listing itself (runtimes that support `includeContent` inline small JSON
+// bodies, with any queued local write already overlaid), from `known` when
+// the file's stamp is unchanged since this session last read it, or from a
+// GET. Small GET batches remove the serial waterfall without creating an
+// unbounded request/memory spike for very large notebooks.
+async function readJsonDocuments(entries, known = null) {
   const files = (entries || []).filter((e) => e.type === 'file' && e.name.endsWith('.json'))
   const records = []
-  for (let i = 0; i < files.length; i += READ_BATCH_SIZE) {
-    const batch = files.slice(i, i + READ_BATCH_SIZE)
+  const toFetch = []
+  for (const entry of files) {
+    const stamp = listedStamp(entry)
+    const cached = stamp && known?.get(entry.path)
+    if (Object.prototype.hasOwnProperty.call(entry, 'content') && entry.content != null) {
+      records.push({ path: entry.path, doc: entry.content, stamp })
+    } else if (cached && cached.stamp === stamp) {
+      records.push({ path: entry.path, doc: cached.doc, stamp })
+    } else {
+      toFetch.push(entry)
+    }
+  }
+  for (let i = 0; i < toFetch.length; i += READ_BATCH_SIZE) {
+    const batch = toFetch.slice(i, i + READ_BATCH_SIZE)
     const resolved = await Promise.all(batch.map(async (entry) => {
-      try { return { path: entry.path, doc: await S().get(entry.path) } }
-      catch { return { path: entry.path, doc: null } }
+      try { return { path: entry.path, doc: await S().get(entry.path), stamp: listedStamp(entry) } }
+      catch { return { path: entry.path, doc: null, stamp: null } }
     }))
     records.push(...resolved)
   }
@@ -83,6 +106,18 @@ export function makeNoteCollection() {
   // doc.meta.id diverged: deletes and later writes must target the actual file,
   // not only notes/<meta.id>.json, or the broken note resurrects on every list().
   const paths = new Map()
+  // listedDocs[path] = { stamp, doc } from the last list() that read that body.
+  // A re-list (reconnect) reuses a body whose modified_at + size are unchanged
+  // instead of GETting every note again. Any write, delete, or conflict on a
+  // path in this session drops its entry: a queued or refused local write can
+  // differ from the server body while the server stamp stays the same. A list()
+  // that overlapped such a change does not refill the cache at all.
+  const listedDocs = new Map()
+  let localChanges = 0
+  const forgetListed = (path) => {
+    localChanges += 1
+    listedDocs.delete(path)
+  }
 
   // A same-note edit made on two offline devices cannot be merged safely at
   // character level without a CRDT. Use conditional writes and preserve the
@@ -124,6 +159,7 @@ export function makeNoteCollection() {
         const mine = conflict?.refusedValue
         if (!/^notes\/[^/]+\.json$/.test(String(conflict?.path || ''))
             || !mine?.meta?.id || !conflict?.writeId) return false
+        forgetListed(conflict.path)
         const key = String(conflict.writeId)
         if (recoveriesInFlight.has(key)) return recoveriesInFlight.get(key)
         const task = (async () => {
@@ -208,22 +244,26 @@ export function makeNoteCollection() {
   // replacing index.json from that partial set would silently hide the rest.
   // `null` means "use the derived index until a complete enumeration exists".
   async function list() {
+    const changesAtStart = localChanges
     let listing
     try {
       listing = typeof S().listWithStatus === 'function'
-        ? await S().listWithStatus('notes')
+        ? await S().listWithStatus('notes', { includeContent: true })
         : { entries: await S().list('notes'), complete: window.mobius?.online !== false }
     } catch { return null }
     if (!listing || listing.complete !== true) return null
     const entries = listing.entries || []
-    const documents = await readJsonDocuments(entries)
+    const documents = await readJsonDocuments(entries, listedDocs)
     // Directory completeness only proves membership. If even one listed body
     // is unavailable, replacing the grid (and its derived index) from the
     // readable subset would silently hide a real note. Keep the prior/index
     // view until every listed body can be assembled.
     if (documents.some(({ doc }) => doc === null)) return null
     const out = []
-    for (const { path, doc } of documents) {
+    listedDocs.clear()
+    const cacheable = localChanges === changesAtStart
+    for (const { path, doc, stamp } of documents) {
+      if (stamp && cacheable) listedDocs.set(path, { stamp, doc })
       if (doc && doc.meta && doc.meta.id) {
         bases.set(doc.meta.id, doc)
         rememberPath(doc.meta.id, path)
@@ -282,6 +322,7 @@ export function makeNoteCollection() {
       // durableWrite resolves DURABLE (synced/queued) or REJECTS DurableWriteError
       // on a dead-letter; we let the rejection propagate so the caller surfaces it
       // (no false "saved"). The remembered value advances only after durability.
+      forgetListed(path)
       const result = await writeJson(path, mine, { version, conditional })
       bases.set(id, mine)
       rememberPath(id, path)
@@ -306,6 +347,7 @@ export function makeNoteCollection() {
       let res = null
       let firstError = null
       for (const path of candidates) {
+        forgetListed(path)
         try { res = await S().remove(path) } catch (err) { if (!firstError) firstError = err }
       }
       if (firstError) throw firstError

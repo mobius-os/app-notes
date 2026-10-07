@@ -485,3 +485,112 @@ test('a complete membership listing with a missing body is still incomplete', as
     globalThis.window = previousWindow
   }
 })
+
+function stampedListingWindow({ entries, bodies, gets }) {
+  return {
+    mobius: {
+      online: true,
+      storage: {
+        async listWithStatus(_prefix, options) {
+          return { complete: true, source: 'server', entries: entries(options) }
+        },
+        async get(path) { gets.push(path); return bodies.get(path) ?? null },
+        async getWithVersion(path) { return { value: bodies.get(path) ?? null, version: 'v' } },
+        async durableWrite(path, value) { bodies.set(path, value); return { durability: 'synced' } },
+      },
+    },
+  }
+}
+
+test('a re-list reuses note bodies whose modified_at and size are unchanged', async () => {
+  const previousWindow = globalThis.window
+  const bodies = new Map([
+    ['notes/a.json', note('a', 'first')],
+    ['notes/b.json', note('b', 'second')],
+  ])
+  const stamps = new Map([['notes/a.json', 't1'], ['notes/b.json', 't1']])
+  const gets = []
+  globalThis.window = stampedListingWindow({
+    bodies, gets,
+    entries: () => [...bodies.keys()].map((path) => ({
+      type: 'file', name: path.slice(6), path, modified_at: stamps.get(path), size: 10,
+    })),
+  })
+  try {
+    const c = makeNoteCollection()
+    assert.equal((await c.list()).length, 2)
+    assert.deepEqual(gets.sort(), ['notes/a.json', 'notes/b.json'])
+
+    gets.length = 0
+    bodies.set('notes/b.json', note('b', 'changed elsewhere'))
+    stamps.set('notes/b.json', 't2')
+    const relisted = await c.list()
+    assert.deepEqual(gets, ['notes/b.json'], 'only the note whose stamp changed is read again')
+    assert.equal(relisted.find((n) => n.meta.id === 'b').body, 'changed elsewhere')
+    assert.equal(relisted.find((n) => n.meta.id === 'a').body, 'first')
+
+    gets.length = 0
+    await c.update('a', () => note('a', 'edited here'))
+    const afterWrite = await c.list()
+    assert.deepEqual(gets, ['notes/a.json'], 'a note written in this session is never served from the listing cache')
+    assert.equal(afterWrite.find((n) => n.meta.id === 'a').body, 'edited here')
+  } finally {
+    globalThis.window = previousWindow
+  }
+})
+
+test('list uses bodies inlined by an includeContent listing without per-note reads', async () => {
+  const previousWindow = globalThis.window
+  const bodies = new Map([['notes/a.json', note('a', 'inline')], ['notes/big.json', note('big', 'large')]])
+  const gets = []
+  globalThis.window = stampedListingWindow({
+    bodies, gets,
+    entries: (options) => {
+      assert.equal(options?.includeContent, true)
+      return [
+        { type: 'file', name: 'a.json', path: 'notes/a.json', content: bodies.get('notes/a.json') },
+        // Bodies over the server's inline cap arrive without `content`.
+        { type: 'file', name: 'big.json', path: 'notes/big.json' },
+      ]
+    },
+  })
+  try {
+    const listed = await makeNoteCollection().list()
+    assert.deepEqual(listed.map((n) => n.body).sort(), ['inline', 'large'])
+    assert.deepEqual(gets, ['notes/big.json'])
+  } finally {
+    globalThis.window = previousWindow
+  }
+})
+
+test('a list that overlaps a local write does not cache the bodies it read', async () => {
+  const previousWindow = globalThis.window
+  const bodies = new Map([['notes/a.json', note('a', 'first')]])
+  const gets = []
+  globalThis.window = stampedListingWindow({
+    bodies, gets,
+    // The server stamp stays the same, as it does while the write is queued.
+    entries: () => [{ type: 'file', name: 'a.json', path: 'notes/a.json', modified_at: 't1', size: 10 }],
+  })
+  const storage = globalThis.window.mobius.storage
+  const read = storage.get
+  let duringRead = null
+  storage.get = async (path) => {
+    const value = await read(path)
+    const hook = duringRead
+    duringRead = null
+    if (hook) await hook()
+    return value
+  }
+  try {
+    const c = makeNoteCollection()
+    duringRead = () => c.update('a', () => note('a', 'edited during list'))
+    await c.list()
+    gets.length = 0
+    const relisted = await c.list()
+    assert.deepEqual(gets, ['notes/a.json'], 'the overlapping list did not cache the pre-write body')
+    assert.equal(relisted.find((n) => n.meta.id === 'a').body, 'edited during list')
+  } finally {
+    globalThis.window = previousWindow
+  }
+})
