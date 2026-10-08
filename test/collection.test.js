@@ -594,3 +594,87 @@ test('a list that overlaps a local write does not cache the bodies it read', asy
     globalThis.window = previousWindow
   }
 })
+
+test('a list during a pending save shows the saved note on the next list', async () => {
+  const previousWindow = globalThis.window
+  const bodies = new Map([['notes/a.json', note('a', 'first')]])
+  const gets = []
+  globalThis.window = stampedListingWindow({
+    bodies, gets,
+    // The server stamp stays the same, as it does while the write is queued.
+    entries: () => [{ type: 'file', name: 'a.json', path: 'notes/a.json', modified_at: 't1', size: 10 }],
+  })
+  const storage = globalThis.window.mobius.storage
+  let releaseWrite
+  const writeHeld = new Promise((resolve) => { releaseWrite = resolve })
+  let writeStarted
+  const started = new Promise((resolve) => { writeStarted = resolve })
+  storage.durableWrite = async (path, value) => {
+    writeStarted()
+    await writeHeld
+    bodies.set(path, value)
+    return { durability: 'queued' }
+  }
+  try {
+    const c = makeNoteCollection()
+    const save = c.update('a', () => note('a', 'saved while listing'))
+    await started
+    // A reconnect re-list while the save is still in flight.
+    assert.equal((await c.list()).find((n) => n.meta.id === 'a').body, 'first')
+    releaseWrite()
+    await save
+
+    gets.length = 0
+    const relisted = await c.list()
+    assert.deepEqual(gets, ['notes/a.json'], 'the body read during the save is not reused')
+    assert.equal(relisted.find((n) => n.meta.id === 'a').body, 'saved while listing')
+    gets.length = 0
+    await c.list()
+    assert.deepEqual(gets, [], 'a settled note is cached again')
+  } finally {
+    globalThis.window = previousWindow
+  }
+})
+
+test('a list during conflict recovery does not keep the refused body', async () => {
+  const previousWindow = globalThis.window
+  const bodies = new Map([['notes/a.json', note('a', 'my refused edit')]])
+  const gets = []
+  globalThis.window = stampedListingWindow({
+    bodies, gets,
+    entries: () => [{ type: 'file', name: 'a.json', path: 'notes/a.json', modified_at: 't1', size: 10 }],
+  })
+  globalThis.window.mobius.runtimeFeatures = { authoritativeVersionedReads: true }
+  const storage = globalThis.window.mobius.storage
+  let conflictListener = null
+  storage.onConflict = (listener) => { conflictListener = listener; return () => {} }
+  let releaseWrite
+  const writeHeld = new Promise((resolve) => { releaseWrite = resolve })
+  let writeStarted
+  const started = new Promise((resolve) => { writeStarted = resolve })
+  storage.getWithVersion = async () => ({ value: null, version: null })
+  storage.durableWrite = async (path, value) => {
+    writeStarted()
+    await writeHeld
+    bodies.set(path, value)
+    return { durability: 'synced' }
+  }
+  try {
+    const c = makeNoteCollection()
+    const recovery = conflictListener({
+      path: 'notes/a.json', writeId: 'w1', refusedValue: note('a', 'my refused edit'),
+    })
+    await started
+    await c.list() // reads the refused overlay before the runtime restores the remote body
+    bodies.set('notes/a.json', note('a', 'remote winner'))
+    releaseWrite()
+    await recovery
+
+    gets.length = 0
+    const relisted = await c.list()
+    assert.ok(gets.includes('notes/a.json'), 'the body read during recovery is not reused')
+    assert.equal(relisted.find((n) => n.meta.id === 'a').body, 'remote winner')
+  } finally {
+    globalThis.window = previousWindow
+  }
+})

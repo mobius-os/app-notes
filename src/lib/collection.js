@@ -118,6 +118,18 @@ export function makeNoteCollection() {
     localChanges += 1
     listedDocs.delete(path)
   }
+  // A local change lasts until the runtime has taken its write. Forgetting the
+  // path at both ends means a list() that overlaps either end does not cache
+  // what it read, and one that ran entirely inside the change is dropped when
+  // the change settles.
+  const changingListed = async (path, change) => {
+    forgetListed(path)
+    try {
+      return await change()
+    } finally {
+      forgetListed(path)
+    }
+  }
 
   // A same-note edit made on two offline devices cannot be merged safely at
   // character level without a CRDT. Use conditional writes and preserve the
@@ -201,7 +213,10 @@ export function makeNoteCollection() {
           }
         })()
         recoveriesInFlight.set(key, task)
-        task.finally(() => { if (recoveriesInFlight.get(key) === task) recoveriesInFlight.delete(key) })
+        task.finally(() => {
+          forgetListed(conflict.path)
+          if (recoveriesInFlight.get(key) === task) recoveriesInFlight.delete(key)
+        })
         return task
       })
     : () => {}
@@ -322,8 +337,7 @@ export function makeNoteCollection() {
       // durableWrite resolves DURABLE (synced/queued) or REJECTS DurableWriteError
       // on a dead-letter; we let the rejection propagate so the caller surfaces it
       // (no false "saved"). The remembered value advances only after durability.
-      forgetListed(path)
-      const result = await writeJson(path, mine, { version, conditional })
+      const result = await changingListed(path, () => writeJson(path, mine, { version, conditional }))
       bases.set(id, mine)
       rememberPath(id, path)
       return { result, value: mine }
@@ -347,8 +361,7 @@ export function makeNoteCollection() {
       let res = null
       let firstError = null
       for (const path of candidates) {
-        forgetListed(path)
-        try { res = await S().remove(path) } catch (err) { if (!firstError) firstError = err }
+        try { res = await changingListed(path, () => S().remove(path)) } catch (err) { if (!firstError) firstError = err }
       }
       if (firstError) throw firstError
       // Also drop the dormant legacy .md, if any: the startup migration would
