@@ -19,9 +19,10 @@ import { notePath, legacyPath } from './note-doc.js'
 const S = () => window.mobius.storage
 const READ_BATCH_SIZE = 8
 
-// Note documents are independent reads. Small batches remove the serial
-// waterfall without creating an unbounded request/memory spike for users with
-// very large notebooks or locally-modified runtimes.
+// Read bodies through the runtime so a completed local write from either writer
+// wins over an older in-flight directory response. Inline listing content is
+// not guaranteed to reflect such writes, even when the runtime mirror does.
+// Small batches bound concurrency without adding another app-owned cache.
 async function readJsonDocuments(entries) {
   const files = (entries || []).filter((e) => e.type === 'file' && e.name.endsWith('.json'))
   const records = []

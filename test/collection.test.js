@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert'
 import { webcrypto } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 if (!globalThis.crypto) globalThis.crypto = webcrypto
 import { makeMockStorage, DurableWriteError } from './mobius-storage-mock.mjs'
 import { makeNoteCollection } from '../src/lib/collection.js'
@@ -485,3 +487,383 @@ test('a complete membership listing with a missing body is still incomplete', as
     globalThis.window = previousWindow
   }
 })
+
+function stampedListingWindow({ entries, bodies, gets }) {
+  return {
+    mobius: {
+      online: true,
+      storage: {
+        async listWithStatus(_prefix, options) {
+          return { complete: true, source: 'server', entries: entries(options) }
+        },
+        async get(path) { gets.push(path); return bodies.get(path) ?? null },
+        async getWithVersion(path) { return { value: bodies.get(path) ?? null, version: 'v' } },
+        async durableWrite(path, value) { bodies.set(path, value); return { durability: 'synced' } },
+      },
+    },
+  }
+}
+
+test('a metadata-only re-list reads runtime bodies even when listing stamps are unchanged', async () => {
+  const previousWindow = globalThis.window
+  const bodies = new Map([
+    ['notes/a.json', note('a', 'first')],
+    ['notes/b.json', note('b', 'second')],
+  ])
+  const stamps = new Map([['notes/a.json', 't1'], ['notes/b.json', 't1']])
+  const gets = []
+  globalThis.window = stampedListingWindow({
+    bodies, gets,
+    entries: () => [...bodies.keys()].map((path) => ({
+      type: 'file', name: path.slice(6), path, modified_at: stamps.get(path), size: 10,
+    })),
+  })
+  try {
+    const c = makeNoteCollection()
+    assert.equal((await c.list()).length, 2)
+    assert.deepEqual(gets.sort(), ['notes/a.json', 'notes/b.json'])
+
+    gets.length = 0
+    bodies.set('notes/b.json', note('b', 'changed elsewhere'))
+    // A completed runtime revalidation can change the body without changing
+    // the listing metadata that was already returned with the stale body.
+    const relisted = await c.list()
+    assert.deepEqual(gets.sort(), ['notes/a.json', 'notes/b.json'])
+    assert.equal(relisted.find((n) => n.meta.id === 'b').body, 'changed elsewhere')
+    assert.equal(relisted.find((n) => n.meta.id === 'a').body, 'first')
+
+    gets.length = 0
+    await c.update('a', () => note('a', 'edited here'))
+    const afterWrite = await c.list()
+    assert.deepEqual(gets.sort(), ['notes/a.json', 'notes/b.json'])
+    assert.equal(afterWrite.find((n) => n.meta.id === 'a').body, 'edited here')
+  } finally {
+    globalThis.window = previousWindow
+  }
+})
+
+test('list reads through the runtime instead of trusting possibly stale inline bodies', async () => {
+  const previousWindow = globalThis.window
+  const bodies = new Map([['notes/a.json', note('a', 'current runtime body')], ['notes/big.json', note('big', 'large')]])
+  const gets = []
+  globalThis.window = stampedListingWindow({
+    bodies, gets,
+    entries: (options) => {
+      assert.equal(options?.includeContent, undefined, 'do not request unverified inline bodies')
+      return [
+        { type: 'file', name: 'a.json', path: 'notes/a.json', content: note('a', 'stale inline body') },
+        // Bodies over the server's inline cap arrive without `content`.
+        { type: 'file', name: 'big.json', path: 'notes/big.json' },
+      ]
+    },
+  })
+  try {
+    const listed = await makeNoteCollection().list()
+    assert.deepEqual(listed.map((n) => n.body).sort(), ['current runtime body', 'large'])
+    assert.deepEqual(gets, ['notes/a.json', 'notes/big.json'])
+  } finally {
+    globalThis.window = previousWindow
+  }
+})
+
+test('a list that overlaps a local write shows the edited body on the next list', async () => {
+  const previousWindow = globalThis.window
+  const bodies = new Map([['notes/a.json', note('a', 'first')]])
+  const gets = []
+  globalThis.window = stampedListingWindow({
+    bodies, gets,
+    // The server stamp stays the same, as it does while the write is queued.
+    entries: () => [{ type: 'file', name: 'a.json', path: 'notes/a.json', modified_at: 't1', size: 10 }],
+  })
+  const storage = globalThis.window.mobius.storage
+  const read = storage.get
+  let duringRead = null
+  storage.get = async (path) => {
+    const value = await read(path)
+    const hook = duringRead
+    duringRead = null
+    if (hook) await hook()
+    return value
+  }
+  try {
+    const c = makeNoteCollection()
+    duringRead = () => c.update('a', () => note('a', 'edited during list'))
+    await c.list()
+    gets.length = 0
+    const relisted = await c.list()
+    assert.deepEqual(gets, ['notes/a.json'], 'the overlapping list did not cache the pre-write body')
+    assert.equal(relisted.find((n) => n.meta.id === 'a').body, 'edited during list')
+  } finally {
+    globalThis.window = previousWindow
+  }
+})
+
+test('a list during a pending save shows the saved note on the next list', async () => {
+  const previousWindow = globalThis.window
+  const bodies = new Map([['notes/a.json', note('a', 'first')]])
+  const gets = []
+  globalThis.window = stampedListingWindow({
+    bodies, gets,
+    // The server stamp stays the same, as it does while the write is queued.
+    entries: () => [{ type: 'file', name: 'a.json', path: 'notes/a.json', modified_at: 't1', size: 10 }],
+  })
+  const storage = globalThis.window.mobius.storage
+  let releaseWrite
+  const writeHeld = new Promise((resolve) => { releaseWrite = resolve })
+  let writeStarted
+  const started = new Promise((resolve) => { writeStarted = resolve })
+  storage.durableWrite = async (path, value) => {
+    writeStarted()
+    await writeHeld
+    bodies.set(path, value)
+    return { durability: 'queued' }
+  }
+  try {
+    const c = makeNoteCollection()
+    const save = c.update('a', () => note('a', 'saved while listing'))
+    await started
+    // A reconnect re-list while the save is still in flight.
+    assert.equal((await c.list()).find((n) => n.meta.id === 'a').body, 'first')
+    releaseWrite()
+    await save
+
+    gets.length = 0
+    const relisted = await c.list()
+    assert.deepEqual(gets, ['notes/a.json'], 'the body read during the save is not reused')
+    assert.equal(relisted.find((n) => n.meta.id === 'a').body, 'saved while listing')
+    gets.length = 0
+    assert.equal((await c.list())[0].body, 'saved while listing')
+    assert.deepEqual(gets, ['notes/a.json'], 'later lists still consult the runtime')
+  } finally {
+    globalThis.window = previousWindow
+  }
+})
+
+test('a list during conflict recovery does not keep the refused body', async () => {
+  const previousWindow = globalThis.window
+  const bodies = new Map([['notes/a.json', note('a', 'my refused edit')]])
+  const gets = []
+  globalThis.window = stampedListingWindow({
+    bodies, gets,
+    entries: () => [{ type: 'file', name: 'a.json', path: 'notes/a.json', modified_at: 't1', size: 10 }],
+  })
+  globalThis.window.mobius.runtimeFeatures = { authoritativeVersionedReads: true }
+  const storage = globalThis.window.mobius.storage
+  let conflictListener = null
+  storage.onConflict = (listener) => { conflictListener = listener; return () => {} }
+  let releaseWrite
+  const writeHeld = new Promise((resolve) => { releaseWrite = resolve })
+  let writeStarted
+  const started = new Promise((resolve) => { writeStarted = resolve })
+  storage.getWithVersion = async () => ({ value: null, version: null })
+  storage.durableWrite = async (path, value) => {
+    writeStarted()
+    await writeHeld
+    bodies.set(path, value)
+    return { durability: 'synced' }
+  }
+  try {
+    const c = makeNoteCollection()
+    const recovery = conflictListener({
+      path: 'notes/a.json', writeId: 'w1', refusedValue: note('a', 'my refused edit'),
+    })
+    await started
+    await c.list() // reads the refused overlay before the runtime restores the remote body
+    bodies.set('notes/a.json', note('a', 'remote winner'))
+    releaseWrite()
+    await recovery
+
+    gets.length = 0
+    const relisted = await c.list()
+    assert.ok(gets.includes('notes/a.json'), 'the body read during recovery is not reused')
+    assert.equal(relisted.find((n) => n.meta.id === 'a').body, 'remote winner')
+  } finally {
+    globalThis.window = previousWindow
+  }
+})
+
+// Like runtime-integration.test.js, this optional integration uses an explicit
+// platform checkout, never a contributor-specific path or a live storage API.
+const FRONTEND = process.env.MOBIUS_FRONTEND || (
+  process.env.MOBIUS_FRONTEND_NODE_MODULES ? dirname(process.env.MOBIUS_FRONTEND_NODE_MODULES) : null
+)
+const RUNTIME = FRONTEND ? resolve(FRONTEND, 'public/mobius-runtime.js') : null
+const HARNESS = FRONTEND ? resolve(FRONTEND, 'src/lib/__tests__/mobiusRuntimeHarness.mjs') : null
+const HAVE_RUNTIME = !!(RUNTIME && HARNESS && existsSync(RUNTIME) && existsSync(HARNESS))
+
+test('runtime revalidation recovers a large stale listed body and preserves queued offline edits', {
+  skip: !HAVE_RUNTIME ? 'platform runtime not present' : false,
+}, async (t) => {
+  const globals = ['window', 'document', 'navigator', 'fetch', 'indexedDB']
+    .map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
+  let storage
+  t.after(() => {
+    storage?._destroy()
+    for (const [key, descriptor] of globals) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+      else delete globalThis[key]
+    }
+  })
+  const { freshEnv, waitFor } = await import(HARNESS)
+  const { makeStorage } = await import(RUNTIME)
+  const { server } = freshEnv()
+  const path = notePath('large')
+  const stale = note('large', 'old:' + 'x'.repeat(70 * 1024))
+  const fresh = note('large', 'new:' + 'x'.repeat(70 * 1024))
+  let modifiedAt = '2026-01-01T00:00:00Z'
+  // The platform harness inlines all JSON and omits stamps. Model the real
+  // backend's metadata and 64 KiB per-file cap at the HTTP boundary only;
+  // keep the real runtime's IndexedDB mirror, SWR and queued overlays intact.
+  globalThis.fetch = async (url, init) => {
+    const response = await server.fetch(url, init)
+    if (!url.includes('/apps-list/') || !response.ok) return response
+    const body = await response.json()
+    for (const entry of body.entries) {
+      const value = server.serverValue(entry.path)
+      entry.size = Buffer.byteLength(JSON.stringify(value))
+      entry.modified_at = modifiedAt
+      if (entry.size > 64 * 1024) delete entry.content
+    }
+    return { ...response, json: async () => body }
+  }
+  const payload = Buffer.from(JSON.stringify({ scope: 'app', app_id: '1', rev: '1' })).toString('base64url')
+  storage = makeStorage({ appId: '1', getToken: async () => `header.${payload}.signature` })
+  window.mobius = { storage, online: true }
+  const c = makeNoteCollection()
+  t.after(() => c.destroy())
+
+  server.seed(path, stale)
+  assert.equal((await storage.get(path)).body === stale.body, true, 'prime the old runtime mirror')
+  server.seed(path, fresh)
+  modifiedAt = '2026-01-02T00:00:00Z'
+  const listing = await storage.listWithStatus('notes', { includeContent: true })
+  assert.equal(listing.entries[0].modified_at, modifiedAt)
+  assert.ok(listing.entries[0].size > 64 * 1024)
+  assert.equal(Object.hasOwn(listing.entries[0], 'content'), false)
+  assert.equal((await c.list())[0].body === stale.body, true, 'the first GET is stale-while-revalidate')
+  await waitFor(async () => (await storage.get(path)).body === fresh.body)
+  assert.equal((await c.list())[0].body === fresh.body, true, 'unchanged listing metadata must not pin the stale body')
+
+  server.setOnline(false)
+  window.mobius.online = false
+  const { result } = await c.update('large', () => note('large', 'queued locally'))
+  assert.equal(result.durability, 'queued')
+  assert.equal(server.serverValue(path).body === fresh.body, true, 'queued is not server-confirmed')
+  assert.equal((await c.list())[0].body, 'queued locally', 'offline listing overlays the queued write')
+  await c.remove('large')
+  assert.deepEqual(await c.list(), [], 'offline listing hides the queued delete')
+  assert.equal(server.serverHas(path), true)
+})
+
+test('metadata-only fallback reads stay bounded and retain every note', async () => {
+  const h = makeMockStorage()
+  for (let i = 0; i < 19; i++) h.seed(notePath(`batch-${i}`), note(`batch-${i}`, `body-${i}`))
+  let active = 0
+  let peak = 0
+  const read = h.storage.get
+  h.storage.get = async (path) => {
+    active++
+    peak = Math.max(peak, active)
+    try {
+      await new Promise((resolve) => setImmediate(resolve))
+      return await read(path)
+    } finally { active-- }
+  }
+  await withWindow(h, async () => {
+    const listed = await makeNoteCollection().list()
+    assert.equal(listed.length, 19)
+    assert.equal(new Set(listed.map((n) => n.meta.id)).size, 19)
+    assert.ok(peak > 1, 'independent reads do not form a serial waterfall')
+    assert.ok(peak <= 8, 'fallback concurrency is bounded')
+  })
+})
+
+test('a failed fallback body read preserves the prior view rather than returning a subset', async () => {
+  const h = makeMockStorage()
+  h.seed(notePath('good'), note('good', 'available'))
+  h.seed(notePath('unreadable'), note('unreadable', 'temporarily unavailable'))
+  h.storage.listWithStatus = async () => ({
+    complete: true,
+    entries: [
+      { type: 'file', name: 'good.json', path: notePath('good'), content: note('good', 'available') },
+      { type: 'file', name: 'unreadable.json', path: notePath('unreadable'), content: null },
+    ],
+  })
+  h.storage.get = async (path) => {
+    if (path === notePath('good')) return note('good', 'available')
+    throw new Error('read failed')
+  }
+  await withWindow(h, async () => {
+    assert.equal(await makeNoteCollection().list(), null)
+  })
+})
+
+for (const writer of ['collection', 'editor runtime']) {
+  for (const action of ['pin', 'color']) {
+    test(`a held listing cannot undo a completed ${writer} write on the next ${action}`, {
+      skip: !HAVE_RUNTIME ? 'platform runtime not present' : false,
+    }, async (t) => {
+      const globals = ['window', 'document', 'navigator', 'fetch', 'indexedDB']
+        .map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
+      let storage, collection, releaseListing
+      t.after(() => {
+        releaseListing?.()
+        collection?.destroy()
+        storage?._destroy()
+        for (const [key, descriptor] of globals) {
+          if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+          else delete globalThis[key]
+        }
+      })
+      const { freshEnv } = await import(HARNESS)
+      const { makeStorage } = await import(RUNTIME)
+      const { server } = freshEnv()
+      const payload = Buffer.from(JSON.stringify({ scope: 'app', app_id: '1', rev: '1' })).toString('base64url')
+      storage = makeStorage({ appId: '1', getToken: async () => `header.${payload}.signature` })
+      window.mobius = { storage, online: true, runtimeFeatures: { authoritativeVersionedReads: true } }
+      collection = makeNoteCollection()
+      const path = notePath('race')
+      server.seed(path, note('race', 'old body'))
+      await storage.get(path)
+
+      let listingStarted
+      const started = new Promise((resolve) => { listingStarted = resolve })
+      const held = new Promise((resolve) => { releaseListing = resolve })
+      globalThis.fetch = async (url, init) => {
+        const response = await server.fetch(url, init)
+        if (!url.includes('/apps-list/') || !response.ok) return response
+        // Capture the server's old response before allowing the writer to run.
+        // Only the HTTP response is held; runtime locks/outbox/mirror are real.
+        const snapshot = structuredClone(await response.json())
+        listingStarted()
+        await held
+        return { ...response, json: async () => snapshot }
+      }
+      const pendingList = collection.list()
+      await started
+      let saved
+      if (writer === 'collection') {
+        saved = (await collection.update('race', () => note('race', 'completed edit'))).result
+      } else {
+        // The editor writes through the runtime, not this collection instance.
+        const { version } = await storage.getWithVersion(path)
+        saved = await storage.durableWrite(path, note('race', 'completed edit'), { kind: 'json', ifMatch: version })
+      }
+      assert.equal(saved.durability, 'synced')
+      assert.equal(await storage.pendingCount(), 0, 'the completed write has left the outbox')
+      assert.equal(server.serverValue(path).body, 'completed edit')
+      releaseListing()
+      const [listed] = await pendingList
+      assert.equal((await storage.get(path)).body, 'completed edit', 'the late response did not replace the runtime mirror')
+
+      // Pin/color persist the grid record's full body, as App.persist does.
+      // A fresh CAS version alone cannot protect an already-stale grid body.
+      const meta = { ...listed.meta, ...(action === 'pin' ? { pinned: true } : { color: 'blue' }) }
+      const { result } = await collection.update('race', () => ({ meta, body: listed.body }))
+      assert.equal(result.durability, 'synced')
+      assert.equal(server.serverValue(path).body, 'completed edit', 'a metadata action must not overwrite the completed body edit')
+      assert.equal(listed.body, 'completed edit', 'the delayed list must read the current runtime body')
+      assert.equal(server.serverValue(path).meta[action === 'pin' ? 'pinned' : 'color'], action === 'pin' ? true : 'blue')
+    })
+  }
+}
