@@ -542,16 +542,16 @@ test('a metadata-only re-list reads runtime bodies even when listing stamps are 
   }
 })
 
-test('list uses bodies inlined by an includeContent listing without per-note reads', async () => {
+test('list reads through the runtime instead of trusting possibly stale inline bodies', async () => {
   const previousWindow = globalThis.window
-  const bodies = new Map([['notes/a.json', note('a', 'inline')], ['notes/big.json', note('big', 'large')]])
+  const bodies = new Map([['notes/a.json', note('a', 'current runtime body')], ['notes/big.json', note('big', 'large')]])
   const gets = []
   globalThis.window = stampedListingWindow({
     bodies, gets,
     entries: (options) => {
-      assert.equal(options?.includeContent, true)
+      assert.equal(options?.includeContent, undefined, 'do not request unverified inline bodies')
       return [
-        { type: 'file', name: 'a.json', path: 'notes/a.json', content: bodies.get('notes/a.json') },
+        { type: 'file', name: 'a.json', path: 'notes/a.json', content: note('a', 'stale inline body') },
         // Bodies over the server's inline cap arrive without `content`.
         { type: 'file', name: 'big.json', path: 'notes/big.json' },
       ]
@@ -559,8 +559,8 @@ test('list uses bodies inlined by an includeContent listing without per-note rea
   })
   try {
     const listed = await makeNoteCollection().list()
-    assert.deepEqual(listed.map((n) => n.body).sort(), ['inline', 'large'])
-    assert.deepEqual(gets, ['notes/big.json'])
+    assert.deepEqual(listed.map((n) => n.body).sort(), ['current runtime body', 'large'])
+    assert.deepEqual(gets, ['notes/a.json', 'notes/big.json'])
   } finally {
     globalThis.window = previousWindow
   }
@@ -789,8 +789,81 @@ test('a failed fallback body read preserves the prior view rather than returning
       { type: 'file', name: 'unreadable.json', path: notePath('unreadable'), content: null },
     ],
   })
-  h.storage.get = async () => { throw new Error('read failed') }
+  h.storage.get = async (path) => {
+    if (path === notePath('good')) return note('good', 'available')
+    throw new Error('read failed')
+  }
   await withWindow(h, async () => {
     assert.equal(await makeNoteCollection().list(), null)
   })
 })
+
+for (const writer of ['collection', 'editor runtime']) {
+  for (const action of ['pin', 'color']) {
+    test(`a held listing cannot undo a completed ${writer} write on the next ${action}`, {
+      skip: !HAVE_RUNTIME ? 'platform runtime not present' : false,
+    }, async (t) => {
+      const globals = ['window', 'document', 'navigator', 'fetch', 'indexedDB']
+        .map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
+      let storage, collection, releaseListing
+      t.after(() => {
+        releaseListing?.()
+        collection?.destroy()
+        storage?._destroy()
+        for (const [key, descriptor] of globals) {
+          if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+          else delete globalThis[key]
+        }
+      })
+      const { freshEnv } = await import(HARNESS)
+      const { makeStorage } = await import(RUNTIME)
+      const { server } = freshEnv()
+      const payload = Buffer.from(JSON.stringify({ scope: 'app', app_id: '1', rev: '1' })).toString('base64url')
+      storage = makeStorage({ appId: '1', getToken: async () => `header.${payload}.signature` })
+      window.mobius = { storage, online: true, runtimeFeatures: { authoritativeVersionedReads: true } }
+      collection = makeNoteCollection()
+      const path = notePath('race')
+      server.seed(path, note('race', 'old body'))
+      await storage.get(path)
+
+      let listingStarted
+      const started = new Promise((resolve) => { listingStarted = resolve })
+      const held = new Promise((resolve) => { releaseListing = resolve })
+      globalThis.fetch = async (url, init) => {
+        const response = await server.fetch(url, init)
+        if (!url.includes('/apps-list/') || !response.ok) return response
+        // Capture the server's old response before allowing the writer to run.
+        // Only the HTTP response is held; runtime locks/outbox/mirror are real.
+        const snapshot = structuredClone(await response.json())
+        listingStarted()
+        await held
+        return { ...response, json: async () => snapshot }
+      }
+      const pendingList = collection.list()
+      await started
+      let saved
+      if (writer === 'collection') {
+        saved = (await collection.update('race', () => note('race', 'completed edit'))).result
+      } else {
+        // The editor writes through the runtime, not this collection instance.
+        const { version } = await storage.getWithVersion(path)
+        saved = await storage.durableWrite(path, note('race', 'completed edit'), { kind: 'json', ifMatch: version })
+      }
+      assert.equal(saved.durability, 'synced')
+      assert.equal(await storage.pendingCount(), 0, 'the completed write has left the outbox')
+      assert.equal(server.serverValue(path).body, 'completed edit')
+      releaseListing()
+      const [listed] = await pendingList
+      assert.equal((await storage.get(path)).body, 'completed edit', 'the late response did not replace the runtime mirror')
+
+      // Pin/color persist the grid record's full body, as App.persist does.
+      // A fresh CAS version alone cannot protect an already-stale grid body.
+      const meta = { ...listed.meta, ...(action === 'pin' ? { pinned: true } : { color: 'blue' }) }
+      const { result } = await collection.update('race', () => ({ meta, body: listed.body }))
+      assert.equal(result.durability, 'synced')
+      assert.equal(server.serverValue(path).body, 'completed edit', 'a metadata action must not overwrite the completed body edit')
+      assert.equal(listed.body, 'completed edit', 'the delayed list must read the current runtime body')
+      assert.equal(server.serverValue(path).meta[action === 'pin' ? 'pinned' : 'color'], action === 'pin' ? true : 'blue')
+    })
+  }
+}

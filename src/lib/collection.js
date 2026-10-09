@@ -19,23 +19,15 @@ import { notePath, legacyPath } from './note-doc.js'
 const S = () => window.mobius.storage
 const READ_BATCH_SIZE = 8
 
-// Prefer bodies inlined by the runtime, including its queued-write overlay.
-// Otherwise read through the runtime on every list: get() may return a stale
-// mirror while revalidating, so its body cannot be tied to the listing's stamp.
-// Small GET batches bound fallback concurrency for very large notebooks.
+// Read bodies through the runtime so a completed local write from either writer
+// wins over an older in-flight directory response. Inline listing content is
+// not guaranteed to reflect such writes, even when the runtime mirror does.
+// Small batches bound concurrency without adding another app-owned cache.
 async function readJsonDocuments(entries) {
   const files = (entries || []).filter((e) => e.type === 'file' && e.name.endsWith('.json'))
   const records = []
-  const toFetch = []
-  for (const entry of files) {
-    if (Object.prototype.hasOwnProperty.call(entry, 'content') && entry.content != null) {
-      records.push({ path: entry.path, doc: entry.content })
-    } else {
-      toFetch.push(entry)
-    }
-  }
-  for (let i = 0; i < toFetch.length; i += READ_BATCH_SIZE) {
-    const batch = toFetch.slice(i, i + READ_BATCH_SIZE)
+  for (let i = 0; i < files.length; i += READ_BATCH_SIZE) {
+    const batch = files.slice(i, i + READ_BATCH_SIZE)
     const resolved = await Promise.all(batch.map(async (entry) => {
       try { return { path: entry.path, doc: await S().get(entry.path) } }
       catch { return { path: entry.path, doc: null } }
@@ -220,7 +212,7 @@ export function makeNoteCollection() {
     let listing
     try {
       listing = typeof S().listWithStatus === 'function'
-        ? await S().listWithStatus('notes', { includeContent: true })
+        ? await S().listWithStatus('notes')
         : { entries: await S().list('notes'), complete: window.mobius?.online !== false }
     } catch { return null }
     if (!listing || listing.complete !== true) return null
